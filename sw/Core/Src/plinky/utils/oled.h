@@ -41,7 +41,7 @@ void oled_init(void);
 #define SSD1306_INVERTDISPLAY 0xA7
 #define SSD1306_SETLOWCOLUMN 0x00
 #define SSD1306_SETHIGHCOLUMN 0x10
-#include "logo.h"
+#include "defs/logo.h"
 
 const static unsigned char oled_i2caddr = 0x3c << 1;
 

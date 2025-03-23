@@ -30,7 +30,7 @@ static inline u8* getvram(void) { return vrambuf + 1; }
 ///////////////////////////////////////////////
 
 #ifdef IMPL
-#include "fontdata.h"
+#include "defs/fontdata.h"
 
 u8 vrambuf[H / 8 * W + 1];
 
@@ -191,7 +191,7 @@ void halfrectangle(int x1, int y1, int x2, int y2) {
 	}
 }
 
-#include "icons.h"
+#include "defs/icons.h"
 
 int drawicon(int x, int y, unsigned char c, int textcol) {
 	if (x<=-16 || x>=128 || y<=-16 || y>=32 || c>=numicons)

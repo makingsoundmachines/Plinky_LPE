@@ -2,6 +2,7 @@
 
 
 #include "wtenum.h"
+#include "icons.h"
 
 enum ECats {
 	CAT_BLANK,
