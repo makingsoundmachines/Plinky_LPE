@@ -1,5 +1,6 @@
 #include "gfx/data/names.h"
 #include "gfx/gfx.h"
+#include "hardware/accelerometer.h"
 #include "hardware/encoder.h"
 #include "synth/arp.h"
 #include "synth/lfos.h"
@@ -1094,8 +1095,8 @@ void plinky_frame(void) {
 	else {
 		edit_mode_ui();
 	}
-	// rj: this used to be called at every oled_flip(), putting it back here
-	update_accelerometer_raw();
+	// reading the accelerometer needs to live in the main thread because it involves (blocking) I2C communication
+	accel_read();
 	audiohistpos = (audiohistpos + 1) & 31;
 	PumpFlashWrites();
 }

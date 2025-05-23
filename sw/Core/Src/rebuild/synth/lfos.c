@@ -1,14 +1,12 @@
 #include "lfos.h"
 #include "data/tables.h"
+#include "hardware/accelerometer.h"
 #include "hardware/adc_dac.h"
 #include "params.h"
 #include "time.h"
 
 // cleanup
 extern Preset rampreset;
-extern int16_t accel_raw[3];
-extern float accel_lpf[2];
-extern float accel_smooth[2];
 extern u16 expander_out[4];
 // -- cleanup
 
@@ -142,7 +140,7 @@ void update_lfos(void) {
 		                      // knob A and B
 		                      ? adc_get_smooth(ADC_S_A_KNOB + lfo_id)
 		                      // accel X and Y
-		                      : accel_smooth[lfo_id - 2] - accel_lpf[lfo_id - 2])
+		                      : accel_get_axis(lfo_id - 2))
 		                 // scale to 16fp
 		                 * 65536.f);
 		// offset from offset param

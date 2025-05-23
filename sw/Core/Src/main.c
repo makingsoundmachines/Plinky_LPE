@@ -24,6 +24,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #define FLASH_LATENCY_5 FLASH_LATENCY_4 // WOOHAHAHAHAH
+#include "hardware/accelerometer.h"
 #include "hardware/touchstrips.h"
 #include "plinky/core.h"
 #include "rebuild/hardware/encoder.h"
@@ -77,25 +78,6 @@ DMA_HandleTypeDef hdma_usart3_rx;
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
-// https://github.com/STMicroelectronics/STMems_Standard_C_drivers/blob/master/lis2dh12_STdC/example/lis2dh12_read_data_polling.c
-#include "lis2dh12_reg.h"
-#define SENSOR_BUS hi2c2
-
-static int32_t platform_write(void* handle, uint8_t reg, uint8_t* bufp, uint16_t len) {
-	/* Write multiple command */
-	reg |= 0x80;
-	HAL_I2C_Mem_Write(handle, LIS2DH12_I2C_ADD_L, reg, I2C_MEMADD_SIZE_8BIT, bufp, len, I2C_TIMEOUT);
-	return 0;
-}
-
-static int32_t platform_read(void* handle, uint8_t reg, uint8_t* bufp, uint16_t len) {
-	/* Read multiple command */
-	reg |= 0x80;
-	HAL_I2C_Mem_Read(handle, LIS2DH12_I2C_ADD_L, reg, I2C_MEMADD_SIZE_8BIT, bufp, len, I2C_TIMEOUT);
-	return 0;
-}
-
-stmdev_ctx_t accelerometer = {.write_reg = platform_write, .read_reg = platform_read, .handle = &SENSOR_BUS};
 
 /* USER CODE END PV */
 
@@ -122,25 +104,6 @@ static void MX_USB_OTG_FS_PCD_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
-int16_t accel_raw[3];
-float accel_lpf[2];
-float accel_smooth[2];
-bool update_accelerometer_raw(void) {
-	if (!accelerometer.handle)
-		return false;
-	lis2dh12_reg_t reg;
-	lis2dh12_xl_data_ready_get(&accelerometer, &reg.byte);
-	if (!reg.byte)
-		return false;
-	/* Read accelerometer data */
-	int16_t tmp[3] = {0, 0, 0};
-	lis2dh12_acceleration_raw_get(&accelerometer, tmp);
-	accel_raw[0] = tmp[0];
-	accel_raw[1] = tmp[1];
-	accel_raw[2] = tmp[2];
-	return true;
-}
 
 int miditest(void);
 void usb_midi_init(void);
@@ -191,27 +154,6 @@ int main(void) {
 	MX_USB_OTG_FS_PCD_Init();
 	/* USER CODE BEGIN 2 */
 	// check if the bootloader wants us to flash
-
-	HAL_Delay(8);
-	uint8_t whoamI = 0;
-	lis2dh12_device_id_get(&accelerometer, &whoamI);
-	if (whoamI != LIS2DH12_ID) {
-		accelerometer.handle = 0;
-	}
-	else {
-		lis2dh12_block_data_update_set(&accelerometer, PROPERTY_ENABLE);
-		lis2dh12_data_rate_set(&accelerometer, LIS2DH12_ODR_100Hz);
-		lis2dh12_full_scale_set(&accelerometer, LIS2DH12_2g);
-		lis2dh12_temperature_meas_set(&accelerometer, LIS2DH12_TEMP_DISABLE);
-		lis2dh12_operating_mode_set(&accelerometer, LIS2DH12_HR_12bit);
-		/* accel debug
-		      while (1) {
-		          update_accelerometer_raw();
-		          DebugLog("accel %5d %5d %5d\r\n",accel_raw[0], accel_raw[1], accel_raw[2]);
-		          HAL_Delay(100);
-		      }
-		      */
-	}
 
 	// check_bootloader_flash(); // used to be here, but now we do it in plinky_init
 

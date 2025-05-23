@@ -2,6 +2,7 @@
 #include "data/tables.h"
 #include "gfx/data/icons.h"
 #include "gfx/gfx.h"
+#include "hardware/accelerometer.h"
 #include "hardware/adc_dac.h"
 #include "lfos.h"
 #include "sequencer.h"
@@ -12,9 +13,6 @@
 #include "ui/ui.h"
 
 // cleanup
-extern int16_t accel_raw[3];
-extern float accel_lpf[2];
-extern float accel_smooth[2];
 extern Preset rampreset;
 extern PatternQuarter rampattern[NUM_QUARTERS];
 extern u32 ramtime[GEN_LAST];
@@ -176,28 +174,7 @@ void params_tick(void) {
 	if (string_touch_start)
 		sample_hold_global += 4813;
 
-	// accelerometer(clean up later)
-	s16 accel_sens = clampi(param_val(P_ACCEL_SENS) / 2, -32767, 32767);
-	static u16 accel_counter;
-	float accel_sens_f = (2.f / 16384.f / 32768.f) * abs(accel_sens);
-	// run 2 plinkys have the accelerometer rotated 90 degrees and upside touching from the addon, detect it via z
-	// direction
-	bool axis_swap = accel_raw[2] > 4000;
-	for (u8 axis_id = 0; axis_id < 2; ++axis_id) {
-		float f = accel_raw[axis_id ^ axis_swap] * accel_sens_f;
-		if (!axis_id) {
-			if (!axis_swap)
-				f = -f; // reverse x
-		}
-		else if (accel_sens < 0)
-			f = -f; // reverse y if accel sens negative
-		accel_lpf[axis_id] += (f - accel_lpf[axis_id]) * 0.0001f;
-		accel_smooth[axis_id] += (f - accel_smooth[axis_id]) * 0.1f;
-		if (accel_counter < 1000) {
-			accel_lpf[axis_id] = accel_smooth[axis_id] = f;
-			accel_counter++;
-		}
-	}
+	accel_tick();
 
 	adc_update_inputs();
 

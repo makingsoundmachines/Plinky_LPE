@@ -50,6 +50,7 @@ extern TIM_HandleTypeDef htim5;
 #include "defs/enums.h"
 #include "defs/lfo.h"
 #include "gfx/gfx.h"
+#include "hardware/accelerometer.h"
 #include "hardware/adc_dac.h"
 #include "hardware/leds.h"
 #include "hardware/midi.h"
@@ -973,7 +974,6 @@ void check_bootloader_flash(void) {
 		DebugLog("\r\n" msg "\r\n", __VA_ARGS__);                                                                      \
 	} while (0)
 
-bool update_accelerometer_raw(void); // this used to be defined in oled.h
 void test_jig(void) {
 	// pogo pin layout:
 	// GND DEBUG = GND / PA8 - 67
@@ -1288,6 +1288,7 @@ void EMSCRIPTEN_KEEPALIVE wasm_setcurpreset(int i) {
 #endif
 
 void EMSCRIPTEN_KEEPALIVE plinky_init(void) {
+	accel_init();
 	denormals_init();
 	reset_touches();
 	tc_init();

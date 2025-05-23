@@ -33,6 +33,7 @@ MAP = $(BUILD_DIR)/plinkyblack.map
 # Source files
 SRCS = \
 	../Core/Src/rebuild/data/tables.c \
+	../Core/Src/rebuild/hardware/accelerometer.c \
 	../Core/Src/rebuild/hardware/adc_dac.c \
 	../Core/Src/rebuild/hardware/cv.c \
 	../Core/Src/rebuild/hardware/encoder.c \
