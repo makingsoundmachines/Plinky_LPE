@@ -50,19 +50,17 @@ int flash_readcalib(void) {
 
 bool flash_writecalib(int which) {
 	HAL_FLASH_Unlock();
-	int rv = flash_erase_page(calib_sector);
-	if (rv == 0) {
-		uint64_t* flash = (uint64_t*)(FLASH_ADDR_256 + calib_sector * 2048);
-		HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, (uint32_t)(size_t)flash, MAGIC);
-		uint64_t* d = flash + 1;
-		if (which & 1)
-			flash_program_block(d, calibresults, sizeof(calibresults));
-		d += (sizeof(calibresults) + 7) / 8;
-		if (which & 2)
-			flash_program_block(d, adc_dac_calib, sizeof(adc_dac_calib));
-		d += (sizeof(adc_dac_calib) + 7) / 8;
-		HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, (uint32_t)(size_t)(flash + 255), ~MAGIC);
-	}
+	flash_erase_page(calib_sector);
+	uint64_t* flash = (uint64_t*)(FLASH_ADDR_256 + calib_sector * 2048);
+	HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, (uint32_t)(size_t)flash, MAGIC);
+	uint64_t* d = flash + 1;
+	if (which & 1)
+		flash_write_block(d, calibresults, sizeof(calibresults));
+	d += (sizeof(calibresults) + 7) / 8;
+	if (which & 2)
+		flash_write_block(d, adc_dac_calib, sizeof(adc_dac_calib));
+	d += (sizeof(adc_dac_calib) + 7) / 8;
+	HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, (uint32_t)(size_t)(flash + 255), ~MAGIC);
 	HAL_FLASH_Lock();
 	return 0;
 }

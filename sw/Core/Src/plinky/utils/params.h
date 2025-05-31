@@ -1,45 +1,30 @@
 #include "data/tables.h"
 #include "hardware/cv.h"
+#include "hardware/flash.h"
 #include "synth/lfos.h"
 #include "synth/params.h"
 #include "synth/pattern.h"
 #include "synth/pitch_tools.h"
 #include "synth/sampler.h"
 #include "synth/sequencer.h"
+#include "ui/ui.h"
 
 // clang-format off
 #define QUARTER (PARAM_SIZE/4)
 #define EIGHTH (PARAM_SIZE/8)
 #define QUANT(v,maxi) ( ((v)*PARAM_SIZE+PARAM_SIZE/2)/(maxi) )
 
-#define FIRST_PRESET_IDX 0
-#define LAST_PRESET_IDX 32
-#define FIRST_PATTERN_IDX LAST_PRESET_IDX
-#define LAST_PATTERN_IDX 128 // 24 patterns x 4 quarters = 96 pages starting from page 32
-#define FIRST_SAMPLE_IDX LAST_PATTERN_IDX
-#define LAST_SAMPLE_IDX 136
-#define LAST_IDX LAST_SAMPLE_IDX
-#define OPS_IDX 0xfe
-typedef struct PageFooter {
-	u8 idx; // preset 0-31, pattern (quarters!) 32-127, sample 128-136, blank=0xff
-	u8 version;
-	u16 crc;
-	u32 seq;
-} PageFooter;
 enum {
 	SYS_DEPRACATED_ARPON=1,
 	SYS_DEPRACATED_LATCHON=2,
 };
-// preset version 1: ??
-// preset version 2: add SAW lfo shape
-#define CUR_PRESET_VERSION 2
+
 Preset rampreset;
 PatternQuarter rampattern[NUM_QUARTERS];
-SysParams sysparams;
+SysParams sys_params;
 u8 ramsample1_idx=255;
 u8 rampreset_idx=255;
 u8 rampattern_idx=255;
-u8 updating_bank2 = 0;
 u8 pending_preset = 255;
 u8 pending_pattern = 255;
 u8 pending_sample1 = 255;
@@ -60,65 +45,8 @@ float knobbase[2];
 u32 flashtime[GEN_LAST]; // for each thing we care about, what have we written to?
 u32 ramtime[GEN_LAST]; //...and what has the UI set up? 
 
-typedef struct FlashPage {
-	union {
-		u8 raw[2048 - sizeof(SysParams) - sizeof(PageFooter)];
-		Preset preset;
-		PatternQuarter patternquarter;
-		SampleInfo sampleinfo;
-	};
-	SysParams sysparams;
-	PageFooter footer;
-} FlashPage;
-static_assert(sizeof(FlashPage) == 2048, "?");
-u8 latestpagesidx[LAST_IDX];
-u8 backuppagesidx[LAST_PRESET_IDX];
-SysParams sysparams;
-static inline FlashPage* GetFlashPagePtr(u8 page) { return (FlashPage*)(FLASH_ADDR_256 + page * 2048); }
-
+SysParams sys_params;
 Preset const init_params;
-
-static inline Preset* GetSavedPreset(u8 presetidx) {
-#ifdef HALF_FLASH
-	return (Preset*)&init_params;
-#endif
-	if (presetidx >= 32)
-		return (Preset*)&init_params;
-	FlashPage*fp=GetFlashPagePtr(latestpagesidx[presetidx]);
-	if (fp->footer.idx!=presetidx || fp->footer.version!=2)
-		return (Preset*)&init_params;
-	return (Preset * )fp;
-}
-static inline PatternQuarter* GetSavedPatternQuarter(u8 patternq) {
-#ifdef HALF_FLASH
-	return (PatternQuarter*)zero;
-#endif
-	if (patternq >= 24*4)
-		return (PatternQuarter*)zero;
-	FlashPage* fp = GetFlashPagePtr(latestpagesidx[patternq + FIRST_PATTERN_IDX]);
-	if (fp->footer.idx != patternq+ FIRST_PATTERN_IDX || fp->footer.version != 2)
-		return (PatternQuarter*)zero;
-	return (PatternQuarter*)fp;
-}
-SampleInfo* GetSavedSampleInfo(u8 sample0) {
-#ifdef HALF_FLASH
-	return (SampleInfo*)zero;
-#endif
-	if (sample0 >= 8)
-		return (SampleInfo*)zero;
-	FlashPage* fp = GetFlashPagePtr(latestpagesidx[sample0 + FIRST_SAMPLE_IDX]);
-	if (fp->footer.idx != sample0 + FIRST_SAMPLE_IDX || fp->footer.version != 2)
-		return (SampleInfo*)zero;
-	return (SampleInfo*)fp;
-}
-
-u16 computehash(const void* data, int nbytes) {
-	u16 hash = 123;
-	const u8* src = (const u8 * )data;
-	for (int i=0;i<nbytes;++i)
-		hash = hash* 23 + *src++;
-	return hash;
-}
 
 const static bool IsGenDirty(int gen) {
 	return ramtime[gen] != flashtime[gen];
@@ -131,10 +59,10 @@ void SwapParams(int a, int b) {
 	}
 }
 bool CopyPresetToRam(bool force) {
-	if (rampreset_idx == sysparams.curpreset && !force)
+	if (rampreset_idx == sys_params.curpreset && !force)
 		return true; // nothing to do
-	if (updating_bank2 || IsGenDirty(GEN_PRESET)) return false; // not copied yet
-	memcpy(&rampreset, GetSavedPreset(sysparams.curpreset), sizeof(rampreset));
+	if (flash_busy || IsGenDirty(GEN_PRESET)) return false; // not copied yet
+	memcpy(&rampreset, preset_flash_ptr(sys_params.curpreset), sizeof(rampreset));
 	for (int m = 1; m < NUM_MOD_SOURCES; ++m)
 		rampreset.params[P_VOLUME][m] = 0;
 	// upgrade rampreset.version to CUR_PRESET_VERSION
@@ -154,76 +82,33 @@ bool CopyPresetToRam(bool force) {
 				*data += (1 * PARAM_SIZE) / NUM_LFO_SHAPES;
 		}
 	}
-	rampreset_idx = sysparams.curpreset;
+	rampreset_idx = sys_params.curpreset;
 	return true;
 }
 bool CopySampleToRam(bool force) {
 	if (ramsample1_idx == cur_sample_id1 && !force)
 		return true; // nothing to do
-	if (updating_bank2 || IsGenDirty(GEN_SAMPLE)) return false; // not copied yet
+	if (flash_busy || IsGenDirty(GEN_SAMPLE)) return false; // not copied yet
 	if (cur_sample_id1 == 0)
 		memset(get_sample_info(), 0, sizeof(SampleInfo));
 	else
-		memcpy(get_sample_info(), GetSavedSampleInfo(cur_sample_id1 - 1), sizeof(SampleInfo));
+		memcpy(get_sample_info(), sample_info_flash_ptr(cur_sample_id1 - 1), sizeof(SampleInfo));
 	ramsample1_idx = cur_sample_id1;
 	return true;
 }
 bool CopyPatternToRam(bool force) {
 	if (rampattern_idx == cur_pattern && !force)
 		return true; // nothing to do
-	if (updating_bank2 || IsGenDirty(GEN_PAT0) || IsGenDirty(GEN_PAT1) || IsGenDirty(GEN_PAT2) || IsGenDirty(GEN_PAT3)) 
+	if (flash_busy || IsGenDirty(GEN_PAT0) || IsGenDirty(GEN_PAT1) || IsGenDirty(GEN_PAT2) || IsGenDirty(GEN_PAT3)) 
 		return false; // not copied yet
 	for (int i = 0; i < 4; ++i)
-		memcpy(&rampattern[i], GetSavedPatternQuarter((cur_pattern) * 4 + i), sizeof(rampattern[0]));
+		memcpy(&rampattern[i], ptr_quarter_flash_ptr((cur_pattern) * 4 + i), sizeof(rampattern[0]));
 	rampattern_idx = cur_pattern;
 	return true;
 }
 
 
-u8 next_free_page=0;
-static u32 next_seq = 0;
 void InitParamsOnBoot(void) {
-	u8 dummypage = 0;
-	memset(latestpagesidx, dummypage, sizeof(latestpagesidx));
-	memset(backuppagesidx, dummypage, sizeof(backuppagesidx));
-	u32 highest_seq = 0;
-	next_free_page = 0;
-	memset(&sysparams, 0, sizeof(sysparams));
-#ifndef HALF_FLASH
-	// scan for the latest page for each object
-	for (int page = 0 ; page < 255; ++page) {
-		FlashPage* p = GetFlashPagePtr(page);
-		int i = p->footer.idx;
-		if (i >= LAST_IDX)
-			continue;// skip blank
-		if (p->footer.version < 2)
-			continue; // skip old
-		u16 check = computehash(p, 2040);
-		if (check != p->footer.crc) {
-			DebugLog("flash page %d has a bad crc!\r\n", page);
-			if (page == dummypage) {
-				// shit, the dummy page is dead! move to a different dummy
-				for (int i = 0; i < sizeof(latestpagesidx); ++i) if (latestpagesidx[i] == dummypage)
-					latestpagesidx[i]++;
-				for (int i = 0; i < sizeof(backuppagesidx); ++i) if (backuppagesidx[i] == dummypage)
-					backuppagesidx[i]++;
-				dummypage++;
-			}
-			continue;
-		}
-		if (p->footer.seq > highest_seq) {
-			highest_seq = p->footer.seq;
-			next_free_page = page + 1;
-			sysparams = p->sysparams;
-		}
-		FlashPage* existing = GetFlashPagePtr(latestpagesidx[i]);
-		if (existing->footer.idx!=i  || p->footer.seq > existing->footer.seq || existing->footer.version<2)
-			latestpagesidx[i] = page;
-	}
-#endif
-	next_seq = highest_seq + 1;
-	memcpy(backuppagesidx, latestpagesidx, sizeof(backuppagesidx));
-	
 	// clear remaining state
 	pending_preset = -1;
 	pending_pattern = -1;
@@ -237,60 +122,20 @@ void InitParamsOnBoot(void) {
 		ramtime[i] = 0;
 		flashtime[i] = 0;
 	}
-	codec_setheadphonevol(sysparams.headphonevol + 45);
-	selected_preset_global = sysparams.curpreset;
+	codec_setheadphonevol(sys_params.headphonevol + 45);
+	selected_preset_global = sys_params.curpreset;
 }
 
 int getheadphonevol(void) { // for emu really
-	return sysparams.headphonevol + 45;
-}
-
-u8 AllocAndEraseFlashPage(void) {
-#ifdef HALF_FLASH
-	return 255;
-#endif
-	while (1) {
-		FlashPage* p = GetFlashPagePtr(next_free_page);
-		bool inuse = next_free_page == 255;
-		inuse |= (p->footer.idx < LAST_IDX&& latestpagesidx[p->footer.idx] == next_free_page);
-		inuse |= (p->footer.idx < LAST_PRESET_IDX&& backuppagesidx[p->footer.idx] == next_free_page);
-		if (inuse) {
-			++next_free_page;
-			continue;
-		}
-		DebugLog("erasing flash page %d\r\n", next_free_page);
-		flash_erase_page(next_free_page);
-		return next_free_page++;
-	}
-}
-
-
-void ProgramPage(void* datasrc, u32 datasize, u8 index) {
-#ifndef HALF_FLASH
-	updating_bank2 = 1;
-	HAL_FLASH_Unlock();
-	u8 page = AllocAndEraseFlashPage();
-	u8* dst = (u8*)(FLASH_ADDR_256 + page * 2048);
-	flash_program_block(dst, datasrc, datasize);
-	flash_program_block(dst + 2048 - sizeof(SysParams) - sizeof(PageFooter), &sysparams, sizeof(SysParams));
-	PageFooter f;
-	f.idx = index;
-	f.seq = next_seq++;
-	f.version = 2;
-	f.crc = computehash(dst, 2040);
-	flash_program_block(dst + 2040, &f, 8);
-	HAL_FLASH_Lock();
-	latestpagesidx[index] = page;
-	updating_bank2 = 0;
-#endif
+	return sys_params.headphonevol + 45;
 }
 
 void SetPreset(u8 preset, bool force) {
 	if (preset >= 32)
 		return;
-	if (preset == sysparams.curpreset && !force)
+	if (preset == sys_params.curpreset && !force)
 		return;
-	sysparams.curpreset = preset;
+	sys_params.curpreset = preset;
 	clear_latch();
 	CopyPresetToRam(force);
 	ramtime[GEN_SYS]=millis();
@@ -309,7 +154,7 @@ void SetPattern(u8 pattern, bool force) {
 bool NeedWrite(int gen, u32 now) {
 	if (ramtime[gen] == flashtime[gen])
 		return false;
-	if (gen == GEN_PRESET && sysparams.curpreset != rampreset_idx) {
+	if (gen == GEN_PRESET && sys_params.curpreset != rampreset_idx) {
 		// the current preset is not equal to the ram preset, but the ram preset is dirty! WE GOTTA WRITE IT NOW!
 		return true;
 	}
@@ -334,7 +179,7 @@ void WritePattern(u32 now) {
 	for (int i = 0; i < 4; ++i) if (NeedWrite(GEN_PAT0 + i, now)) {
 		flashtime[GEN_SYS] = ramtime[GEN_SYS];
 		flashtime[GEN_PAT0 + i] = ramtime[GEN_PAT0 + i];
-		ProgramPage(&rampattern[i], sizeof(PatternQuarter), FIRST_PATTERN_IDX + (rampattern_idx) * 4 + i);
+		flash_write_page(&rampattern[i], sizeof(PatternQuarter), PATTERNS_START + (rampattern_idx) * 4 + i);
 	}
 #endif
 }
@@ -344,7 +189,7 @@ void WriteSample(u32 now) {
 		flashtime[GEN_SYS] = ramtime[GEN_SYS];
 		flashtime[GEN_SAMPLE] = ramtime[GEN_SAMPLE];
 		if (ramsample1_idx > 0)
-			ProgramPage(get_sample_info(), sizeof(SampleInfo), FIRST_SAMPLE_IDX + ramsample1_idx - 1);
+			flash_write_page(get_sample_info(), sizeof(SampleInfo), F_SAMPLES_START + ramsample1_idx - 1);
 	}
 }
 
@@ -353,7 +198,7 @@ void WritePreset(u32 now) {
 	if (NeedWrite(GEN_PRESET, now) || NeedWrite(GEN_SYS, now)) {
 		flashtime[GEN_SYS] = ramtime[GEN_SYS];
 		flashtime[GEN_PRESET] = ramtime[GEN_PRESET];
-		ProgramPage(&rampreset, sizeof(Preset), rampreset_idx);
+		flash_write_page(&rampreset, sizeof(Preset), rampreset_idx);
 	}
 #endif
 }
@@ -394,15 +239,13 @@ void PumpFlashWrites(void) {
 				if (copy_request == preset_copy_source) {
 					// toggle
 					WritePreset(now + 100000); // flush any writes
-					int t = backuppagesidx[preset_copy_source];
-					backuppagesidx[preset_copy_source] = latestpagesidx[preset_copy_source];
-					latestpagesidx[preset_copy_source] = t;
-					memcpy(&rampreset, GetSavedPreset(sysparams.curpreset), sizeof(rampreset));
+					flash_toggle_preset(preset_copy_source);
+					memcpy(&rampreset, preset_flash_ptr(sys_params.curpreset), sizeof(rampreset));
 
 				}
 				else {
 					// copy preset
-					ProgramPage(GetSavedPreset(preset_copy_source), sizeof(Preset), copy_request);
+					flash_write_page(preset_flash_ptr(preset_copy_source), sizeof(Preset), copy_request);
 				}
 #endif
 
@@ -411,23 +254,11 @@ void PumpFlashWrites(void) {
 			else if (copy_request < 64 - 8) {
 				int srcpat = pattern_copy_source;
 				int dstpat = copy_request - 32;
-				/*if (srcpat == dstpat) { toggle not available for patterns
-					// toggle
-					WritePattern(now + 100000); // flush any writes
-					for (int i = 0; i < 4; ++i) {
-						int j = srcpat * 4 + i + 32;
-						int t = backuppagesidx[j];
-						backuppagesidx[j] = latestpagesidx[j];
-						latestpagesidx[j] = t;
-						memcpy(&rampattern[i], GetSavedPatternQuarter(srcpat*4+i), sizeof(PatternQuarter));
-					}
-				}
-				else */
 				{
 #ifndef DISABLE_AUTOSAVE					
 					// copy pattern
 					for (int i = 0; i < 4; ++i)
-						ProgramPage(GetSavedPatternQuarter(srcpat * 4 + i), sizeof(PatternQuarter), 32 + dstpat * 4 + i);
+						flash_write_page(ptr_quarter_flash_ptr(srcpat * 4 + i), sizeof(PatternQuarter), 32 + dstpat * 4 + i);
 #endif
 				}
 				save_param(P_PATTERN, SRC_BASE, dstpat);
@@ -506,24 +337,14 @@ Preset const init_params = {
 				[P_SYNTH_LVL] = {HALF_PARAM_SIZE},
 				[P_MIX_WIDTH] = {(HALF_PARAM_SIZE * 7)/8},
 				[P_INPUT_WET_DRY] = {0},
-#ifdef EMU
-				[P_INPUT_LVL] = {0},
-#else
 				[P_INPUT_LVL] = {HALF_PARAM_SIZE},
-#endif
 				[P_SYNTH_WET_DRY] = {0},
 							
-#ifdef NEW_LAYOUT
 		[P_ATTACK2] = {EIGHTH},
 		[P_DECAY2] = {QUARTER},
 		[P_SUSTAIN2] = {PARAM_SIZE},
 		[P_RELEASE2] = {EIGHTH},
 		[P_SWING] = {0},
-#else
-				[P_ENV_RATE] = {QUARTER},
-				[P_ENV_REPEAT] = {0},
-				[P_ENV_WARP] = {-PARAM_SIZE},
-#endif
 				[P_ENV_LVL2] = {HALF_PARAM_SIZE},
 				[P_CV_QUANT] = {QUANT(CVQ_OFF,CVQ_LAST)},
 

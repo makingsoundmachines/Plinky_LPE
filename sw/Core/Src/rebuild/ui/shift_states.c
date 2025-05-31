@@ -10,7 +10,7 @@
 #include "ui.h"
 
 // all of these need cleaning up
-extern SysParams sysparams;       // system
+extern SysParams sys_params;      // system
 extern u32 ramtime[GEN_LAST];     // system
 extern u8 copy_request;           // system
 extern s8 selected_preset_global; // system
@@ -94,7 +94,7 @@ void shift_set_state(ShiftState new_state) {
 	case SS_LOAD:
 		// activate preset load screen
 		ui_mode = UI_LOAD;
-		selected_preset_global = sysparams.curpreset;
+		selected_preset_global = sys_params.curpreset;
 		break;
 	case SS_LEFT:
 		// if playing, jump to start of pattern

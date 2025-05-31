@@ -221,3 +221,21 @@ typedef struct PatternQuarter {
 // these should be incorporated in memory module:
 // static_assert(sizeof(PatternQuarter) + sizeof(SysParams) + sizeof(PageFooter) <= 2048, "?");
 // static_assert((sizeof(PatternQuarter) & 15) == 0, "?");
+
+#define CUR_PRESET_VERSION 2
+
+#define NUM_PRESETS 32
+#define NUM_PATTERNS 24
+#define NUM_SAMPLES 8
+
+typedef struct SampleInfo {
+	u8 waveform4_b[1024]; // 4 bits x 2048 points, every 1024 samples
+	int splitpoints[8];
+	int samplelen; // must be after splitpoints, so that splitpoints[8] is always the length.
+	s8 notes[8];
+	u8 pitched;
+	u8 loop; // bottom bit: loop; next bit: slice vs all
+	u8 paddy[2];
+} SampleInfo;
+// static_assert(sizeof(SampleInfo) + sizeof(SysParams) + sizeof(PageFooter) <= 2048, "?");
+// static_assert((sizeof(SampleInfo) & 15) == 0, "?");

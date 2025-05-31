@@ -20,7 +20,7 @@ extern u8 ramsample1_idx;
 int spi_readgrain_dma(int gi);
 void reverb_clear(void);
 void delay_clear(void);
-SampleInfo* GetSavedSampleInfo(u8 sample0);
+SampleInfo* sample_info_flash_ptr(u8 sample0);
 bool CopySampleToRam(bool force);
 // -- cleanup
 
@@ -60,7 +60,7 @@ int using_sampler(void) {
 void open_sampler(u8 with_sample_id) {
 	edit_sample_id0 = with_sample_id;
 	save_param(P_SAMPLE, SRC_BASE, edit_sample_id0 + 1);
-	memcpy(&cur_sample_info, GetSavedSampleInfo(edit_sample_id0), sizeof(SampleInfo));
+	memcpy(&cur_sample_info, sample_info_flash_ptr(edit_sample_id0), sizeof(SampleInfo));
 	ramsample1_idx = cur_sample_id1 = edit_sample_id0 + 1;
 	pending_sample1 = 255;
 	ui_mode = UI_SAMPLE_EDIT;

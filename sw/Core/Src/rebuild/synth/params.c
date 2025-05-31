@@ -16,7 +16,7 @@
 extern Preset rampreset;
 extern PatternQuarter rampattern[NUM_QUARTERS];
 extern u32 ramtime[GEN_LAST];
-extern SysParams sysparams;
+extern SysParams sys_params;
 extern Preset const init_params;
 bool CopyPresetToRam(bool force);
 // -- cleanup
@@ -44,7 +44,7 @@ static Touch* touch_pointer[NUM_STRINGS];
 // == INLINES == //
 
 static int get_volume_as_param(void) {
-	return (sysparams.headphonevol + 45) * (PARAM_SIZE / 64);
+	return (sys_params.headphonevol + 45) * (PARAM_SIZE / 64);
 }
 
 static void set_arp(bool on) {
@@ -278,9 +278,9 @@ void save_param_raw(Param param_id, ModSource mod_src, s16 data) {
 	if (param_id == P_VOLUME) {
 		if (mod_src == SRC_BASE) {
 			data = clampi(-45, ((data + (PARAM_SIZE / 128)) / (PARAM_SIZE / 64)) - 45, 18);
-			if (data == sysparams.headphonevol)
+			if (data == sys_params.headphonevol)
 				return;
-			sysparams.headphonevol = data;
+			sys_params.headphonevol = data;
 			ramtime[GEN_SYS] = millis();
 		}
 		return;

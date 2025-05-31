@@ -262,7 +262,7 @@ statedone:
 				if (wu_hdr.idx >= 64 + 8)
 					wu_hdr.idx = ((ramsample1_idx - 1) & 7) + 64;
 				else if (wu_hdr.idx >= 32)
-					wu_hdr.idx = sysparams.curpreset;
+					wu_hdr.idx = sys_params.curpreset;
 			}
 			else if (wu_hdr.cmd == 2 || wu_hdr.cmd == 3) {
 				maxsize = 1024 * 1024 * 32;
@@ -439,9 +439,9 @@ send_more_data: {
 		if (wu_hdr.idx == ((ramsample1_idx - 1) & 7) + 64)
 			data = (u8*)get_sample_info();
 		else if (wu_hdr.idx >= 64 && wu_hdr.idx < 64 + 8)
-			data = (u8*)GetSavedSampleInfo(wu_hdr.idx - 64);
+			data = (u8*)sample_info_flash_ptr(wu_hdr.idx - 64);
 		else
-			data = (wu_hdr.idx == sysparams.curpreset) ? (u8*)&rampreset : (u8*)GetSavedPreset(wu_hdr.idx);
+			data = (wu_hdr.idx == sys_params.curpreset) ? (u8*)&rampreset : (u8*)preset_flash_ptr(wu_hdr.idx);
 		SetWUState(WU_SENDDATA, data + wu_hdr_offset(), wu_hdr_len());
 	}
 	continue;

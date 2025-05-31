@@ -9,7 +9,8 @@
 // #define HALF_FLASH // pcbway fitted the wrong CPU, with only half the flash ram! this disables all use of the upper
 // 512k, to enable testing
 
-// #define DISABLE_AUTOSAVE // enables Demo Mode - changes are not written to flash. Disables ProgramPage() in params.h
+// #define DISABLE_AUTOSAVE // enables Demo Mode - changes are not written to flash. Disables flash_write_page() in
+// params.h
 
 // 0.7 - flashed onto first units
 // 0.8 - fix stereo pan when changing waveshape, and the broken wipe pattern
@@ -37,8 +38,8 @@
 // Allows for playing notes from the touch surface over a recorded sequence. Still buggy. In touch.h #define
 // MERGE_PLAYBACK 1 0.A3 - Fixes a USB bug in which some hosts wouldn't recognize Plinky. New startup sequence is
 // plinky_init(), then midiinit(). 0.A4 - Disabled MERGE_PLAYBACK in touch.h. DISABLE_AUTOSAVE flag enables Demo Mode -
-// changes are not written to flash. Disables ProgramPage() in params.h 0.A5 - Encoder fix 0.A6 - Set Channels for MIDI
-// in and out (unused pad) 0.A7 - Bootloader work to make it work on MacOSX 0.A8 - Midi fixes from RJ-Eckie. Many
+// changes are not written to flash. Disables flash_write_page() in params.h 0.A5 - Encoder fix 0.A6 - Set Channels for
+// MIDI in and out (unused pad) 0.A7 - Bootloader work to make it work on MacOSX 0.A8 - Midi fixes from RJ-Eckie. Many
 // thanks! 0.A9 - Sequencer fixes, or more of a rewrite, from RJ-Eckie. absolutely incredible work. thankyou. 0.B0 -
 // MORE RJ MAGIC - https://github.com/plinkysynth/plinky_public/pull/40 - what a beast he is.
 #define VERSION2 "rb0.01"

@@ -52,6 +52,7 @@ extern TIM_HandleTypeDef htim5;
 #include "gfx/gfx.h"
 #include "hardware/accelerometer.h"
 #include "hardware/adc_dac.h"
+#include "hardware/flash.h"
 #include "hardware/leds.h"
 #include "hardware/midi.h"
 #include "low_level/codec.h"
@@ -1280,7 +1281,7 @@ int EMSCRIPTEN_KEEPALIVE wasm_peekpreset(int offset) {
 	return 0;
 }
 int EMSCRIPTEN_KEEPALIVE wasm_getcurpreset(void) {
-	return sysparams.curpreset;
+	return sys_params.curpreset;
 }
 void EMSCRIPTEN_KEEPALIVE wasm_setcurpreset(int i) {
 	SetPreset(i, false);
@@ -1372,6 +1373,7 @@ void EMSCRIPTEN_KEEPALIVE plinky_init(void) {
 		flash_writecalib(3);
 	}
 #endif
+	init_flash();
 	InitParamsOnBoot();
 
 	sampler_mode = SM_PREVIEW;

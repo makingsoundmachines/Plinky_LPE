@@ -12,11 +12,11 @@
 // system
 extern u32 ramtime[GEN_LAST];
 extern Preset rampreset;
-extern SysParams sysparams;
+extern SysParams sys_params;
 extern s8 selected_preset_global; // system
 void SetPreset(u8 preset, bool force);
 // memory
-SampleInfo* GetSavedSampleInfo(u8 sample0);
+SampleInfo* sample_info_flash_ptr(u8 sample0);
 // parameters
 extern u8 copy_request;
 extern u8 preset_copy_source;
@@ -180,7 +180,7 @@ void handle_pad_actions(u8 strip_id, Touch* strip_cur) {
 				switch (load_section) {
 				case 0:
 					// preset
-					preset_copy_source = sysparams.curpreset;
+					preset_copy_source = sys_params.curpreset;
 					prev_pending_preset = pending_preset;
 					pending_preset = pad_id;
 					break;

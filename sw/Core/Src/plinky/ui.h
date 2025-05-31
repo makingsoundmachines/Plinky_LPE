@@ -714,13 +714,13 @@ void edit_mode_ui(void) {
 			char seqicon = (rampreset.flags & FLAGS_ARP) ? I_NOTES[0] : I_SEQ[0];
 			char preseticon = I_PRESET[0];
 			int xtab = 0;
-			if (pending_preset != 255 && pending_preset != sysparams.curpreset)
-				xtab = fdraw_str(0, 0, F_20_BOLD, "%c%d->%d", preseticon, sysparams.curpreset + 1, pending_preset + 1);
+			if (pending_preset != 255 && pending_preset != sys_params.curpreset)
+				xtab = fdraw_str(0, 0, F_20_BOLD, "%c%d->%d", preseticon, sys_params.curpreset + 1, pending_preset + 1);
 			else if (synth_max_pres > 1 && !(using_sampler() && !get_sample_info()->pitched)) {
 				xtab = fdraw_str(0, 0, F_20_BOLD, "%s", notename((high_string_pitch + 1024) / 2048));
 			}
 			else
-				xtab = fdraw_str(0, 0, F_20_BOLD, "%c%d", preseticon, sysparams.curpreset + 1);
+				xtab = fdraw_str(0, 0, F_20_BOLD, "%c%d", preseticon, sys_params.curpreset + 1);
 			draw_str(xtab + 2, 0, F_8_BOLD, presetname);
 			if (rampreset.category > 0 && rampreset.category < CAT_LAST)
 				draw_str(xtab + 2, 8, F_8, kpresetcats[rampreset.category]);
@@ -844,7 +844,7 @@ draw_parameter:
 				inverted_rectangle(0, 0, long_press_frames - 32, 32);
 			}
 			else {
-				int xtab = fdraw_str(0, 0, F_20_BOLD, I_PRESET "%d", sysparams.curpreset + 1);
+				int xtab = fdraw_str(0, 0, F_20_BOLD, I_PRESET "%d", sys_params.curpreset + 1);
 				draw_str(xtab + 2, 0, F_8_BOLD, presetname);
 				if (rampreset.category > 0 && rampreset.category < CAT_LAST)
 					draw_str(xtab + 2, 8, F_8, kpresetcats[rampreset.category]);
@@ -969,7 +969,7 @@ bargraph:
 					if (fi == 1)
 						k = maxi(k, (rampreset.arpon) ? 255 : 0);
 					else if (fi == 6)
-						k = maxi(k, (sysparams.systemflags & SYS_LATCHON) ? 255 : 0);
+						k = maxi(k, (sys_params.systemflags & SYS_LATCHON) ? 255 : 0);
 				}
 #endif
 				break;
@@ -1017,7 +1017,7 @@ bargraph:
 				k = (fi >= 4 && fi < 7) ? 64 : 0;
 				if (rotstep == pending_preset)
 					k = flickeryfast;
-				if (rotstep == sysparams.curpreset)
+				if (rotstep == sys_params.curpreset)
 					k = 255;
 				if (rotstep == pending_pattern + 32)
 					k = flickeryfast;
@@ -1066,7 +1066,7 @@ bargraph:
 }
 
 void plinky_frame(void) {
-	codec_setheadphonevol(sysparams.headphonevol + 45);
+	codec_setheadphonevol(sys_params.headphonevol + 45);
 
 	PumpWebUSB(false);
 
