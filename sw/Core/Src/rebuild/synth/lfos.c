@@ -3,13 +3,10 @@
 #include "gfx/gfx.h"
 #include "hardware/accelerometer.h"
 #include "hardware/adc_dac.h"
+#include "hardware/expander.h"
 #include "hardware/ram.h"
 #include "params.h"
 #include "time.h"
-
-// cleanup
-extern u16 expander_out[4];
-// -- cleanup
 
 s32 param_with_lfo[NUM_PARAMS];
 
@@ -162,9 +159,8 @@ void update_lfos(void) {
 		// save position
 		prev_scope_pos[lfo_id] = scope_pos;
 
-		// remap for expander
-		float expander_val = lfo_val * (EXPANDER_GAIN * EXPANDER_RANGE / 65536.f);
-		expander_out[lfo_id] = clampi(EXPANDER_ZERO - (int)(expander_val), 0, EXPANDER_MAX);
+		// send to expander
+		set_expander_lfo_data(lfo_id, lfo_val);
 
 		// save to array for later use
 		lfo_cur[lfo_id] = lfo_val;

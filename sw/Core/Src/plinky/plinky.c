@@ -1207,36 +1207,7 @@ void test_jig(void) {
 
 void plinky_frame(void);
 
-u16 expander_out[4] = {EXPANDER_ZERO, EXPANDER_ZERO, EXPANDER_ZERO, EXPANDER_ZERO};
-
 // #define BITBANG
-void SetExpanderDAC(int chan, int data) {
-#ifndef EMU
-	GPIOA->BRR = 1 << 8; // cs low
-	u16 daccmd = (2 << 14) + ((chan & 3) << 12) + (data & 0xfff);
-#ifdef BITBANG
-	for (int i = 0; i < 16; ++i) {
-		if (daccmd & 0x8000)
-			GPIOD->BSRR = 1 << 4;
-		else
-			GPIOD->BRR = 1 << 4;
-		daccmd <<= 1;
-		HAL_Delay(1);
-		GPIOD->BRR = 1 << 1; // clock low
-		HAL_Delay(1);
-		GPIOD->BSRR = 1 << 1; // clock high
-	}
-	HAL_Delay(1);
-#else
-	spi_delay();
-	daccmd = (daccmd >> 8) | (daccmd << 8);
-	HAL_SPI_Transmit(&hspi2, (uint8_t*)&daccmd, 2, -1);
-	spi_delay();
-#endif
-	GPIOA->BSRR = 1 << 8; // cs high
-#endif
-}
-
 #ifdef WASM
 
 bool send_midimsg(u8 status, u8 data1, u8 data2) {

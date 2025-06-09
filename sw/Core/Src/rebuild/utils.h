@@ -171,9 +171,4 @@ static inline void sort8(int *dst, const int *src) {
 
 #include "low_level/audiointrin.h"
 
-#define EXPANDER_ZERO 0x800
-#define EXPANDER_RANGE 0x7ff
-#define EXPANDER_MAX 0xfff
-#define EXPANDER_GAIN 0.715f
-
 #define I2C_TIMEOUT 20

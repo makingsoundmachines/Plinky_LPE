@@ -1,9 +1,6 @@
 #include "spi.h"
+#include "hardware/expander.h"
 #include "synth/sampler.h"
-
-// cleanup
-extern u16 expander_out[4];
-// -- cleanup
 
 extern SPI_HandleTypeDef hspi2;
 
@@ -114,7 +111,7 @@ static void spi_update_dac(int dac_chan) {
 	static u16 dac_dummy;
 	u16 dac_cmd;
 	spi_state = MAX_SPI_STATE + dac_chan + 1; // the NEXT state
-	int data = expander_out[dac_chan & 3];
+	u16 data = get_expander_lfo_data(dac_chan & 3);
 	dac_cmd = (2 << 14) + ((dac_chan & 3) << 12) + (data & 0xfff);
 	dac_cmd = (dac_cmd >> 8) | (dac_cmd << 8);
 	// set expander dac
