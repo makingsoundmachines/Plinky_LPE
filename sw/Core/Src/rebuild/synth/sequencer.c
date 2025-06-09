@@ -1,11 +1,14 @@
 #include "sequencer.h"
 #include "arp.h"
 #include "conditional_step.h"
+#include "gfx/data/icons.h"
+#include "gfx/gfx.h"
 #include "hardware/cv.h"
 #include "hardware/ram.h"
 #include "params.h"
 #include "time.h"
 #include "ui/shift_states.h"
+#include "ui/ui.h"
 
 // cleanup
 #include "hardware/adc_dac.h"
@@ -24,9 +27,9 @@ static u32 last_step_ticks = 0;  // duration
 static u32 ticks_since_step = 0; // current duration
 
 // pattern
-s8 cur_seq_step = 0;  // current step, modulated by step offset
-u8 cur_seq_start = 0; // where we start playing, modulated by step offset
-u8 cued_ptn_start = 255;
+s8 cur_seq_step = 0;         // current step, modulated by step offset
+static u8 cur_seq_start = 0; // where we start playing, modulated by step offset
+static u8 cued_ptn_start = 255;
 static u64 random_steps_avail = 0; // bitmask of unplayed steps in random modes
 
 // recording
@@ -456,4 +459,44 @@ void seq_clear_step(void) {
 	}
 	if (data_saved)
 		log_ram_edit(SEG_PAT0 + CUR_QUARTER);
+}
+
+// == SEQ VISUALS == //
+
+void seq_ptn_start_visuals(void) {
+	fdraw_str(0, 0, F_20_BOLD, I_PREV "Start %d", cur_seq_start + 1);
+	fdraw_str(0, 16, F_20_BOLD, I_PLAY "Current %d", cur_seq_step + 1);
+}
+
+void seq_ptn_end_visuals(void) {
+	fdraw_str(0, 0, F_20_BOLD, I_NEXT "End %d", ((cur_seq_start + cur_preset.seq_len) & 63) + 1);
+	fdraw_str(0, 16, F_20_BOLD, I_INTERVAL "Length %d", cur_preset.seq_len);
+}
+
+u8 seq_led(u8 x, u8 y, u8 sync_pulse) {
+	u8 k = 0;
+	u8 step = x + y * 8;
+	// all active steps
+	if (((step - cur_seq_start) & 63) < cur_preset.seq_len)
+		k = maxi(k, ui_mode == UI_DEFAULT ? 48 : 96);
+	// start/end steps
+	switch (ui_mode) {
+	case UI_PTN_START:
+		if (step == cur_seq_start)
+			k = 255;
+		break;
+	case UI_PTN_END:
+		if (((step + 1) & 63) == ((cur_seq_start + cur_preset.seq_len) & 63))
+			k = 255;
+		break;
+	default:
+		break;
+	}
+	// playhead
+	if (step == cur_seq_step)
+		k = maxi(k, sync_pulse);
+	// cued new start of pattern
+	if (step == cued_ptn_start && seq_playing())
+		k = maxi(k, (sync_pulse * 4) & 255);
+	return k;
 }

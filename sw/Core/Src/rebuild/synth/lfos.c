@@ -1,5 +1,6 @@
 #include "lfos.h"
 #include "data/tables.h"
+#include "gfx/gfx.h"
 #include "hardware/accelerometer.h"
 #include "hardware/adc_dac.h"
 #include "hardware/ram.h"
@@ -11,10 +12,10 @@ extern u16 expander_out[4];
 // -- cleanup
 
 s32 param_with_lfo[NUM_PARAMS];
-u8 lfo_scope_frame = 0;
-u8 lfo_scope_data[LFO_SCOPE_FRAMES][NUM_LFOS];
 
 static s32 lfo_cur[NUM_LFOS];
+static u8 lfo_scope_frame = 0;
+static u8 lfo_scope_data[LFO_SCOPE_FRAMES][NUM_LFOS];
 
 // random float value normalized to [-1, 1)
 static float rnd_norm(u16 half_cycle) {
@@ -178,4 +179,23 @@ void apply_lfo_mods(Param param_id) {
 	for (u8 lfo_id = 0; lfo_id < NUM_LFOS; lfo_id++)
 		new_val += (lfo_cur[lfo_id] * param[SRC_LFO_A + lfo_id]);
 	param_with_lfo[param_id] = new_val;
+}
+
+void draw_lfos(void) {
+	u8* vr = oled_buffer();
+	vr += OLED_WIDTH - 16;
+	u8 draw_frame = (lfo_scope_frame + 1) & 15;
+	for (u8 x = 0; x < 16; ++x) {
+		vr[0] &= ~(lfo_scope_data[draw_frame][0] >> 1);
+		vr[128] &= ~(lfo_scope_data[draw_frame][1] >> 1);
+		vr[256] &= ~(lfo_scope_data[draw_frame][2] >> 1);
+		vr[384] &= ~(lfo_scope_data[draw_frame][3] >> 1);
+
+		vr[0] |= lfo_scope_data[draw_frame][0];
+		vr[128] |= lfo_scope_data[draw_frame][1];
+		vr[256] |= lfo_scope_data[draw_frame][2];
+		vr[384] |= lfo_scope_data[draw_frame][3];
+		vr++;
+		draw_frame = (draw_frame + 1) & 15;
+	}
 }

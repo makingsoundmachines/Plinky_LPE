@@ -215,7 +215,7 @@ static int spi_write_enable(void) {
 	return spi_rv;
 }
 
-static int spi_wait_not_busy(const char* msg, void (*callback)(void)) {
+static int spi_wait_not_busy(const char* msg, void (*callback)(u8), u8 param) {
 	int spi_rv = 0;
 	int i = millis();
 	u8 spi_tx_buf[1] = {5};
@@ -228,7 +228,7 @@ static int spi_wait_not_busy(const char* msg, void (*callback)(void)) {
 	while (spi_rx_buf[0] & 1) {
 
 		if (callback)
-			callback();
+			callback(param);
 
 		spi_rx_buf[0] = 0;
 		spi_rv = HAL_SPI_TransmitReceive(&hspi2, (u8*)spi_tx_buf, (u8*)spi_rx_buf, 1, -1);
@@ -244,7 +244,7 @@ static int spi_wait_not_busy(const char* msg, void (*callback)(void)) {
 	return spi_rv;
 }
 
-int spi_erase64k(u32 addr, void (*callback)(void)) {
+int spi_erase64k(u32 addr, void (*callback)(u8), u8 param) {
 	spi_set_chip(addr);
 	spi_write_enable();
 	u8 spi_tx_buf[4] = {0xd8, addr >> 16, addr >> 8, addr};
@@ -257,7 +257,7 @@ int spi_erase64k(u32 addr, void (*callback)(void)) {
 	spi_release_cs();
 	spi_delay();
 	if (spi_rv == 0)
-		spi_rv = spi_wait_not_busy("erase", callback);
+		spi_rv = spi_wait_not_busy("erase", callback, param);
 	else {
 		DebugLog("HAL_SPI_TransmitReceive returned %d in erase\r\n", spi_rv);
 	}
@@ -281,6 +281,6 @@ int spi_write256(u32 addr) {
 	spi_delay();
 
 	if (spi_rv == 0)
-		spi_rv = spi_wait_not_busy("write", 0);
+		spi_rv = spi_wait_not_busy("write", 0, 0);
 	return spi_rv;
 }

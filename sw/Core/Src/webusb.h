@@ -140,14 +140,14 @@ void SetWUState(u8 state, u8* data, int len) {
 	wu_len = len;
 }
 
-extern u8 erasepos;
+// extern u8 erasepos;
 
-void flip(void);
+// void oled_render(void);
 void draw_webusb_ui(int o) {
 	oled_clear();
 	fdraw_str(0, 0, F_20, "writing %d...", o);
-	inverted_rectangle(0, 0, (erasepos * 2) & 127, 32);
-	flip();
+	// inverted_rectangle(0, 0, (erasepos * 2) & 127, 32);
+	// oled_render();
 }
 void tud_task(void);
 void draw_webusb_ui2() {
@@ -369,8 +369,8 @@ statedone:
 					len = 65536;
 				// program spi!
 				int addr = ofs + idx * 4 * 1024 * 1024;
-				erasepos = (addr / 65536) & 63; // for oled ui
-				spi_erase64k(addr, draw_webusb_ui2);
+				// erasepos = (addr / 65536) & 63; // for oled ui
+				// spi_erase64k(addr, draw_webusb_ui2);
 				for (int o = 0; o < len; o += 256) {
 					tud_task(); // keep the host happy
 					s16* src = (s16*)(delaybuf) + o / 2;
@@ -385,7 +385,7 @@ statedone:
 					memcpy(dst, src, 256);
 					if (spi_write256(addr + o) != 0) {
 						DebugLog("flash write fail\n");
-						ShowMessage(F_20_BOLD, "write fail", "");
+						flash_message(F_20_BOLD, "write fail", "");
 						goto reset;
 					}
 					if (!(o & 8191)) {

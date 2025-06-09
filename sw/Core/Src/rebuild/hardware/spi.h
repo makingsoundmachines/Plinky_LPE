@@ -15,10 +15,11 @@ void spi_init(void);
 void spi_tick(void);
 void spi_ready_for_sampler(u8 grain_id);
 
-extern volatile u8 spi_state;                       // ui
-extern u8 spi_bit_tx[256 + 4];                      // ui
-int spi_erase64k(u32 addr, void (*callback)(void)); // ui
-int spi_write256(u32 addr);                         // ui
+// sampler
+extern volatile u8 spi_state;
+extern u8 spi_bit_tx[256 + 4];
+int spi_erase64k(u32 addr, void (*callback)(u8), u8 param);
+int spi_write256(u32 addr);
 
 static inline void spi_delay(void) {
 	volatile static u8 dummy;

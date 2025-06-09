@@ -1,6 +1,6 @@
 #pragma once
+#include "hardware/mem_defs.h"
 #include "synth.h"
-#include "ui/shift_states.h"
 #include "utils.h"
 
 #define MAX_SAMPLE_VOICES 6
@@ -24,12 +24,6 @@ typedef enum SamplerMode {
 
 extern SamplerMode sampler_mode;
 
-// for ui.h
-extern u32 buf_start_pos;
-extern u32 buf_write_pos;
-extern u32 buf_read_pos;
-extern u8 cur_slice_id;
-
 // spi
 extern int grain_pos[32];
 extern s16 grain_buf[GRAINBUF_BUDGET];
@@ -47,7 +41,9 @@ void sampler_playing_tick(void);
 // recording samples
 
 void start_erasing_sample_buffer(void);
+void clear_flash_sample(void);
 void start_recording_sample(void);
+void write_flash_sample_blocks(void);
 void sampler_record_slice_point(void);
 void try_stop_recording_sample(void);
 void finish_recording_sample(void);
@@ -66,3 +62,15 @@ void sampler_adjust_cur_slice_pitch(s8 diff);
 
 void sampler_toggle_play_mode(void);
 void sampler_iterate_loop_mode(void);
+
+// visuals
+
+u8 get_waveform4(SampleInfo* s, int x);
+u16 getwaveform4zoom(SampleInfo* s, int x, int zoom);
+
+void sampler_oled_visuals(void);
+void draw_sample_playback(SampleInfo* s);
+
+void update_peak_hist(void);
+void sampler_leds(u8 pulse_half, u8 pulse);
+u8 ext_audio_led(u8 x, u8 y);

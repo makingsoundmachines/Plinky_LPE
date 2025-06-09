@@ -1,5 +1,8 @@
 #include "shift_states.h"
+#include "gfx/data/icons.h"
+#include "gfx/gfx.h"
 #include "hardware/adc_dac.h"
+#include "hardware/flash.h"
 #include "hardware/ram.h"
 #include "hardware/touchstrips.h"
 #include "pad_actions.h"
@@ -17,10 +20,9 @@ ShiftState shift_state = SS_NONE;
 static u8 prev_ui_mode = UI_DEFAULT;
 static u32 shift_last_press_time = 0;
 static bool action_pressed_during_shift = false;
+static u32 shift_state_frames = 0;
 
-// we'd prefer not exposing these
-u32 shift_state_frames = 0;
-bool shift_short_pressed(void) {
+static bool shift_short_pressed(void) {
 	return (shift_state == SS_NONE) || ((synth_tick - shift_last_press_time) < SHORT_PRESS_TIME);
 }
 
@@ -253,4 +255,48 @@ void shift_hold_state(void) {
 
 	// increase hold duration
 	shift_state_frames++;
+}
+
+// returns whether this produced screen-filling graphics
+bool shift_states_oled_visuals(void) {
+	switch (shift_state) {
+	case SS_CLEAR:
+		switch (ui_mode) {
+		case UI_SAMPLE_EDIT:
+			return false;
+		case UI_LOAD:
+			if (shift_state_frames > 4) {
+				draw_clear_load_item(long_press_pad, shift_state_frames - 4 > 64);
+				inverted_rectangle(0, 0, shift_state_frames * 2 - 4, 32);
+			}
+			break;
+		default:
+			draw_str(0, 0, F_32_BOLD, I_CROSS "clear");
+			break;
+		}
+		return true;
+	case SS_RECORD:
+		if (ui_mode == UI_SAMPLE_EDIT) {
+			if (sampler_mode == SM_PREVIEW && shift_state_frames > 4) {
+				draw_str(0, 0, F_32, "record?");
+				inverted_rectangle(0, 0, shift_state_frames * 2, 32);
+				return true;
+			}
+		}
+		else if (shift_short_pressed()) {
+			draw_str(0, 4, F_20_BOLD, seq_recording() ? I_RECORD "record >off" : I_RECORD "record >on");
+			return true;
+		}
+		break;
+	case SS_PLAY:
+		if (ui_mode != UI_SAMPLE_EDIT) {
+			draw_str(0, 0, F_32_BOLD, I_PLAY "play");
+			return true;
+		}
+		break;
+	default:
+		break;
+	}
+
+	return false;
 }

@@ -1,10 +1,15 @@
 #include "ram.h"
 #include "flash.h"
+#include "gfx/data/icons.h"
+#include "gfx/data/names.h"
+#include "gfx/gfx.h"
 #include "synth/param_defs.h"
+#include "ui/oled_viz.h"
 #include "ui/ui.h"
 
 // cleanup
 #include "synth/lfos.h"
+#include "synth/sampler.h"   // cur_sample_info should live in ram.c
 #include "synth/sequencer.h" // (?)
 #include "synth/strings.h"
 #include "ui/pad_actions.h"
@@ -29,7 +34,7 @@ SysParams sys_params;
 
 // item we are (or want to be) editing
 // u8 cur_preset_id ?
-u8 cur_pattern_id = 0;
+static u8 cur_pattern_id = 0;
 u8 cur_sample_id = 0;
 
 // item actually in ram
@@ -43,9 +48,9 @@ static PatternQuarter cur_ptn_quarter[4];
 SampleInfo cur_sample_info;
 
 // item to change to
-u8 cued_preset_id = 255;
-u8 cued_pattern_id = 255;
-u8 cued_sample_id = 255;
+static u8 cued_preset_id = 255;
+static u8 cued_pattern_id = 255;
+static u8 cued_sample_id = 255;
 
 // history of above, used to check double press on the same item
 static u8 prev_cued_preset_id = 255;
@@ -53,23 +58,23 @@ static u8 prev_cued_pattern_id = 255;
 static u8 prev_cued_sample_id = 255;
 
 // item to copy from
-u8 copy_preset_id = 0;
+static u8 copy_preset_id = 0;
 static u8 copy_pattern_id = 0;
 static u8 copy_sample_id = 0;
 
-static u8 edit_item_id = 255; // ram item to edit | msb unset => copy or toggle, msb set => clear
-u8 recent_load_item = 0;      // the most recently touched load item
+static u8 edit_item_id = 255;   // ram item to edit | msb unset => copy or toggle, msb set => clear
+static u8 recent_load_item = 0; // the most recently touched load item
 
 static u32 last_ram_write[NUM_RAM_SEGMENTS];
 static u32 last_flash_write[NUM_RAM_SEGMENTS];
 
 // == UTILS == //
 
-static RamItemType get_item_type(u8 pad_id) {
-	return pad_id < PATTERNS_START  ? RAM_PRESET
-	       : pad_id < SAMPLES_START ? RAM_PATTERN
-	       : pad_id < NUM_RAM_ITEMS ? RAM_SAMPLE
-	                                : NUM_RAM_ITEMS;
+static RamItemType get_item_type(u8 item_id) {
+	return item_id < PATTERNS_START  ? RAM_PRESET
+	       : item_id < SAMPLES_START ? RAM_PATTERN
+	       : item_id < NUM_RAM_ITEMS ? RAM_SAMPLE
+	                                 : NUM_RAM_ITEMS;
 }
 
 // when the current item is not equal to the item in ram, this indicates we're still writing the old ram item to flash
@@ -460,4 +465,120 @@ void try_apply_cued_ram_item(u8 item_id) {
 	default:
 		break;
 	}
+}
+
+u8 draw_cued_preset_id(void) {
+	if (cued_preset_id != 255 && cued_preset_id != sys_params.curpreset)
+		return fdraw_str(0, 0, F_20_BOLD, "%c%d->%d", I_PRESET[0], sys_params.curpreset + 1, cued_preset_id + 1);
+	else
+		return 0;
+}
+
+u8 draw_preset_id(void) {
+	return fdraw_str(0, 0, F_20_BOLD, I_PRESET "%d", sys_params.curpreset + 1);
+}
+
+void draw_preset_name(u8 xtab) {
+	char preset_name[9];
+	memcpy(preset_name, cur_preset.name, 8);
+	preset_name[8] = 0;
+	xtab += 2;
+	draw_str(xtab, 0, F_8_BOLD, preset_name);
+	// category
+	if (cur_preset.category > 0 && cur_preset.category < CAT_LAST)
+		draw_str(xtab, 8, F_8, preset_cats[cur_preset.category]);
+}
+
+u8 draw_cued_pattern_id(bool with_arp_icon) {
+	if (cued_pattern_id != 255 && cued_pattern_id != cur_pattern_id)
+		return fdraw_str(0, 16, F_20_BOLD, "%c%d->%d", with_arp_icon ? I_NOTES[0] : I_SEQ[0], cur_pattern_id + 1,
+		                 cued_pattern_id + 1);
+	else
+		return 0;
+}
+
+void draw_pattern_id(bool with_arp_icon) {
+	fdraw_str(0, 16, F_20_BOLD, "%c%d", with_arp_icon ? I_NOTES[0] : I_SEQ[0], cur_pattern_id + 1, cur_pattern_id + 1);
+}
+
+void draw_sample_id(void) {
+	fdraw_str(-128, 16, F_20_BOLD, cur_sample_id < NUM_SAMPLES ? I_WAVE "%d" : I_WAVE "Off", cur_sample_id + 1);
+}
+
+void draw_flags(void) {
+	gfx_text_color = 0;
+	if (arp_on()) {
+		fill_rectangle(128 - 32, 0, 128 - 17, 8);
+		draw_str(-(128 - 17), -1, F_8, "arp");
+	}
+	if (latch_on()) {
+		fill_rectangle(128 - 38, 32 - 8, 128 - 17, 32);
+		draw_str(-(128 - 17), 32 - 7, F_8, "latch");
+	}
+}
+
+void draw_select_load_item(u8 item_id, bool done) {
+	switch (get_item_type(item_id)) {
+	case RAM_PRESET:
+		if (item_id == copy_preset_id)
+			fdraw_str(0, 0, F_16_BOLD, done ? "toggled\n" I_PRESET "Preset %d" : "toggle\n" I_PRESET "Preset %d?",
+			          item_id + 1);
+		else
+			fdraw_str(0, 0, F_16_BOLD, done ? "copied to " I_PRESET "%d" : "copy over\n" I_PRESET "Preset %d?",
+			          item_id + 1);
+		break;
+	case RAM_PATTERN:
+		fdraw_str(0, 0, F_16_BOLD, done ? "copied to " I_SEQ "%d" : "copy over\n" I_SEQ "Pat %d?",
+		          item_id - PATTERNS_START + 1);
+		break;
+	case RAM_SAMPLE:
+		fdraw_str(0, 0, F_16_BOLD, done ? "ok!" : "Edit\n" I_WAVE "Sample %d?", item_id - SAMPLES_START + 1);
+		break;
+	default:
+		break;
+	}
+}
+
+void draw_clear_load_item(u8 item_id, bool done) {
+	switch (get_item_type(item_id)) {
+	case RAM_PRESET:
+		fdraw_str(0, 0, F_16_BOLD, done ? "cleared\n" I_PRESET "Preset %d" : "initialize\n" I_PRESET "Preset %d?",
+		          recent_load_item + 1);
+		break;
+	case RAM_PATTERN:
+		fdraw_str(0, 0, F_16_BOLD, done ? "cleared\n" I_SEQ "Pattern %d." : "Clear\n" I_SEQ "Pattern %d?",
+		          recent_load_item - PATTERNS_START + 1);
+		break;
+	case RAM_SAMPLE:
+		fdraw_str(0, 0, F_16_BOLD, done ? "cleared\n" I_WAVE "Sample %d." : "Clear\n" I_WAVE "Sample %d?",
+		          recent_load_item - SAMPLES_START + 1);
+		break;
+	default:
+		break;
+	}
+}
+
+u8 ui_load_led(u8 x, u8 y, u8 pulse) {
+	u8 item_id = x * 8 + y;
+
+	// all patterns low brightness
+	u8 k = get_item_type(item_id) == RAM_PATTERN ? 64 : 0;
+
+	// pulse cued load item
+	if (item_id == cued_preset_id)
+		k = pulse;
+	if (item_id == PATTERNS_START + cued_pattern_id)
+		k = pulse;
+	if (item_id == SAMPLES_START + cued_sample_id)
+		k = pulse;
+
+	// full selected load item
+	if (item_id == sys_params.curpreset)
+		k = 255;
+	if (item_id == PATTERNS_START + cur_pattern_id)
+		k = 255;
+	if (item_id == SAMPLES_START + cur_sample_id)
+		k = 255;
+
+	return k;
 }

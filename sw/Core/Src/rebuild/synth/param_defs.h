@@ -326,7 +326,7 @@ static Preset const init_params = {
         [P_ARP_OCTAVES] = {QUANT(0, 4)},
         [P_GLIDE] = {0},
 
-        // [P_SEQ_ORDER] = {QUANT(SEQ_FWD, SEQ_LAST)},
+        // [P_SEQ_ORDER] = {QUANT(SEQ_FWD, NUM_SEQ_ORDERS)},
         [P_SEQ_ORDER] = {QUANT(1, 6)},
         [P_SEQ_CLK_DIV] = {QUANT(6, 23)}, // NUM_SYNC_DIVS + 1
         [P_SEQ_CHANCE] = {PARAM_SIZE},
@@ -399,3 +399,25 @@ static Preset const init_params = {
         [P_MIDI_CH_OUT] = {0},
 
     }}; // init params
+
+enum ECats {
+	CAT_BLANK,
+	CAT_BASS,
+	CAT_LEADS,
+	CAT_PADS,
+	CAT_ARPS,
+	CAT_PLINKS,
+	CAT_PLONKS,
+	CAT_BEEPS,
+	CAT_BOOPS,
+	CAT_SFX,
+	CAT_LINEIN,
+	CAT_SAMPLER,
+	CAT_DONK,
+	CAT_JOLLY,
+	CAT_SADNESS,
+	CAT_WILD,
+	CAT_GNARLY,
+	CAT_WEIRD,
+	CAT_LAST
+};

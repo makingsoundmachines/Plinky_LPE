@@ -1,5 +1,6 @@
 #include "strings.h"
 #include "data/tables.h"
+#include "gfx/gfx.h"
 #include "hardware/adc_dac.h"
 #include "hardware/midi.h"
 #include "hardware/midi_defs.h"

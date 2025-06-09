@@ -392,42 +392,6 @@ int drawstr_noright(int x, int y, Font f, const char* buf) {
 	return x;
 }
 
-void gfx_flash_parameter(u8 param_id) {
-	ShowMessage(F_20_BOLD, param_names[param_id], param_page_names[param_id / 6]);
-}
-
-// LOGO
-
-void gfx_dither_logo(u8 frame) {
-#define RND(y) dither[(i & 3) + ((i / 128 + y) & 3) * 4]
-	const static u8 dither[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
-	const u8* l = get_logo() - 1;
-	u8* v = oled_buffer() - 1;
-	u8 k = frame / 2;
-	for (u16 i = 0; i < 32 * 128 / 8; ++i) {
-		u8 mask = 0;
-		if (RND(0) < k)
-			mask |= 1;
-		if (RND(1) < k)
-			mask |= 2;
-		if (RND(2) < k)
-			mask |= 4;
-		if (RND(3) < k)
-			mask |= 8;
-		if (RND(4) < k)
-			mask |= 16;
-		if (RND(5) < k)
-			mask |= 32;
-		if (RND(6) < k)
-			mask |= 64;
-		if (RND(7) < k)
-			mask |= 128;
-		*v = (*v & mask) | (*l & ~mask);
-		v++;
-		l++;
-	}
-}
-
 // DEBUG
 
 void gfx_debug(u8 row, const char* fmt, ...) {

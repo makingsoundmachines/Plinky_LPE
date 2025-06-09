@@ -23,8 +23,7 @@ typedef enum LfoShape {
 } LfoShape;
 
 extern s32 param_with_lfo[NUM_PARAMS];
-extern u8 lfo_scope_frame;
-extern u8 lfo_scope_data[LFO_SCOPE_FRAMES][NUM_LFOS];
 
 void update_lfos(void);
 void apply_lfo_mods(Param param_id);
+void draw_lfos(void);

@@ -51,7 +51,8 @@ typedef struct Voice {
 
 extern Voice voices[NUM_VOICES];
 
-extern s32 high_string_pitch; // ui.h
-extern u16 synth_max_pres;    // ui.h
-
 void handle_synth_voices(u32* dst);
+
+u8 draw_high_note(void);
+void draw_max_pres(void);
+void draw_voices(void);

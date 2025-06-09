@@ -24,6 +24,4 @@ void shift_set_state(ShiftState new_state);
 void shift_release_state(void);
 void shift_hold_state(void);
 
-// we'd prefer not exposing these
-extern u32 shift_state_frames;
-bool shift_short_pressed(void);
+bool shift_states_oled_visuals(void);

@@ -4,6 +4,7 @@
 #include "hardware/ram.h"
 #include "synth/params.h"
 #include "synth/sampler.h"
+#include "ui/oled_viz.h"
 #include "ui/pad_actions.h"
 #include "ui/ui.h"
 
@@ -66,11 +67,11 @@ void encoder_tick(void) {
 	}
 	// reboot prep stage 2
 	if (encoder_press_duration > 500) {
-		ShowMessage(F_20_BOLD, "REBOOT!!", "");
+		flash_message(F_20_BOLD, "REBOOT!!", "");
 	}
 	// reboot prep stage 1
 	else if (encoder_press_duration > 250) {
-		ShowMessage(F_20_BOLD, "REBOOT?", "");
+		flash_message(F_20_BOLD, "REBOOT?", "");
 	}
 
 	if ((enc_diff || encoder_pressed || prev_encoder_pressed)) {

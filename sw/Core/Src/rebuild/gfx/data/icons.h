@@ -1,4 +1,5 @@
 #pragma once
+#include "utils.h"
 
 const static u8 num_icons = 64;
 // clang-format off

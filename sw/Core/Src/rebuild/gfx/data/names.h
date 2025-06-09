@@ -140,7 +140,7 @@ const static char* const param_names[NUM_PARAMS] = {
 
 };
 
-const static char* const modnames[NUM_MOD_SOURCES] = {
+const static char* const mod_names[NUM_MOD_SOURCES] = {
     [SRC_BASE] = I_SLIDERS "Base",   [SRC_RND] = I_RANDOM "Random", [SRC_ENV2] = I_ENV "Env",
     [SRC_PRES] = I_TOUCH "Pressure", [SRC_LFO_A] = I_A "Knob/LFO",  [SRC_LFO_B] = I_B "Knob/LFO",
     [SRC_LFO_X] = I_X "CV/LFO",      [SRC_LFO_Y] = I_Y "CV/LFO",
@@ -191,4 +191,9 @@ static const char* const lfo_names[NUM_LFO_SHAPES] = {
     [LFO_TRIGS] = "Trigs",
     [LFO_ENV] = "Env",
     [LFO_SAW] = "Saw",
+};
+
+static const char* const preset_cats[CAT_LAST] = {
+    "",    "Bass",    "Leads",   "Pads", "Arps",  "Plinks",  "Plonks", "Beeps",  "Boops",
+    "SFX", "Line-In", "Sampler", "Donk", "Jolly", "Sadness", "Wild",   "Gnarly", "Weird",
 };

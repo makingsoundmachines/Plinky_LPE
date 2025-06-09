@@ -47,7 +47,6 @@ extern TIM_HandleTypeDef htim5;
 #define ASSERT assert
 #endif
 #include "core.h"
-#include "defs/enums.h"
 #include "defs/lfo.h"
 #include "gfx/gfx.h"
 #include "hardware/accelerometer.h"
@@ -65,6 +64,7 @@ extern TIM_HandleTypeDef htim5;
 #include "synth/synth.h"
 #include "synth/time.h"
 #include "testing/tick_counter.h"
+#include "ui/oled_viz.h"
 #include "ui/ui.h"
 
 #define TWENTY_OVER_LOG2_10 6.02059991328f // (20.f/log2(10.f));
@@ -87,7 +87,6 @@ TickCounter _tc_filter;
 // u8 ui_edit_param_prev[2][4] = {
 // {NUM_PARAMS,NUM_PARAMS,NUM_PARAMS,NUM_PARAMS},{NUM_PARAMS,NUM_PARAMS,NUM_PARAMS,NUM_PARAMS} }; // push to front
 // history
-static float surf[2][8][8];
 
 #ifdef EMU
 short delaybuf[DLMASK + 1];
@@ -119,8 +118,6 @@ update
 kick fetch for this pos
 */
 
-u32 scope[128];
-
 // these includes are sensitive to how they are ordered
 // turning off formatting so that they don't get reordered alphabetically
 
@@ -132,12 +129,6 @@ u32 scope[128];
 #include "../webusb.h"
 
 // clang-format on
-
-static inline void putscopepixel(unsigned int x, unsigned int y) {
-	if (y >= 32)
-		return;
-	scope[x] |= (1 << y);
-}
 
 inline s32 trifold(u32 x) {
 	if (x > 0x80000000)
@@ -578,14 +569,14 @@ void DoAudio(u32* dst, u32* audioin) {
 	int wetlvl = 65536 - maxi(-wetdry, 0);
 	int drylvl = 65536 - maxi(wetdry, 0);
 
-	int ainlvl = param_val(P_INPUT_LVL);
+	int a_in_lvl = param_val(P_INPUT_LVL);
 	int ainwetlvl = 65536 - maxi(-ainwetdry, 0);
 	int aindrylvl = 65536 - maxi(ainwetdry, 0);
 
-	ainwetlvl = ((ainwetlvl >> 4) * (ainlvl >> 4)) >> 8;
+	ainwetlvl = ((ainwetlvl >> 4) * (a_in_lvl >> 4)) >> 8;
 
-	ainlvl = ((ainlvl >> 4) * (drylvl >> 4)) >> 8;    // prescale by dry level
-	ainlvl = ((ainlvl >> 4) * (aindrylvl >> 4)) >> 8; // prescale by fx dry level
+	a_in_lvl = ((a_in_lvl >> 4) * (drylvl >> 4)) >> 8;    // prescale by dry level
+	a_in_lvl = ((a_in_lvl >> 4) * (aindrylvl >> 4)) >> 8; // prescale by fx dry level
 
 	int delayratio = param_val(P_DLY_PINGPONG) >> 8;
 	static int delaytime = SAMPLES_PER_TICK << 12;
@@ -693,9 +684,9 @@ void DoAudio(u32* dst, u32* audioin) {
 			if (scopex < 256 && scopex >= 0) {
 				int x = scopex / 2;
 				if (!(scopex & 1))
-					scope[x] = 0;
-				putscopepixel(x, (li * scopescale >> 16) + 16);
-				putscopepixel(x, (ri * scopescale >> 16) + 16);
+					clear_scope_pixel(x);
+				put_scope_pixel(x, (li * scopescale >> 16) + 16);
+				put_scope_pixel(x, (ri * scopescale >> 16) + 16);
 			}
 			scopex++;
 			if (scopex > 1024)
@@ -722,8 +713,8 @@ void DoAudio(u32* dst, u32* audioin) {
 			u32 midwetlr = STEREOADDAVERAGE(newwetlr, wetlr);
 			wetlr = newwetlr;
 
-			u32 audioin0 = STEREOSIGMOID(STEREOSCALE(ain0, ainlvl)); // ainlvl already scaled by drylvl
-			u32 audioin1 = STEREOSIGMOID(STEREOSCALE(ain1, ainlvl));
+			u32 audioin0 = STEREOSIGMOID(STEREOSCALE(ain0, a_in_lvl)); // a_in_lvl already scaled by drylvl
+			u32 audioin1 = STEREOSIGMOID(STEREOSCALE(ain1, a_in_lvl));
 			MONITORPEAK(&m_audioin, audioin0);
 			MONITORPEAK(&m_audioin, audioin1);
 

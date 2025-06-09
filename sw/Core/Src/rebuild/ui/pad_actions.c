@@ -1,5 +1,6 @@
 #include "pad_actions.h"
 #include "gfx/data/names.h"
+#include "gfx/gfx.h"
 #include "hardware/ram.h"
 #include "hardware/touchstrips.h"
 #include "shift_states.h"
@@ -10,13 +11,11 @@
 
 #define LONGPRESS_THRESH 160 // full read cycles
 
-// needed by drawing ui.h, should be local
-u8 strip_holds_valid_action = 0; // mask
-u8 strip_is_action_pressed = 0;  // mask
-u16 long_press_frames = 0;
 u8 long_press_pad = 0;
 
-// local
+static u16 long_press_frames = 0;
+static u8 strip_holds_valid_action = 0; // mask
+static u8 strip_is_action_pressed = 0;  // mask
 
 void handle_pad_actions(u8 strip_id, Touch* strip_cur) {
 	Touch* strip_2back = get_touch_prev(strip_id, 2);
@@ -157,4 +156,20 @@ void handle_pad_action_long_presses(void) {
 		else
 			copy_load_item(pad_id);
 	}
+}
+
+// == VISUALS == //
+
+bool mod_action_pressed(void) {
+	return (strip_holds_valid_action & 128) && (strip_is_action_pressed & 128);
+}
+
+// returns whether this produced screen-filling graphics
+bool pad_actions_oled_visuals(void) {
+	if (ui_mode == UI_LOAD && long_press_frames >= 32) {
+		draw_select_load_item(long_press_pad, long_press_frames - 32 > 128);
+		inverted_rectangle(0, 0, long_press_frames - 32, 32);
+		return true;
+	}
+	return false;
 }

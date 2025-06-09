@@ -52,6 +52,8 @@ SRCS = \
 	../Core/Src/rebuild/synth/strings.c \
 	../Core/Src/rebuild/synth/synth.c \
 	../Core/Src/rebuild/synth/time.c \
+	../Core/Src/rebuild/ui/led_viz.c \
+	../Core/Src/rebuild/ui/oled_viz.c \
 	../Core/Src/rebuild/ui/pad_actions.c \
 	../Core/Src/rebuild/ui/shift_states.c \
 	../Core/Src/rebuild/ui/ui.c \

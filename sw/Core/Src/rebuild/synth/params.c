@@ -1,24 +1,32 @@
 #include "params.h"
 #include "data/tables.h"
 #include "gfx/data/icons.h"
+#include "gfx/data/names.h"
 #include "gfx/gfx.h"
 #include "hardware/accelerometer.h"
 #include "hardware/adc_dac.h"
+#include "hardware/encoder.h"
+#include "hardware/leds.h"
 #include "hardware/ram.h"
 #include "lfos.h"
+#include "pitch_tools.h"
 #include "sequencer.h"
 #include "strings.h"
 #include "synth.h"
 #include "time.h"
+#include "ui/oled_viz.h"
+#include "ui/pad_actions.h"
 #include "ui/shift_states.h"
 #include "ui/ui.h"
 
 #define EDITING_PARAM (selected_param < NUM_PARAMS)
 
-// only global for ui.h
-Param selected_param = 255;
-ModSource selected_mod_src = SRC_BASE;
-Param mem_param = 255; // remembers previous selected_param, used by encoder and A/B shift-presses
+static Param selected_param = 255;
+static ModSource selected_mod_src = SRC_BASE;
+
+// stable snapshots for drawing oled and led visuals
+static Param param_snap;
+static ModSource src_snap;
 
 // modulation values
 static u16 max_env_global = 0;
@@ -27,6 +35,7 @@ static u16 sample_hold_global = {8 << 12};
 static u16 sample_hold_poly[NUM_STRINGS] = {0, 1 << 12, 2 << 12, 3 << 12, 4 << 12, 5 << 12, 6 << 12, 7 << 12};
 
 // editing params
+static Param mem_param = 255; // remembers previous selected_param, used by encoder and A/B shift-presses
 static bool param_from_mem = false;
 static s16 left_strip_start = 0;
 static ValueSmoother left_strip_smooth;
@@ -43,7 +52,7 @@ static void set_arp(bool on) {
 	if (on == arp_on())
 		return;
 	save_arp(on);
-	ShowMessage(F_32_BOLD, on ? "arp on" : "arp off", 0);
+	flash_message(F_32_BOLD, on ? "arp on" : "arp off", 0);
 	log_ram_edit(SEG_SYS);
 }
 
@@ -55,7 +64,7 @@ static void set_latch(bool on) {
 	if (on == latch_on())
 		return;
 	save_latch(on);
-	ShowMessage(F_32_BOLD, on ? "latch on" : "latch off", 0);
+	flash_message(F_32_BOLD, on ? "latch on" : "latch off", 0);
 	log_ram_edit(SEG_SYS);
 }
 
@@ -344,7 +353,7 @@ bool press_param(u8 pad_y, u8 strip_id, bool is_press_start) {
 
 	// largely show the new param on screen when it changes
 	if (EDITING_PARAM && selected_param != prev_param)
-		gfx_flash_parameter(selected_param);
+		flash_parameter(selected_param);
 
 	// parameters that do something the moment they are pressed
 	if (is_press_start) {
@@ -467,9 +476,9 @@ void hold_encoder_for_params(u16 duration) {
 		for (ModSource mod_src = SRC_ENV2; mod_src < NUM_MOD_SOURCES; ++mod_src)
 			save_param_raw(selected_param, mod_src, 0);
 	if (duration >= 50)
-		ShowMessage(F_20_BOLD, I_CROSS "Mod Cleared", "");
+		flash_message(F_20_BOLD, I_CROSS "Mod Cleared", "");
 	else if (duration >= 10)
-		ShowMessage(F_20_BOLD, I_CROSS "Clear Mod?", "");
+		flash_message(F_20_BOLD, I_CROSS "Clear Mod?", "");
 }
 
 void check_param_toggles(Param param_id) {
@@ -498,4 +507,293 @@ void set_param_from_cc(Param param_id, u16 value) {
 		value = value * 2 - PARAM_SIZE;
 	// save
 	save_param_raw(param_id, SRC_BASE, value);
+}
+
+static const char* get_param_str(int p, int mod, int v, char* val_buf, char* dec_buf) {
+	if (dec_buf)
+		*dec_buf = 0;
+	int valmax = param_range[p] & RANGE_MASK;
+	int vscale = valmax ? (mini(v, PARAM_SIZE - 1) * valmax) / PARAM_SIZE : v;
+	int displaymax = valmax ? valmax * 10 : 1000;
+	bool decimal = true;
+	//	const char* val = val_buf;
+	if (mod == SRC_BASE)
+		switch (p) {
+		case P_SMP_STRETCH:
+		case P_SMP_SPEED:
+			displaymax = 2000;
+			break;
+		case P_ARP_TOGGLE:
+			if (mod)
+				return "";
+			return arp_on() ? "On" : "Off";
+		case P_LATCH_TOGGLE:
+			if (mod)
+				return "";
+			return latch_on() ? "On" : "Off";
+		case P_SAMPLE:
+			if (vscale == 0) {
+				return "Off";
+			}
+			break;
+		case P_SEQ_CLK_DIV: {
+			if (vscale >= NUM_SYNC_DIVS)
+				return "(Gate CV)";
+			int n = sprintf(val_buf, "%d", sync_divs_32nds[vscale] /* >> divisor*/);
+			if (!dec_buf)
+				dec_buf = val_buf + n;
+			sprintf(dec_buf, /*divisornames[divisor]*/ "/32");
+			return val_buf;
+		}
+		case P_ARP_CLK_DIV:
+			if (v < 0) {
+				v = -v;
+				decimal = true;
+				valmax = 0;
+				displaymax = 1000;
+				break;
+			}
+			vscale = (mini(v, PARAM_SIZE - 1) * NUM_SYNC_DIVS) / PARAM_SIZE;
+			int n = sprintf(val_buf, "%d", sync_divs_32nds[vscale] /*>> divisor*/);
+			if (!dec_buf)
+				dec_buf = val_buf + n;
+			sprintf(dec_buf, /*divisornames[divisor]*/ "/32");
+			return val_buf;
+		case P_ARP_OCTAVES:
+			v += (PARAM_SIZE * 10) / displaymax; // 1 based
+			break;
+		case P_MIDI_CH_IN:
+		case P_MIDI_CH_OUT: {
+			int midich = clampi(vscale, 0, 15) + 1;
+			int n = sprintf(val_buf, "%d", midich);
+			if (!dec_buf)
+				dec_buf = val_buf + n;
+			return val_buf;
+		}
+		case P_ARP_ORDER:
+			return arp_modenames[clampi(vscale, 0, NUM_ARP_ORDERS - 1)];
+		case P_SEQ_ORDER:
+			return seqmodenames[clampi(vscale, 0, NUM_SEQ_ORDERS - 1)];
+		case P_CV_QUANT:
+			return cvquantnames[clampi(vscale, 0, CVQ_LAST - 1)];
+		case P_SCALE:
+			return scalenames[clampi(vscale, 0, NUM_SCALES - 1)];
+		case P_A_SHAPE:
+		case P_B_SHAPE:
+		case P_X_SHAPE:
+		case P_Y_SHAPE:
+			return lfo_names[clampi(vscale, 0, NUM_LFO_SHAPES - 1)];
+		case P_PITCH:
+		case P_INTERVAL:
+			displaymax = 120;
+			break;
+		case P_TEMPO:
+			v += PARAM_SIZE;
+			if (!using_internal_clock)
+				v = (bpm_10x * PARAM_SIZE) / 1200;
+			displaymax = 1200;
+			break;
+		case P_DLY_TIME:
+			if (v < 0) {
+				if (v <= -1024)
+					v++;
+				v = (-v * 13) / PARAM_SIZE;
+				int n = sprintf(val_buf, "%d", sync_divs_32nds[v]);
+				if (!dec_buf)
+					dec_buf = val_buf + n;
+				sprintf(dec_buf, "/32 sync");
+			}
+			else {
+				int n = sprintf(val_buf, "%d", (v * 100) / PARAM_SIZE);
+				if (!dec_buf)
+					dec_buf = val_buf + n;
+				sprintf(dec_buf, "free");
+			}
+			return val_buf;
+		default:;
+		}
+	v = (v * displaymax) / PARAM_SIZE;
+	int av = abs(v);
+	int n = sprintf(val_buf, "%c%d", (v < 0) ? '-' : ' ', av / 10);
+	if (decimal) {
+		if (!dec_buf)
+			dec_buf = val_buf + n;
+		sprintf(dec_buf, ".%d", av % 10);
+	}
+	return val_buf;
+}
+
+// == VISUALS == //
+
+void take_param_snapshots(void) {
+	param_snap = selected_param;
+	src_snap = selected_mod_src;
+}
+
+// returns whether this drew anything
+bool draw_cur_param(void) {
+	gfx_text_color = 1;
+	Param draw_param;
+	// should we be drawing the param?
+	switch (ui_mode) {
+	case UI_DEFAULT:
+		if (param_snap < NUM_PARAMS)
+			// standard param editing
+			draw_param = param_snap;
+		else if (mem_param < NUM_PARAMS && enc_recently_used())
+			// edited param with encoder => draw remembered param
+			draw_param = mem_param;
+		else
+			// not editing
+			return false;
+		break;
+	case UI_EDITING_A:
+	case UI_EDITING_B:
+		if (param_snap < NUM_PARAMS)
+			draw_param = param_snap;
+		else {
+			// not editing => ask for param
+			draw_str(0, 0, F_20_BOLD, mod_names[src_snap]);
+			draw_str(0, 16, F_16, "select parameter");
+			return true;
+		}
+		break;
+	default:
+		// other ui mode => don't draw anything
+		return false;
+		break;
+	}
+
+	// draw with upper shadow
+	gfx_text_color = 2;
+
+	const char* page_name = param_page_names[draw_param / 6];
+	// manual page name overrides
+	switch (draw_param) {
+	case P_TEMPO:
+		page_name = I_TEMPO "Tap";
+		break;
+	case P_NOISE:
+		page_name = I_WAVE "noise";
+		break;
+	case P_CV_QUANT:
+	case P_VOLUME:
+		page_name = "system";
+		break;
+	default:
+		break;
+	}
+
+	// draw page name, or mod source if one is selected
+	draw_str(0, 0, F_12, src_snap == SRC_BASE ? page_name : mod_names[src_snap]);
+	// draw param name
+	const char* param_name = param_names[draw_param];
+	if (str_width(F_16_BOLD, param_name) > 64)
+		draw_str(0, 20, F_12_BOLD, param_name);
+	else
+		draw_str(0, 16, F_16_BOLD, param_name);
+
+	char val_buf[32];
+	u8 width = 0;
+	s16 val = param_val_raw(draw_param, src_snap);
+	s32 vbase = val;
+	if (src_snap == SRC_BASE && draw_param != P_VOLUME) {
+		val = (param_val_unscaled(draw_param) * PARAM_SIZE) >> 16;
+		if (val != vbase) {
+			// if there is modulation going on, show the base value below
+			const char* val_str = get_param_str(draw_param, src_snap, vbase, val_buf, NULL);
+			width = str_width(F_8, val_str);
+			draw_str(OLED_WIDTH - 16 - width, 32 - 8, F_8, val_str);
+		}
+	}
+
+	char dec_buf[16];
+	const char* val_str = get_param_str(draw_param, src_snap, val, val_buf, dec_buf);
+	u8 x = OLED_WIDTH - 15;
+	if (*dec_buf)
+		x -= str_width(F_8, dec_buf);
+	Font font = F_28_BOLD; // F_24_BOLD is the first font that will be checked
+	do {
+		font--;
+		width = str_width(font, val_str);
+	} while (width >= 64 && font > F_12_BOLD);
+	draw_str(x - width, 0, font, val_str);
+	if (*dec_buf)
+		draw_str(x, 0, F_8, dec_buf);
+	return true;
+}
+
+bool is_snap_param(u8 x, u8 y) {
+	u8 pA = x - 1 + y * 12;
+	return param_snap < NUM_PARAMS && x > 0 && x < 7 && (param_snap == pA || param_snap == pA + 6);
+}
+
+s16 value_editor_column_led(u8 y) {
+	if (param_snap >= NUM_PARAMS)
+		return -1;
+
+	u8 kontrast = 16;
+	s16 k = 0;
+	s16 v = param_val_raw(param_snap, src_snap);
+	bool is_signed = (param_range[param_snap] & RANGE_SIGNED) || (src_snap != SRC_BASE);
+
+	if (is_signed) {
+		if (y < 4) {
+			k = ((v - (3 - y) * (PARAM_SIZE / 4)) * (192 * 4)) / PARAM_SIZE;
+			k = y * 2 * kontrast + clampi(k, 0, 191);
+			if (y == 3 && v < 0)
+				k = 255;
+		}
+		else {
+			k = ((-v - (y - 4) * (PARAM_SIZE / 4)) * (192 * 4)) / PARAM_SIZE;
+			k = (8 - y) * 2 * kontrast + clampi(k, 0, 191);
+			if (y == 4 && v > 0)
+				k = 255;
+		}
+	}
+	else {
+		k = ((v - (7 - y) * (PARAM_SIZE / 8)) * (192 * 8)) / PARAM_SIZE;
+		k = y * kontrast + clampi(k, 0, 191);
+	}
+	return clampi(k, 0, 255);
+}
+
+u8 ui_editing_led(u8 x, u8 y, u8 pulse) {
+	u8 k = 0;
+	if (x == 0) {
+		if (param_snap < NUM_PARAMS)
+			k = value_editor_column_led(y);
+	}
+	else if (x < 7) {
+		u8 pAorB = x - 1 + y * 12 + (ui_mode == UI_EDITING_B ? 6 : 0);
+		// holding down a mod source => light up params that are modulated by it
+		if (mod_action_pressed() && src_snap != SRC_BASE && param_val_raw(pAorB, src_snap))
+			k = 255;
+		// pulse selected param
+		if (pAorB == param_snap)
+			k = pulse;
+		// fake params
+		if (pAorB == P_ARP_TOGGLE)
+			k = arp_on() ? 255 : 0;
+		else if (pAorB == P_LATCH_TOGGLE)
+			k = latch_on() ? 255 : 0;
+	}
+	else {
+		// pulse active mod source
+		if (y == selected_mod_src)
+			k = pulse;
+		// light up mod sources that modulate current param
+		else
+			k = (y && param_val_raw(param_snap, y)) ? 255 : 0;
+	}
+	return k;
+}
+
+void param_shift_leds(u8 pulse) {
+	leds[8][SS_SHIFT_A] = (ui_mode == UI_EDITING_A)                                                     ? 255
+	                      : (ui_mode == UI_DEFAULT && param_snap < NUM_PARAMS && (param_snap % 12) < 6) ? pulse
+	                                                                                                    : 0;
+	leds[8][SS_SHIFT_B] = (ui_mode == UI_EDITING_B)                                                      ? 255
+	                      : (ui_mode == UI_DEFAULT && param_snap < NUM_PARAMS && (param_snap % 12) >= 6) ? pulse
+	                                                                                                     : 0;
 }

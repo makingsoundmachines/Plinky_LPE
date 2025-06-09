@@ -33,9 +33,7 @@ typedef enum SeqOrder {
 
 extern SeqFlags seq_flags;
 
-extern s8 cur_seq_step;   // for ui
-extern u8 cur_seq_start;  // for ui
-extern u8 cued_ptn_start; // for ui
+extern s8 cur_seq_step; // for ram
 
 // == SEQ INFO == //
 
@@ -73,3 +71,9 @@ void seq_clear_step(void);
 
 void seq_try_set_start(u8 new_step);
 void seq_set_end(u8 new_step);
+
+// == SEQ VISUALS == //
+
+void seq_ptn_start_visuals(void);
+void seq_ptn_end_visuals(void);
+u8 seq_led(u8 x, u8 y, u8 sync_pulse);

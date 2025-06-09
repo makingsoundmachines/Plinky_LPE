@@ -3,11 +3,6 @@
 
 // this module deals with selecting parameters, editing their values, and applying mod-source modulations to them
 
-// for ui.h
-extern Param selected_param;
-extern ModSource selected_mod_src;
-extern Param mem_param;
-
 // helpers
 Param get_recent_param(void);
 bool strip_available_for_synth(u8 strip_id);
@@ -45,3 +40,11 @@ void check_param_toggles(Param param_id);
 
 // midi cc
 void set_param_from_cc(Param param_id, u16 cc_value);
+
+// visuals
+void take_param_snapshots(void);
+bool draw_cur_param(void);
+bool is_snap_param(u8 x, u8 y);
+s16 value_editor_column_led(u8 y);
+u8 ui_editing_led(u8 x, u8 y, u8 pulse);
+void param_shift_leds(u8 pulse);

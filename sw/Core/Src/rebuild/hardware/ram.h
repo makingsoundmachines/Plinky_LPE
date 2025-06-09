@@ -11,14 +11,6 @@ extern u8 cur_sample_id;           // possibly remove after SPI cleanup
 extern Preset cur_preset;          // could be made local by optimizing sequencer & modulation
 extern SampleInfo cur_sample_info; // possibly give sampler its own copy
 
-// ui only
-extern u8 cur_pattern_id;
-extern u8 recent_load_item;
-extern u8 cued_preset_id;
-extern u8 cued_pattern_id;
-extern u8 cued_sample_id;
-extern u8 copy_preset_id;
-
 // get ram state
 bool pattern_outdated(void);
 
@@ -50,3 +42,17 @@ void copy_load_item(u8 item_id);
 bool apply_cued_load_items(void);
 void cue_ram_item(u8 item_id);
 void try_apply_cued_ram_item(u8 item_id);
+
+// visuals
+u8 draw_cued_preset_id(void);
+u8 draw_high_note(void);
+u8 draw_preset_id(void);
+u8 draw_cued_pattern_id(bool with_arp_icon);
+void draw_pattern_id(bool with_arp_icon);
+void draw_preset_name(u8 xtab);
+void draw_sample_id(void);
+void draw_flags(void);
+void draw_select_load_item(u8 item_id, bool done);
+void draw_clear_load_item(u8 item_id, bool done);
+
+u8 ui_load_led(u8 x, u8 y, u8 pulse);

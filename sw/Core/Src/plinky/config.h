@@ -31,7 +31,7 @@
 // change expander to output full mod src not just lfo 0.9o - fix gain on expander outputs EXPANDER_GAIN 0.9p - rescale
 // cv in and expander cv out to 6v peak 0.9q - move the wavetable to the end of flash 0.9r - make it so encoder click
 // doesnt reset until release, so that long-press doesnt reset. also increase octave by 1 0,9s - make it so that the
-// stupid notename doesnt overrun memory, doh. 0.9t - hilite root note 0.9u - fix note sample mode, make latch more
+// stupid note_name doesnt overrun memory, doh. 0.9t - hilite root note 0.9u - fix note sample mode, make latch more
 // reliable 0.9v - flip the lights for root note, doh. SERIAL MIDI IN IS OFF 0.9w - finally fix the 'last slice gets
 // trashed' bug, and add a saw shape :) 0.9x - added diminished scale 0.9y - fix wavetable off-by-2 - thanks Jan
 // Matthis! 0.9z - fix shimmer click? thanks hippo! 0.A - USB MIDI Sync 0.A1 - HW SERIAL MIDI SYNC & More CCs 0.A2 -

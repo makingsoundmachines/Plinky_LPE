@@ -1,5 +1,6 @@
 #include "synth.h"
 #include "data/tables.h"
+#include "gfx/gfx.h"
 #include "hardware/adc_dac.h"
 #include "hardware/cv.h"
 #include "hardware/midi.h"
@@ -13,6 +14,7 @@
 #include "synth/arp.h"
 #include "testing/tick_counter.h"
 #include "time.h"
+#include "ui/oled_viz.h"
 #include "ui/ui.h"
 
 // cleanup
@@ -26,10 +28,10 @@ Voice voices[NUM_VOICES];
 static bool cv_trig_high = false;   // should cv trigger be high?
 static s32 cv_gate_value;           // cv gate value
 static bool got_high_pitch = false; // did we save a high pitch?
-s32 high_string_pitch = 0;          // pitch on highest touched string
+static s32 high_string_pitch = 0;   // pitch on highest touched string
 static bool got_low_pitch = false;  // did we save a low pitch?
 static s32 low_string_pitch = 0;    // pitch on lowest touched string
-u16 synth_max_pres = 0;             // highest pressure seen
+static u16 synth_max_pres = 0;      // highest pressure seen
 
 static void osc_generation_init(void) {
 	cv_trig_high = false;
@@ -422,4 +424,66 @@ void handle_synth_voices(u32* dst) {
 	send_cvs();
 	if (using_sampler())
 		sampler_playing_tick();
+}
+
+u8 draw_high_note(void) {
+	if (synth_max_pres > 1 && !(using_sampler() && !cur_sample_info.pitched))
+		return fdraw_str(0, 0, F_20_BOLD, "%s", note_name((high_string_pitch + 1024) / 2048));
+	else
+		return 0;
+}
+
+void draw_max_pres(void) {
+	vline(126, 32 - (synth_max_pres >> 6), 32, 1);
+	vline(127, 32 - (synth_max_pres >> 6), 32, 1);
+}
+
+void draw_voices(void) {
+	const static u8 leftOffset = 44;
+	const static u8 maxHeight = 10;
+	const static u8 barWidth = 3;
+	const static float moveSpeed = 5; // pixels per frame
+	static float touchLineHeight[8];
+	static float maxVolume[8];
+	static float volLineHeight[8];
+	u8 rightOffset = latch_on() ? 38 : 14;
+	// all voices
+	for (u8 i = 0; i < 8; i++) {
+		// string volume
+		if (maxVolume[i] != 0) {
+			volLineHeight[i] = voices[i].env1_lvl / maxVolume[i] * maxHeight;
+		}
+		// string pressed
+		if (write_string_touched_copy & (1 << i)) {
+			// move touch line
+			if (touchLineHeight[i] < maxHeight)
+				touchLineHeight[i] += moveSpeed;
+			if (touchLineHeight[i] > maxHeight)
+				touchLineHeight[i] = maxHeight;
+			// volume line catches up
+			volLineHeight[i] = maxf(volLineHeight[i], touchLineHeight[i]);
+			// remember peak volume
+			maxVolume[i] = voices[i].env1_lvl;
+		}
+		// string not pressed
+		else {
+			if (touchLineHeight[i] > 0)
+				touchLineHeight[i] -= moveSpeed;
+			if (touchLineHeight[i] < 0)
+				touchLineHeight[i] = 0;
+			// has the sound died out?
+			if (maxVolume[i] != 0 && volLineHeight[i] < 0.25) {
+				// disable volume line
+				maxVolume[i] = 0;
+				volLineHeight[i] = 0;
+			}
+		}
+		// draw bars
+		u8 x = i * (OLED_WIDTH - leftOffset - rightOffset) / 8 + leftOffset;
+		if (touchLineHeight[i] > 0) {
+			for (uint8_t dx = 0; dx < barWidth; dx++)
+				vline(x - barWidth / 2 + dx, OLED_HEIGHT - 1 - touchLineHeight[i], OLED_HEIGHT - 1, 2);
+		}
+		hline(x - barWidth / 2, OLED_HEIGHT - 1 - volLineHeight[i], x - barWidth / 2 + barWidth, 1);
+	}
 }

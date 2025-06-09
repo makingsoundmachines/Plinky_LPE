@@ -19,7 +19,7 @@ void leds_bootswish(void);
 static inline u8 led_add_gamma(s16 i) {
 	if (i < 0)
 		return 0;
-	if (i > 255)
+	if (i >= 255)
 		return 255;
 	return (i * i) >> 8;
 }
