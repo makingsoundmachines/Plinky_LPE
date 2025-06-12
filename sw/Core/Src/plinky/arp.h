@@ -98,9 +98,7 @@ bool euclidstuff(euclid_state *s, int patlen, int prob, int arpmode) {
 		float k = aprob * (1.f / 128.f); //arpeuclid / (float) (abspatlen);
 		click = (floor(s->trigcount * k) != floor(s->trigcount * k - k)); // euclidian rhythms!
 	}
-	//  printf("%d: %d\n", arptrigcount, arpretrig);
 	s->trigcount++;
-	//arpretrig = true;
 	bool step; // do we go to the next step?
 	if (apatlen > 0) {
 		s->trigcount %= apatlen;
@@ -118,9 +116,6 @@ bool euclidstuff(euclid_state *s, int patlen, int prob, int arpmode) {
 		s->supress = do_you_want_silence_in_long_bits ? !click : false;
 	}
 	s->did_a_retrig = click;
-//	if (!click) {
-//		int i = 1;
-//	}
 	return step;
 }
 
@@ -314,8 +309,6 @@ void seq_step(int initial) { // initial means - this is the initial clock pulse 
 	if (initial>=0)	if (seq_divide_counter <= seqdiv || controlled_by_gatecv) // if initial is negative, we FORCE a step
 		return;
 	seq_divide_counter = 0;
-	
-//	EmuDebugLog("last_step_period %d\n", last_step_period);
 	last_step_period = ticks_since_step;
 	ticks_since_step = 0;
 	seq_divide_counter = 0;
@@ -427,12 +420,6 @@ void update_arp(bool clock) {
 			if (arp_divide_counter <= 0) {
 //				called_trig = true;
 				last_arp_period = ticks_since_arp;
-				/*
-				if (last_arp_period < 31 || last_arp_period>32) {
-					EmuDebugLog("arp %d\r\n", last_arp_period);
-					int i = 1;
-				}
-				*/
 				ticks_since_arp = 0;
 				arptrig(synthfingerdown_nogatelen);
 				arp_divide_counter = 0;
@@ -464,7 +451,6 @@ int update_clock(void) { // returns 1 for clock, 2 for half clock, 0 for neither
 	tick++;
 	bool gotclock = false;
 	//////////////////////////////////////////// eurorack clock input
-//	int gate_input_max = 65536;
 	static u8 prevgotclk=0;
 	u8 newgotclk=gotclkin;
 	if(newgotclk!=prevgotclk) {
@@ -472,17 +458,6 @@ int update_clock(void) { // returns 1 for clock, 2 for half clock, 0 for neither
 		gotclock=true;
 		external_clock_enable=true;
 	}
-
-	/*
-	for (int i = 0; i < ADC_SAMPLES * ADC_CHANS; i += ADC_CHANS) {
-		if (adcbuf[i + ADC_CLK] <= 0)
-			clk_in_high = true;
-		if (adcbuf[i + ADC_RESET] <= 0)
-			reset_in_high = true;
-		gate_input_max = mini(gate_input_max, adcbuf[i + ADC_GATE]);
-	}
-	*/
-
 
 	if (/*(reset_in_high && !reset_in_high_prev) || */got_ui_reset) { // TODO - if audio in level is turned down, look for pulses?
 		OnGotReset();
@@ -498,8 +473,7 @@ int update_clock(void) { // returns 1 for clock, 2 for half clock, 0 for neither
 		curgate_digital = newgate_digital;
 	}
 	got_ui_reset = false;
-//	clk_in_high_prev = clk_in_high;
-//	reset_in_high_prev = reset_in_high;
+
 #define ACCURATE_FS 31250
 
 	// revert to internal clock after not getting any external clock signal for a second
@@ -516,16 +490,11 @@ int update_clock(void) { // returns 1 for clock, 2 for half clock, 0 for neither
 			bpm_clock_phase &= (1 << 21) - 1;
 			gotclock = true;
 		}
-		//if (playmode == PLAY_WAITING_FOR_CLOCK) {
-		//	bpm_clock_phase = 0;
-		//	gotclock = true;
-		//}
 	}
 	////////////////////////////////////////////////////// clock advance 
 	ticks_since_clock++;
 	ticks_since_step++;
 	ticks_since_arp++;
-	// if (playmode == PLAY_PREVIEW && shift_down==SB_PLAY) -- maybe eat a single clock if the finger is still down?
 
 	if (!gotclock) {
 		SetOutputCVClk(0); // trigger style clock

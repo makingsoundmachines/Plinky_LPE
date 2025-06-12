@@ -1,76 +1,4 @@
-
-#ifdef LPZW_TEST
-#define PROGMEM
-
-#include "lpzw.h"
-
-void lpzwtest(void) {
-	static const uint8_t logo32x32[] PROGMEM = {
-	    0xE0, 0xF0, 0x38, 0x9C, 0xCE, 0xC6, 0x63, 0x31, 0xF9, 0xEF, 0x67, 0x33, 0x19, 0x1C, 0x0E, 0x07,
-	    0x07, 0x0E, 0x1C, 0x19, 0x33, 0x67, 0xEF, 0xF9, 0x31, 0x63, 0xC6, 0xCE, 0x9C, 0x38, 0xF0, 0xE0,
-	    0xFF, 0xFF, 0x07, 0xF3, 0xFF, 0x3F, 0x76, 0xE3, 0xCD, 0x8C, 0x1C, 0x3C, 0x3C, 0xF8, 0x00, 0x00,
-	    0x00, 0x00, 0xF8, 0x3C, 0x3C, 0x1C, 0x8C, 0xCD, 0xE3, 0x76, 0x3F, 0xFF, 0xF3, 0x07, 0xFF, 0xFF,
-	    0xFF, 0xFF, 0xE0, 0xCF, 0x9F, 0x30, 0x60, 0xC0, 0xFF, 0x3F, 0x30, 0xF0, 0xF0, 0x37, 0x36, 0x3E,
-	    0x3E, 0x36, 0x37, 0xF0, 0xF0, 0x30, 0x3F, 0xFF, 0xC0, 0x60, 0x30, 0x9F, 0xCF, 0xE0, 0xFF, 0xFF,
-	    0x07, 0x0F, 0x1C, 0x18, 0x31, 0x63, 0xC6, 0xCC, 0xD9, 0xF3, 0xE7, 0xEF, 0xDF, 0x3B, 0x73, 0xE3,
-	    0xE3, 0x73, 0x3B, 0xDF, 0xEF, 0xE7, 0xF3, 0xD9, 0xCC, 0xC6, 0x63, 0x31, 0x18, 0x1C, 0x0F, 0x07,
-	};
-
-	u8 bmp[32][32];
-
-	for (int y = 0; y < 32; ++y) {
-		for (int x = 0; x < 32; ++x) {
-			bmp[y][x] = (logo32x32[x + (y / 8) * 32] & (1 << (y & 7))) ? 255 : 0;
-		}
-	}
-	u8 logorot[4][32];
-	DebugLog("static const uint8_t logo32x32_rotated_pins_top[] PROGMEM = {\n");
-	for (int y = 0; y < 4; ++y) {
-		for (int x = 0; x < 32; ++x) {
-			u8 b = 0;
-			// for (int yy = 0; yy < 8; ++yy) if (bmp[31-x][yy + y * 8]) b |= 1 << yy; // pins at bottom
-			for (int yy = 0; yy < 8; ++yy)
-				if (bmp[x][31 - yy - y * 8])
-					b |= 1 << yy; // pins at top
-			logorot[y][x] = b;
-			DebugLog("0x%02x,", b);
-		}
-		DebugLog("\n");
-	}
-	DebugLog("};\n");
-	for (int i = 33; i < 0x60; ++i)
-		DebugLog("%c", i);
-	DebugLog("\r\n");
-	FILE* f = fopen("c:/temp/lpzw.pgm", "wb");
-	fprintf(f, "P5 32 32 255\n");
-	fwrite(bmp, 32, 32, f);
-	fclose(f);
-	int frame = 0;
-	while (1) {
-		++frame;
-		clear();
-
-		clearscreen();
-		drawlpzwlogo(16.f * sinf(frame * 0.01f));
-		drawstr24(-32.f - 32.f * sinf(frame * 0.02f), 32, "HELLO KAY");
-		drawstr24(-32.f - 32.f * sinf(frame * 0.03f), 32 + 25, "HOW ARE YOU");
-		drawstr24(-32.f - 32.f * sinf(frame * 0.04f), 32 + 50, "C#3 IS A NOTE");
-
-		memcpy(vrambuf + 1, i2cbuf, 512);
-		oled_flip(vrambuf);
-		HAL_Delay(10);
-	}
-}
-
-#endif
-
 void bootswish(void) {
-#ifdef WASM
-	return;
-#endif
-#ifdef LPZW_TEST
-	lpzwtest();
-#endif
 	for (int f = 0; f < 64; ++f) {
 		HAL_Delay(20);
 		for (int y = 0; y < 9; ++y) {
@@ -293,7 +221,6 @@ void DrawSamplePlayback(SampleInfo* s) {
 	static int curofscenter = 0;
 	static bool jumpable = false;
 	int ofs = curofscenter / 1024;
-	// int maxx = s->samplelen / 1024;
 	textcol = 3;
 	for (int i = 32; i < 128 - 16; ++i) {
 		int x = i - 32 + ofs;
@@ -394,8 +321,6 @@ void samplemode_ui(void) {
 		ramtime[GEN_SAMPLE] = millis();
 		// done!
 		spistate = 0;
-		// DebugSPIPage(0);
-		// DebugSPIPage(1024*1024*2-65536);
 		enable_audio = EA_MONITOR_LEVEL;
 	}
 	if (enable_audio == EA_PLAY) {
@@ -414,10 +339,7 @@ void samplemode_ui(void) {
 		}
 		else {
 			DrawSample(s, recsliceidx);
-
-			// int w = fdrawstr(0, 0, F_16, "%d", edit_sample0 + 1);
 			textcol = 2;
-			// fdrawstr(0, 32 - 12, F_12, "%dms", s->splitpoints[recsliceidx] / 32);
 			drawstr(-128 + 16, 32 - 12, F_12, (s->loop & 2) ? "all" : "slc");
 			drawicon(128 - 16, 32 - 14, ((s->loop & 1) ? I_FEEDBACK[0] : I_RIGHT[0]) - 0x80, textcol);
 			if (s->pitched)
@@ -452,9 +374,6 @@ void samplemode_ui(void) {
 	if (enable_audio >= EA_RECORDING) {
 
 		int locrecpos = recpos;
-		// locrecpos=1024*1024;
-		// int bufsize = locrecpos - recreadpos;
-		// DebugLog("%d buf\r\n", bufsize);
 		while (spistate)
 			;
 		spistate = 0xff; // prevent spi reads for a while!
@@ -640,7 +559,6 @@ const char* getparamstr(int p, int mod, int v, char* valbuf, char* decbuf) {
 		case P_SEQDIV: {
 			if (vscale >= DIVISIONS_MAX)
 				return "(Gate CV)";
-			// int divisor = (clampi(vscale - 3, 0, 3 * 5) / 3);
 			int n = sprintf(valbuf, "%d", divisions[vscale] /* >> divisor*/);
 			if (!decbuf)
 				decbuf = valbuf + n;
@@ -656,7 +574,6 @@ const char* getparamstr(int p, int mod, int v, char* valbuf, char* decbuf) {
 				break;
 			}
 			vscale = (mini(v, FULL - 1) * DIVISIONS_MAX) / FULL;
-			// int divisor = (clampi(vscale-3,0,3*5) / 3);
 			int n = sprintf(valbuf, "%d", divisions[vscale] /*>> divisor*/);
 			if (!decbuf)
 				decbuf = valbuf + n;
@@ -759,7 +676,6 @@ void editmode_ui(void) {
 					corners += prev[i + 9];
 			}
 			float target = corners * (1.f / 12.f) + edges * (1.f * 2.f / 12.f);
-			// if (x==4 && y==4) target=4.f;
 			target *= damping;
 			if (curfinger->pos >> 8 == y) {
 				float pressure = curfinger->pressure * (1.f / 2048.f);
@@ -784,17 +700,6 @@ void editmode_ui(void) {
 	u8 ep = edit_param;
 	if (ui_edit_param != ep) {
 		ui_edit_param = ep; // as it may change in the background
-		                    /*		int page = 0;
-		                            if ((ui_edit_param % 12) >= 6) page = 1;
-		                            // we want to put ep into slot 0, and push whatever was there downwards until we find the new one
-		                            u8 towrite = ep;
-		                            for (int i = 0; i < 4; ++i) {
-		                                u8 displaced = ui_edit_param_prev[page][i];
-		                                ui_edit_param_prev[page][i] = towrite;
-		                                if (displaced == ep) break;
-		                                towrite = displaced;
-		                            }
-		                            */
 	}
 	u8 ui_edit_mod = edit_mod;
 	u8 loopstart_step = (rampreset.loopstart_step_no_offset + step_offset) & 63;
@@ -820,11 +725,6 @@ void editmode_ui(void) {
 	else if (shift_down == SB_CLEAR && editmode != EM_PRESET) {
 		drawstr(0, 0, F_32_BOLD, I_CROSS "clear");
 	}
-	/*
-	else if (shift_down == SB_PREV && shift_down_time > 4 && enable_audio == EA_PLAY) {
-	    drawstr(0, 4, F_24_BOLD, rampreset.arpon ? I_NOTES "arp >off" : I_NOTES "arp >on");
-	    invertrectangle(0, 0, shift_down_time*4-8, 4);
-	}*/
 	else
 		switch (editmode) {
 		case EM_PLAY:
@@ -869,15 +769,7 @@ void editmode_ui(void) {
 			if (edit_pattern_pending != 255 && edit_pattern_pending != cur_pattern)
 				fdrawstr(0, 16, F_20_BOLD, "%c%d->%d", seqicon, cur_pattern + 1, edit_pattern_pending + 1);
 			else
-				// if (cur_sample1)
-				// fdrawstr(0, 16, F_20_BOLD, "%c%d " I_WAVE "%d", seqicon, cur_pattern + 1, cur_sample1);
-				// else
 				fdrawstr(0, 16, F_20_BOLD, "%c%d", seqicon, cur_pattern + 1);
-			// clear();
-			// DrawLFOs();
-			// fdrawstr(0, 0, F_8, "%5d %5d", debuga[0], debuga[1]);
-			// fdrawstr(0, 8, F_8, "%5d %5d", debuga[2], debuga[3]);
-			// drawstr(48, 24, F_8, "loopop edition");
 			break;
 		case EM_PARAMSA:
 		case EM_PARAMSB:
@@ -1010,7 +902,6 @@ draw_parameter:
 	bool playing = playmode == PLAYING;
 	int clockglow = maxi(96, 255 - calcseqsubstep(0, 256 - 96));
 	int flickery = triangle(millis() / 2);
-	//	int flickery2 = triangle(millis() & 255);
 	int flickeryfast = triangle(millis() * 8);
 	int loopbright = 96;
 	int phase0 = calcseqsubstep(0, 8);
@@ -1022,17 +913,12 @@ draw_parameter:
 	}
 
 	for (int fi = 0; fi < 8; ++fi) {
-		//			Finger *f = touch_getlatest(fi);
-		// int yy=(f->pos)/256;
-
 		Finger* synthf = touch_synth_getlatest(fi);
 		FingerRecord* fr = readpattern(fi);
 
 		///////////////////////////////////// ROOT NOTE DISPLAY
 		/// per finger
 		int root = param_eval_finger(P_ROTATE, fi, synthf);
-		// int interval = (param_eval_finger(P_INTERVAL, fi, synthf) * 12) >> 7;
-		// int totpitch = 0;
 		u32 scale = param_eval_finger(P_SCALE, fi, synthf);
 		if (scale >= S_LAST)
 			scale = 0;
@@ -1119,9 +1005,6 @@ bargraph:
 					}
 					if (pAorB == ui_edit_param)
 						k = flickery;
-
-					// else
-					//	k = maxi(k, abs(GetParam(p, ui_edit_mod)) / 4);
 				}
 #ifdef NEW_LAYOUT
 				if (pAorB == P_ARPONOFF)
@@ -1225,43 +1108,19 @@ bargraph:
 		if (shift_down >= 0 && shift_down < 8)
 			led_ram[8][shift_down] = maxi(led_ram[8][shift_down], 128);
 	}
-	//	for (int x = 0; x < 8; ++x) for (int y = 0; y < 9; ++y) led_ram[y][x] = 255; // all leds on test
 }
-#ifdef DEBUG
-// #define NOISETEST
-#endif
-#ifdef NOISETEST
-extern float noisetestl;
-extern float noisetestr;
-extern float noisetest;
-extern s16 noisegate;
-#endif
 
 void plinky_frame(void) {
 	codec_setheadphonevol(sysparams.headphonevol + 45);
 
 	PumpWebUSB(false);
 
-#ifdef NOISETEST
-	static u8 foo;
-	foo++;
-	if (foo > 20)
-		DebugLog("%d %d - %d ng %d\r\n", (int)noisetestl, (int)noisetestr, (int)noisetest, noisegate), foo = 0;
-#endif
 	if (0)
 		if ((frame & 31) == 0) {
 			DebugLog("spi %d - ", spiduration);
 			spiduration = 0;
 			tc_log(&_tc_budget, "budget");
 			tc_log(&_tc_all, "all");
-			/*
-			tc_log(&_tc_fx, "fx");
-			tc_log(&_tc_audio, "audio");
-			//		tc_log(&_tc_touch,"touch");
-			//		tc_log(&_tc_led,"led");
-			tc_log(&_tc_osc, "osc");
-			//		tc_log(&_tc_filter,"filt");
-			*/
 			DebugLog("\r\n");
 		}
 
@@ -1283,26 +1142,4 @@ void plinky_frame(void) {
 	}
 	audiohistpos = (audiohistpos + 1) & 31;
 	PumpFlashWrites();
-
-	/*
-	int sensidx=34;
-	int a = (1 << 23) / (finger_raw[sensidx] + 1);
-	int b = (1 << 23) / (finger_raw[sensidx+1] + 1);
-	a -= (1 << 23) / (finger_max[sensidx] + 1);
-	b -= (1 << 23) / (finger_max[sensidx+1] + 1);
-	int pressure = a + b;
-	int pos = (pressure>1000) ? ((b - a)<<12) / pressure : 0;
-	static int prstrata[8];
-	static int postrata[8];
-	int s = (pressure-1000) / 500; if (s < 0) s = 0; if (s > 7) s = 7;
-	prstrata[s] = pressure;
-	postrata[s]=pos;
-	if (pressure>1000) {
-	    DebugLog("%5d %5d %5d %5d    ",finger_max[sensidx], finger_max[sensidx+1], finger_raw[sensidx],
-finger_raw[sensidx+1]); for (int i = 0; i < 8; ++i)
-	    //	DebugLog("%4d %5d  ", prstrata[i], postrata[i]);
-	    DebugLog("\r\n");
-	}
-//	HAL_Delay(10);
-*/
 }

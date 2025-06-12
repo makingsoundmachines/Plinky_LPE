@@ -31,7 +31,7 @@ int preset_section_from_rotstep(int rotstep) {
 
 void init_slice_edit(SampleInfo* s, int fi) {
 	recsliceidx = fi;
-	fingerstableparamstart[fi] = /*editpitch ? s->notes[fi] * NOTE_FINGER_SCALE : */ s->splitpoints[fi];
+	fingerstableparamstart[fi] = s->splitpoints[fi];
 	knobsmooth_reset(&fingerstableparamcur[fi], fingerstableparamstart[fi]);
 }
 
@@ -56,22 +56,7 @@ void on_longpress(int rotstep) {
 
 #define LONGPRESS_THRESH (128 + 32)
 void ResetLongPress(void) {
-	if (longpress <= 0)
-		return;
-	/* no longer needed now we do this on 'up'
-	if (longpress < LONGPRESS_THRESH && longpress>64) {
-	    // they cancelled a long press despite having started it
-	    if (editmode == EM_PRESET) {
-	        if (first_finger_rotstep < 32)
-	            SetPreset(copyfrompreset, false);
-	        else if (first_finger_rotstep < 64 - 8) {
-	            EditParamQuant(P_SEQPAT, M_BASE,copyfrompattern);
-	        }
-
-	    }
-	}*/
 	longpress = 0;
-	// first_finger_rotstep = -1;
 }
 
 void togglearp(void) {
@@ -236,9 +221,6 @@ void finger_editing(int fi, int frame) {
 	bool pressurestable = abs(uif_prev->pressure - uif->pressure) < 200;
 	bool posstable = abs(uif_prev->pos - uif->pos) < 32;
 	if (uif->pressure > 100) {
-		// int fy = uif->pos >> 8;
-		// if (fi == 7) EmuDebugLog("pressure delta %d, pos delta %d, y=%d\n", abs(uif_prev->pressure - uif->pressure),
-		// abs(uif_prev->pos - uif->pos), fy);
 		//  finger down
 		bool isediting = is_finger_an_edit_operation(fi);
 
@@ -254,15 +236,12 @@ void finger_editing(int fi, int frame) {
 				trig = true;
 				fingerstable |= bit;
 				fingerstablepos[fi] = uif->pos;
-				//	if (fi == 7) EmuDebugLog("finger stable y = %d %d\n", uif->pos >> 8, uif->pos);
 			}
 		}
-		// bool increasing_pressure = latestf->pressure > previousf->pressure;
 	}
 	else {
 		// finger up!
 		if (uif->pressure < 1 && (fingerstable & bit)) {
-			// onfingerstableup((fingerediting&bit),fi, latestf, previousf);
 			fingerstable &= ~bit;
 			if (editmode == EM_PRESET) {
 				int firstsection = preset_section_from_rotstep(first_finger_rotstep);
@@ -284,7 +263,6 @@ void finger_editing(int fi, int frame) {
 					break;
 				case 2:
 					if (edit_sample1_pending == prev_sample1_pending || !isplaying()) {
-						// EmuDebugLog("set edit_sample1_pending to %d\n", edit_sample1_pending);
 						if (edit_sample1_pending != 255)
 							EditParamQuant(P_SAMPLE, M_BASE, edit_sample1_pending);
 						edit_sample1_pending = 255;
@@ -295,7 +273,6 @@ void finger_editing(int fi, int frame) {
 		}
 		fingerediting &= ~bit;
 	}
-	//		fingerpos_smoothed[fi] += (latestf->pos - fingerpos_smoothed[fi]) * fingerpos_k[fi];
 
 	if ((fingerediting & bit) && (fingerstable & bit)) {
 		// finger is down over some editing operation!
@@ -342,33 +319,18 @@ void finger_editing(int fi, int frame) {
 				if (fingerstable & bit) {
 					float finger_offset = (uif->pos - fingerstablepos[fi]);
 					finger_offset = deadzone(finger_offset, 32.f);
-					// finger_offset = fabsf(finger_offset) * finger_offset * (1.f / 32.f);
 					float target = fingerstableparamstart[fi] - finger_offset * (32000.f / 2048.f);
 					float cur = knobsmooth_update_knob(&fingerstableparamcur[fi], target, 32000.f);
-					/*bool editpitch = false; //  fingerstableparamidx[fi];
-					if (editpitch) {
-					    cur = clampf(cur, 0.f, 96 * NOTE_FINGER_SCALE);
-					    int newnote = (int)(cur * (1.f / NOTE_FINGER_SCALE) + 0.5f);
-					    if (s->notes[fi] != newnote) {
-					        s->notes[fi] = newnote;
-					        EmuDebugLog("FINGER SET NOTE %d to %d\n", fi, newnote);
-					        ramtime[GEN_SAMPLE] = millis();
-					    }
-					}
-					else */
-					{
-						float smin = fi ? s->splitpoints[fi - 1] + 1024.f : 0.f;
-						float smax = (fi < 7) ? s->splitpoints[fi + 1] - 1024.f : s->samplelen;
-						if (smin < 0.f)
-							smin = 0.f;
-						if (smax > s->samplelen)
-							smax = s->samplelen;
-						cur = clampf(cur, smin, smax);
-						if (s->splitpoints[fi] != cur) {
-							s->splitpoints[fi] = cur;
-							// EmuDebugLog("FINGER SET SPLITPOINT %d to %d\n", fi, s->splitpoints[fi]);
-							ramtime[GEN_SAMPLE] = millis();
-						}
+					float smin = fi ? s->splitpoints[fi - 1] + 1024.f : 0.f;
+					float smax = (fi < 7) ? s->splitpoints[fi + 1] - 1024.f : s->samplelen;
+					if (smin < 0.f)
+						smin = 0.f;
+					if (smax > s->samplelen)
+						smax = s->samplelen;
+					cur = clampf(cur, smin, smax);
+					if (s->splitpoints[fi] != cur) {
+						s->splitpoints[fi] = cur;
+						ramtime[GEN_SAMPLE] = millis();
 					}
 				}
 			}
@@ -428,7 +390,6 @@ void finger_editing(int fi, int frame) {
 						if (tapcount > 1) { // tap tempo!
 							float taps_per_minute =
 							    (32000.f * (tapcount - 1) * 60.f) / ((ticks() - firsttaptime) * BLOCK_SAMPLES);
-							// DebugLog("%d - %0.1f\n", tapcount, taps_per_minute);
 							bpm10x = clampi((int)(taps_per_minute * 10.f + 0.5f), 300, 2400);
 							EditParamNoQuant(P_TEMPO, 0, ((bpm10x - 1200) * FULL) / 1200);
 						}
@@ -516,19 +477,13 @@ void finger_editing(int fi, int frame) {
 			if (section == firstsection)
 				switch (section) {
 				case 0:
-					// if (trig)
-					{
-						copyfrompreset = sysparams.curpreset;
-						prev_preset_pending = edit_preset_pending;
-					}
+					copyfrompreset = sysparams.curpreset;
+					prev_preset_pending = edit_preset_pending;
 					edit_preset_pending = rotstep;
 					break;
 				case 1: {
-					// if (trig)
-					{
-						copyfrompattern = cur_pattern;
-						prev_pattern_pending = edit_pattern_pending;
-					}
+					copyfrompattern = cur_pattern;
+					prev_pattern_pending = edit_pattern_pending;
 					edit_pattern_pending = rotstep - 32;
 					break;
 				}

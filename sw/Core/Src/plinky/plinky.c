@@ -251,8 +251,6 @@ short reverbbuf[RVMASK + 1];
 int emupitchsense;
 int emugatesense;
 #else
-//__attribute__((section(".dlram"))) short delaybuf[DLMASK + 1];
-//__attribute__((section(".rvram"))) short reverbbuf[RVMASK + 1];
 short* reverbbuf = (short*)0x10000000; // use ram2 :)
 short* delaybuf = (short*)0x20008000;  // use end of ram1 :)
 
@@ -316,7 +314,6 @@ s8 enable_audio = EA_OFF;
 
 bool gatecv_trig = false;
 
-// lpf_k = 1-exp(-0.707/t) where t is in samples to get to half
 static inline float lpf_k(int x) {
 	return table_interp(lpf_ks, x);
 }
@@ -334,12 +331,7 @@ extern float accel_lpf[2];
 extern float accel_smooth[2];
 s16 accel_sens = 0;
 
-// extern int debuga[4];
-// int debuga[4];
-
 void update_params(int fingertrig, int fingerdown) {
-
-	//	DebugLog("%d,%d,%d,%d,%d,%d,%d,%d,%d\r\n",adcbuf[0],adcbuf[1],adcbuf[2],adcbuf[3],adcbuf[4],adcbuf[5],adcbuf[6],adcbuf[7],adcbuf[8]);
 
 	// update envelopes
 #ifdef NEW_LAYOUT
@@ -379,7 +371,6 @@ void update_params(int fingertrig, int fingerdown) {
 		}
 		int lfofreq = param_eval_finger(P_ENV_RATE, vi, f);
 		u32 dlfo = (u32)(table_interp(pitches, 32768 + (lfofreq >> 1)) * (1 << 24));
-		// u32 dlfo=(u32)exp2f(24.f+lfofreq*10.f);
 		float lfowarp = param_eval_finger(P_ENV_WARP, vi, f) * (0.4999f / 65536.f) + 0.5f;
 		u32 prev_cycle = v->env_phase >> 32;
 		float lfoval = lfo_eval((u32)((v->env_phase) >> 16), lfowarp, LFO_ENV);
@@ -443,10 +434,6 @@ void update_params(int fingertrig, int fingerdown) {
 		if (accel_counter < 1000)
 			accel_lpf[j] = accel_smooth[j] = f;
 	}
-	//		int t1=1000*accel_lpf[0];
-	//		int t2=1000*accel_lpf[1];
-	//		int t3=1000*accel_smooth[0];
-	//		int t4=1000*accel_smooth[1];
 
 	int gatesense = getgatesense();
 	int pitchsense = getpitchsense();
@@ -504,24 +491,16 @@ void update_params(int fingertrig, int fingerdown) {
 
 		int lfofreq = param_eval_int(P_AFREQ + i6, any_rnd, env16, pressure16);
 		u32 dlfo = (u32)(table_interp(pitches, 32768 + (lfofreq >> 1)) * (1 << 24));
-		// u32 dlfo=(u32)exp2f(24.f+lfofreq*10.f);
 		float lfowarp = param_eval_float(P_AWARP + i6, any_rnd, env16, pressure16) * 0.49f + 0.5f;
 		int lfoshape = param_eval_int(P_ASHAPE + i6, any_rnd, env16, pressure16);
 		float lfoval = lfo_eval((u32)((lfo_pos[i] += dlfo) >> 16), lfowarp, lfoshape);
 
 		lfoval *= param_eval_float(P_ADEPTH + i6, any_rnd, env16, pressure16);
-		// expander_out[i] = clampi(EXPANDER_ZERO - (int)(lfoval * (float)(EXPANDER_RANGE)), 0, EXPANDER_MAX);
 
 		int cvval = param_eval_int(P_AOFFSET + i6, any_rnd, env16, pressure16);
-		// if (i == 0) debuga[0] = cvval>>8;
 		cvval += (int)(adc * (param_eval_int(P_ASCALE + i6, any_rnd, env16, pressure16) << 1));
 		cvval += (int)(adcknob * 65536.f); // knob is not scaled by the cv bias/scale parameters. I think thats useful.
 		mod_cur[M_A + i] = ((int)(lfoval * 65536.f)) + cvval;
-		// if (i == 0) {
-		//	debuga[1] = adc * 256.f;
-		//	debuga[2] = adcknob * 256.f;
-		//	debuga[3] = lfoval * 256.f;
-		// }
 
 		float expander_val = mod_cur[M_A + i] * (EXPANDER_GAIN * EXPANDER_RANGE / 65536.f);
 		expander_out[i] = clampi(EXPANDER_ZERO - (int)(expander_val), 0, EXPANDER_MAX);
@@ -541,9 +520,6 @@ void update_params(int fingertrig, int fingerdown) {
 	}
 
 	accel_sens = clampi(param_eval_int(P_ACCEL_SENS, any_rnd, env16, pressure16) / 2, -32767, 32767);
-
-	//	DebugLog("%d,%d,%d,%d\r\n",mod_cur[0]/256,mod_cur[1]/256,mod_cur[2]/256,mod_cur[3]/256);
-	//	HAL_UART_Transmit(&huart3, (u8*) mod_cur, 4*4, 1000);
 }
 
 static inline void putscopepixel(unsigned int x, unsigned int y) {
@@ -578,22 +554,10 @@ float UpdateEnvelope(Voice* v, int fingeridx, float targetvol) {
 	if (arpmode >= 0) {
 		if (!(arpbits & bit))
 			targetvol = 0.f;
-		/*else if (targetvol > 0.f) {
-		    // gate len for arp here!
-		    int gatelen = param_eval_finger(P_GATE_LENGTH, fingeridx, f) >> 8;
-		    if (gatelen < 256) {
-		        int phase = calcarpsubstep(0, 256);
-		        if (phase > gatelen || !arp_rhythm.did_a_retrig)
-		            targetvol = 0.f;
-		    }
-		}*/
 	}
 
 	float vol = v->vol;
 	if (arpretrig || (synthfingertrigger & bit)) {
-		// if (vol>sustain*0.5f)
-		//	vol = sustain*0.5f; // make sure you hear the retrig :) not sure... legato would be nice. maybe use sustain
-		// as a hint?
 		vol *= sustain;
 		v->decaying = false;
 		trigout = true;
@@ -686,13 +650,11 @@ int arpdebugi;
 
 extern const short wavetable[17][1031];
 
-// s16 wavetable[WAVETABLE_SIZE*WT_LAST];
 #ifndef EMU
 __attribute__((section(".wavetableSection")))
 #endif
 #include "defs/wavetable.h"
 #ifdef _WIN32
-//#define clz __lzcnt
 u32 clz(u32 val) {
 	u8 res = 0;
 	if (!val)
@@ -707,16 +669,11 @@ u32 clz(u32 val) {
 #define clz __builtin_clz
 #endif
 void RunVoice(Voice* v, int fingeridx, float targetvol, u32* outbuf) {
-
-	//	if (fingeridx == 0) targetvol = 1.f;
-	// if (fingeridx > 0) return;
-	// float otargetvol = targetvol;
 	targetvol = UpdateEnvelope(v, fingeridx, targetvol);
 	tc_start(&_tc_osc);
 	float noise;
 #ifdef EMU
 	if (fingeridx == 4) {
-		// bool click = otargetvol > 0.5f && (arpbits & 16) && arpretrig ;
 		arpdebug[arpdebugi] = targetvol; // +(click ? 0.5 : 0);
 		                                 // if (click && targetvol < 0.001f) {
 		                                 //	arpdebug[arpdebugi] = 1.f;
@@ -724,14 +681,6 @@ void RunVoice(Voice* v, int fingeridx, float targetvol, u32* outbuf) {
 	}
 #endif
 	Finger* f = touch_synth_getlatest(fingeridx);
-
-	/* the touch.h version should handle this damn it
-	if (targetvol > 0.01f && v->vol < 0.01f) {
-	    // trigger! reset pitches?
-	    for (int c1 = 0; c1 < 8; ++c1) {
-	        fingers_synth_sorted[fingeridx][c1] = *f;
-	    }
-	}*/
 
 	float glide = lpf_k(param_eval_finger(P_GLIDE, fingeridx, f) >> 2) * (0.5f / BLOCK_SAMPLES);
 	int drivelvl = param_eval_finger(P_DRIVE, fingeridx, f);
@@ -750,8 +699,6 @@ void RunVoice(Voice* v, int fingeridx, float targetvol, u32* outbuf) {
 	float resonance = 2.1f - (table_interp(pitches, resonancei) * (2.1f / pitches[1024]));
 
 	drive *= 2.f / (resonance + 2.f);
-
-	// glide=0.25f/BLOCK_SAMPLES;
 
 	Finger* synthf = touch_synth_getlatest(fingeridx);
 	float timestretch = 1.f;
@@ -834,7 +781,6 @@ void RunVoice(Voice* v, int fingeridx, float targetvol, u32* outbuf) {
 			float fpos = deadzone(f->pos - v->initialfingerpos, gdeadzone * 32.f);
 			if (gp)
 				fpos = 0.f;
-			//			EmuDebugLog("scrub pos %0.2f\n", fpos);
 			knobsmooth_update_knob(&v->fingerpos, fpos, 2048.f);
 		}
 	} // sampler prep
@@ -895,7 +841,6 @@ void RunVoice(Voice* v, int fingeridx, float targetvol, u32* outbuf) {
 				const s16* src0_backup = src0;
 				const s16* src1 = (outofrange1 ? (const s16*)zero : &grainbuf[g1start + 2]) + g->bufadjust;
 				if (spistate && spistate <= grainidx + 2) {
-					// DebugLog("!"); // spidebug
 					while (spistate && spistate <= grainidx + 2)
 						;
 				}
@@ -972,17 +917,9 @@ void RunVoice(Voice* v, int fingeridx, float targetvol, u32* outbuf) {
 				g->dvol24 = g->vol24 / grainsize;
 
 				float grate2 = 1.f + ((rand() & 255) * (gratejit * gratejit)) * (1.f / 256.f);
-				// float revprob = (0.125f - timestretch) * (4.f * 256.f);
-				// if ((rand() & 255) < (int)revprob)
 				if (timestretch < 0.f)
 					grate2 = -grate2;
 				g->grate_ratio = grate2;
-#ifdef EMU
-//				if (osci==0 && (targetvol > 0.01f || trig))
-//					EmuDebugLog("%s grain at ph %d, other at %d, volume went from %f to %f, next to %f \n",
-//						trig ? "trigger" : "new",
-//						ph, (int)(g->pos[1]), v->vol, targetvol);
-#endif
 				g->pos[0] = trig ? ph : g->pos[1];
 				g->pos[1] = ph;
 			}
@@ -997,10 +934,7 @@ void RunVoice(Voice* v, int fingeridx, float targetvol, u32* outbuf) {
 			u32 flippity = 0;
 			if (pwm != 0) {
 				flippity = ~0;
-				// if (abs(pwm)
 				{
-					// u32 pp = pwm >> 16;
-					// if (pp > 1024) pp = 1024;
 					u32 avgdp = (o[0].dphase + o[2].dphase) / 2;
 					o[0].dphase = avgdp; //(s32)((avgdp - o[0].dphase) * pp) >> 10;
 					o[2].dphase = avgdp; // (s32)((avgdp - o[2].dphase)* pp) >> 10;
@@ -1015,13 +949,11 @@ void RunVoice(Voice* v, int fingeridx, float targetvol, u32* outbuf) {
 					}
 				}
 			}
-			//		o->dphase=o->targetdphase;// XXXX REMOVE GLIDE
 			int ddphase1 = (int)((o->targetdphase - o->dphase) * glide);
 			u32 phase1 = o->phase;
 			s32 dphase1 = o->dphase;
 			u32 prevsample1 = o->prevsample;
 			o += 2;
-			//		o->dphase=o->targetdphase;// XXXX REMOVE GLIDE
 			int ddphase2 = (int)((o->targetdphase - o->dphase) * glide);
 			u32 phase2 = o->phase;
 			s32 dphase2 = o->dphase;
@@ -1029,11 +961,9 @@ void RunVoice(Voice* v, int fingeridx, float targetvol, u32* outbuf) {
 			o -= 2;
 
 			if (pwm > 0) {
-				// pwm -= 4096;
 				//  we need to choose the shift so that, after shifting right, there are 16 bits of fractional part in
 				//  each cycle if the increment was say, 1<<(32-9) = ((1<<23)-1), we would take just over 512 steps to
 				//  cycle, so we want to shift by 7
-				// dphase1 = (1 << 22) - 1;
 				int shift1 = 16 - clz(maxi(dphase1, 1 << 22));
 				const static u16 wavetable_octave_offset[17] = {
 				    0,
@@ -1057,7 +987,6 @@ void RunVoice(Voice* v, int fingeridx, float targetvol, u32* outbuf) {
 				// 16 wave shapes
 				//				pwm = 2<<12;
 				u32 subwave = (pwm & 4095) << (1);
-				// subwave = 0; DISABLE BLENDING
 				subwave = subwave | ((8191 - subwave) << 16);
 				int wtbase = (pwm) >> (12);
 				const s16* table1 = wavetable[wtbase] + wavetable_octave_offset[shift1];
@@ -1082,7 +1011,6 @@ void RunVoice(Voice* v, int fingeridx, float targetvol, u32* outbuf) {
 
 					vol += dvol;
 					y1 += (out * drive + n * noise - (y2 - y1) * resonance - y1) * vol; // drive
-					//				y1 *= 16383.f / (16384.f + fabsf(y2));
 					y1 *= 0.999f;
 					y2 += (y1 - y2) * vol;
 
@@ -1120,19 +1048,6 @@ void RunVoice(Voice* v, int fingeridx, float targetvol, u32* outbuf) {
 						newsample2 += (fractime * fractime) >> 1;
 					}
 
-#ifdef EMU
-					/*
-					if (fingeridx == 3 && targetvol>0.f && osci==1) {
-					    static FILE* testy = 0;
-					    if (!testy)
-					        testy = fopen("testy.raw", "wb");
-					        s16 aa = (out >> 16) - 32678 / 16;
-					    s16 bb = (((prevsample2 ^ flippity) >> 4) >> 16) - 32768 / 16;
-					    fwrite(&aa, 1, 2, testy);
-					    fwrite(&bb, 1, 2, testy);
-					}*/
-#endif
-
 					out += (s32)((prevsample2 ^ flippity) >> 4) - (2 << (31 - 4));
 					prevsample2 = newsample2;
 
@@ -1141,7 +1056,6 @@ void RunVoice(Voice* v, int fingeridx, float targetvol, u32* outbuf) {
 
 					vol += dvol;
 					y1 += (out * drive + n * noise - (y2 - y1) * resonance - y1) * vol; // drive
-					//				y1 *= 16383.f / (16384.f + fabsf(y2));
 					y1 *= 0.999f;
 					y2 += (y1 - y2) * vol;
 
@@ -1183,7 +1097,6 @@ void RunVoice(Voice* v, int fingeridx, float targetvol, u32* outbuf) {
 			else {
 				multisample_grate = 1.f;
 			}
-			//			multisample_grate = 1.f; // debug - force multisample to original pitch
 			v->thegrains[gi].multisample_grate = multisample_grate;
 			int dpos24 = (1 << 24) * (grate * v->thegrains[gi].grate_ratio * multisample_grate);
 			while (dpos24 > (2 << 24))
@@ -1197,7 +1110,6 @@ void RunVoice(Voice* v, int fingeridx, float targetvol, u32* outbuf) {
 
 s32 Reverb2(s32 input, s16* buf) {
 	int i = reverbpos;
-	//	int fb = buf[i];
 	int outl = 0, outr = 0;
 	float wob = lfo_next(&aplfo) * k_reverb_wob;
 	int apwobpos = FLOAT2FIXED((wob + 1.f), 12 + 6);
@@ -1261,7 +1173,6 @@ s32 Reverb2(s32 input, s16* buf) {
 	AP(379);
 	acc += (input >> 16) * k_reverbsend >> 17;
 	AP(107);
-	//	int reinject2 = acc;
 	AP(277);
 	int reinject = acc;
 	static int fb1 = 0;
@@ -1347,66 +1258,6 @@ s32 Reverb2(s32 input, s16* buf) {
 
 	outr += acc;
 
-	//	acc += reinject2;
-	//	AP(4931);
-	//	AP(3713);
-	//	DELAY(6137);
-	/*
-	int acc=((s16) (input))*k_reverbsend >> 17;
-	AP(142);
-	acc += (input >> 16) * k_reverbsend >> 17;
-	AP(107);
-	AP_WOBBLE(379, delaywobpos);
-	AP(277);
-	static int fb1=0;
-	// first leg
-	acc+=fb1;
-	AP_WOBBLE(672, apwobpos);
-	AP(4453);
-
-	if (1) {
-	    // shimmer - we can read from up to about 2000 samples ago
-	    shimmerfade += dshimmerfade;
-	    if (shimmerfade >= 32768) {
-	        shimmerpos1 = shimmerpos2;
-	        shimmerpos2 = (rand() & 1023) + 1024;
-	        shimmerfade -= 32768;
-	        dshimmerfade = (rand() & 31) + 32; // somewhere between 65536/1024 and 65536/512 ie 64 and 128
-	    }
-	    u32 shim1 = STEREOPACK(buf[(i + shimmerpos1) & RVMASK], buf[(i + shimmerpos2) & RVMASK]);
-	    u32 shim2 = STEREOPACK(buf[(i + shimmerpos1 + 1) & RVMASK], buf[(i + shimmerpos2 + 1) & RVMASK]);
-	    u32 shim = STEREOADDAVERAGE(shim1, shim2);
-#ifdef CORTEX
-	    u32 a = STEREOPACK(32767 - shimmerfade, shimmerfade);
-	    s32 shimo;
-	    asm ("smuad %0, %1, %2" : "=r" (shimo) : "r" (a), "r" (shim));
-#else
-	    STEREOUNPACK(shim);
-	    s32 shimo=(shimr*shimmerfade + shiml*(32767-shimmerfade));
-#endif
-	    shimo >>= 16;
-	    shimo*=k_reverb_shim;
-	    shimo>>=8;
-	    acc += shimo>>1;
-	    outl = shimo;
-	    outr = shimo;
-	    shimmerpos1--;
-	    shimmerpos2--;
-	    //	outl=outr=shimo;
-	}
-
-
-	outr+=acc;
-
-	static float lpf = 0.f, dc=0.f;
-	const static float k_reverb_color = 0.95f;
-	lpf += (((acc*k_reverb_fade)>>8) - lpf) * k_reverb_color;
-	dc+=(lpf-dc)*0.005f;
-	acc = (int) (lpf - dc);
-	AP(1800);
-	DELAY(3270);
-	outl+=acc;
-	*/
 	reverbpos = (reverbpos - 1) & RVMASK;
 	fb1 = (acc * k_reverb_fade) >> 8;
 	return STEREOPACK(SATURATE16(outl), SATURATE16(outr));
@@ -1435,7 +1286,6 @@ int stride(u32 scale, int stride_semitones,
            int fingeridx) {   // returns the number of scale steps up from 0 for finger index fi
 	static u8 stridetable[8]; // memoise the result indexed by fi
 	static u8 stridehash[8];
-	// XXX TEST stride_semitones =2;
 	u8 newhash = stride_semitones + (scale * 16);
 	if (newhash != stridehash[fingeridx]) {
 		// memoise this man
@@ -1653,18 +1503,12 @@ void processmidimsg(u8 msg, u8 d1, u8 d2) {
 	u8 chan = msg & 15;
 	u8 type = msg >> 4;
 
-	// int midi_ch_in = ((GetParam(P_MIDI_CH_IN, 0) * 16)/FULL) & 15;
-	// int midi_ch_in = clampi(((GetParam(P_MIDI_CH_IN, 0) * 15)/FULL),0,15);
-
 	int midi_ch_in = clampi((mini(GetParam(P_MIDI_CH_IN, 0), FULL - 1) * 16) / FULL, 0, 15);
 
-	// if ((chan != 0)&&(type != 0xF)) // chan != 0 = allow all channels; LPZW KAY Fix for MIDI Sync type == F continue
 	if ((chan != midi_ch_in) && (type != 0xF)) // allow only selected channel and MIDI sync
 		return;
 	if (type < 8)
 		return;
-
-	//	send_midimsg(msg, d1, d2); // midi echo!
 
 	if (type == 9 && d2 == 0)
 		type = 8;
@@ -1756,7 +1600,6 @@ void processmidimsg(u8 msg, u8 d1, u8 d2) {
 			    5; // 2020-02-26: Used to be 0, changed to 5:
 			       // https://discord.com/channels/784856175937585152/784884878994702387/814951459581067264
 			playmode = PLAYING;
-			//		seq_step(1);
 		}
 		else if (msg == 0xfb) { // continue
 			playmode = PLAYING;
@@ -1927,7 +1770,6 @@ void midi_send_update(void) {
 		if (desired_pitch != cur_pitch && (desired_pitch == 0 || (posstable && pressurestable))) {
 			// send note up
 			if (cur_pitch != 0) {
-				// if (midi_send_chan == 0) printf("note up because %d vs %d\n", desired_pitch, cur_pitch);
 				if (!send_midimsg(0x80, cur_pitch, 0))
 					break;
 				midi_last_pitch[midi_send_chan] = 0;
@@ -1936,8 +1778,6 @@ void midi_send_update(void) {
 			}
 			// send new note down
 			if (desired_pitch != 0) {
-				// if (midi_send_chan == 0) printf("note down because %d vs %d %d\n", desired_pitch, cur_pitch,
-				// desired_vol);
 				if (!send_midimsg(0x90, desired_pitch, desired_vol))
 					break;
 				midi_last_pitch[midi_send_chan] = desired_pitch;
@@ -1992,7 +1832,6 @@ void DoAudio(u32* dst, u32* audioin) {
 	                            //	enable_audio = EA_PASSTHRU;
 	if (enable_audio <= 0) {
 		if (enable_audio == EA_PASSTHRU) {
-			//	memcpy(dst, audioin, 4 * BLOCK_SAMPLES);
 			for (int i = 0; i < BLOCK_SAMPLES; ++i) {
 				float t = (i - BLOCK_SAMPLES / 2) * (2.f / BLOCK_SAMPLES);
 				if (t < 0)
@@ -2083,23 +1922,8 @@ void DoAudio(u32* dst, u32* audioin) {
 	    && prevsynthfingerdown_nogatelen == 0) {
 		// they have put their finger down after no arp playing, trigger it immediately!
 		arp_reset_partial();
-		/* -- this caused missed clock steps! what!
-		if (!external_clock_enable) {
-		    bpm_clock_phase = 0;
-		    ticks_since_clock = 0;
-		    gotclock = true;
-		}
-		*/
 		seq_reset(); // so that gate length works
 	}
-	/* this causes random restarts when jamming, I dont like it
-	else if (rampreset.arpon && arp_rhythm.did_a_retrig && !arp_rhythm.supress && synthfingerdown_nogatelen && !(arpbits
-	& synthfingerdown_nogatelen)) {
-	    // oh no! suddenly the arp bits dont overlap with the fingers. maybe the sequencer moved on. do a partial reset
-	of the arp if (!isarpmode8step(arpmode)) { arp_reset_partial(); gotclock = true;
-	    }
-	}
-	*/
 
 	update_arp(gotclock);
 	update_params(synthfingertrigger, synthfingerdown);
@@ -2112,10 +1936,6 @@ void DoAudio(u32* dst, u32* audioin) {
 	check_curstep();
 	CopySampleToRam(false);
 	CopyPatternToRam(false);
-
-	// static int fr = 0;
-	// DebugLog("%02x - %d - frame synth %d\n", synthfingerdown, touch_synth_getlatest(7)->pressure,
-	// finger_frame_synth); if (synthfingertrigger) 	DebugLog("%d %2x\r\n", fr,synthfingertrigger); fr++;
 
 	// decide on pitches & run the dry synth for the 8 fingers!
 	int maxpressure = 0;
@@ -2250,7 +2070,6 @@ void DoAudio(u32* dst, u32* audioin) {
 			grainpos[i * 4 + 2] = (int)(g[1].pos[0]) - g[1].bufadjust + sampleaddr;
 			grainpos[i * 4 + 3] = (int)(g[1].pos[1]) - g[1].bufadjust + sampleaddr;
 			glen += 2; // 2 extra 'samples' for the SPI header
-			           //	if (i==0) EmuDebugLog("%d %d %d %d\n", grainpos[0], grainpos[1], grainpos[2], grainpos[3]);
 			gprio[i] = ((int)(voices[i].vol * 65535.f) << 12) + i + (glen << 3);
 		}
 		sort8(gprio, gprio);
@@ -2281,9 +2100,6 @@ void DoAudio(u32* dst, u32* audioin) {
 		}
 		if (spistate == 0)
 			spi_readgrain_dma(0); // kick off the dma for next time
-		else {
-			// DebugLog("?"); // spidebug
-		}
 	}
 	else {
 		// just update dac when not in sampler mode
@@ -2297,7 +2113,6 @@ void DoAudio(u32* dst, u32* audioin) {
 	static u32 wetlr;
 	const float k_target_fb = param_eval_float(P_DLFB, any_rnd, env16, pressure16) * (0.35f); // 3/4
 	static float k_fb = 0.f;
-	// const int k_delay2out = param_eval_int(P_MIXDL, any_rnd, env16,pressure16) >> 8; // 1
 	int k_target_delaytime = param_eval_int(P_DLTIME, any_rnd, env16, pressure16);
 	if (k_target_delaytime > 0) {
 		// free timing
@@ -2328,15 +2143,6 @@ void DoAudio(u32* dst, u32* audioin) {
 	}
 	wobcount -= BLOCK_SAMPLES;
 
-	/*
-	for (int i=0;i<64;++i) {
-	    s16 input = ((s16*)spibigrx[1])[i+2];
-	    input>>=3;
-	    dst[i]=STEREOADDSAT(STEREOPACK(input,input), dst[i]);
-	}
-	if (spistate==0)
-	    spi_read256_dma(0,0);
-	    */
 	///////////////// ok lets do hpf earlier!
 	static float peak = 0.f;
 	peak *= 0.99f;
@@ -2350,7 +2156,6 @@ void DoAudio(u32* dst, u32* audioin) {
 	g *= g;
 	g *= g;
 	g += (10.f / 32000.f);
-	// const float k = 2.f -2.f * param_eval_float(P_HPF_RESO, any_rnd, env16, pressure16); //  2.f - 2.f * res;
 	const static float k = 2.f;
 	float a1 = 1.f / (1.f + g * (g + k));
 	float a2 = g * a1;
@@ -2422,7 +2227,6 @@ void DoAudio(u32* dst, u32* audioin) {
 	int ainwetlvl = 65536 - maxi(-ainwetdry, 0);
 	int aindrylvl = 65536 - maxi(ainwetdry, 0);
 
-	// int ainlvl = param_eval_int(P_MIXINPUT, any_rnd, env16, pressure16);
 	ainwetlvl = ((ainwetlvl >> 4) * (ainlvl >> 4)) >> 8;
 
 	ainlvl = ((ainlvl >> 4) * (drylvl >> 4)) >> 8;    // prescale by dry level
@@ -2431,7 +2235,6 @@ void DoAudio(u32* dst, u32* audioin) {
 	int delayratio = param_eval_int(P_DLRATIO, any_rnd, env16, pressure16) >> 8;
 	static int delaytime = BLOCK_SAMPLES << 12;
 	int scopescale = (65536 * 24) / maxi(16384, (int)peak);
-	// int scopetrig = (65536 / 2) / (1 + scopex);
 
 	if (g_disable_fx == 1)
 		g_disable_fx = 2; // tell the webusb on the main thread we are ready for them
@@ -2442,8 +2245,6 @@ void DoAudio(u32* dst, u32* audioin) {
 #endif
 	if (ENABLE_FX && g_disable_fx == 0)
 		for (int i = 0; i < BLOCK_SAMPLES / 2; ++i) {
-			// float lfopos1 = lfo_next(&delaylfo1) * wob;
-			// int wobpos1 = FLOAT2FIXED(lfopos1, 12 + 6);
 			int targetdt = k_target_delaytime + 2048 - (int)wobpos;
 			wobpos += dwobpos;
 			delaytime += (targetdt - delaytime) >> 10;
@@ -2498,11 +2299,6 @@ void DoAudio(u32* dst, u32* audioin) {
 
 			MONITORPEAK(&m_delaysend, delaysend);
 
-			/*int peak=abs(delaysend);
-			 if (unlikely(peak>32000)) {
-			 // adjust feedback down as by 32000/peak
-			     k_fb*=16000.f/peak;
-			 } else */
 			{
 				// adjust feedback up again
 				k_fb += (k_target_fb - k_fb) * 0.001f;
@@ -2510,41 +2306,35 @@ void DoAudio(u32* dst, u32* audioin) {
 			delaypos &= DLMASK;
 			delaybuf[delaypos] = delaysend;
 			delaypos++;
-			// s16 l=(delayreturnl*k_delay2out)>>9;
-			// s16 r=(delayreturnr*k_delay2out)>>9;
-			// if (i & 1)
-			{
-				s16 li = dry2wetlr;
-				s16 ri = dry2wetlr >> 16;
-				static s16 prevli = 0;
-				static s16 prevprevli = 0;
-				static u16 bestedge = 0;
-				static s16 antiturningpointli = 0;
-				bool turningpoint = (prevli > prevprevli && prevli > li);
-				bool antiturningpoint = (prevli < prevprevli && prevli < li);
-				if (antiturningpoint)
-					antiturningpointli = prevli; // remember the last turning point at the bottom
-				if (turningpoint) {              // we are at a peak!
-					int edgesize = prevli - antiturningpointli;
-					if (scopex >= 256 || (scopex < 0 && edgesize > bestedge)) {
-						scopex = -256;
-						bestedge = edgesize;
-					}
-				}
-				prevprevli = prevli;
-				prevli = li;
-				if (scopex < 256 && scopex >= 0) {
-					int x = scopex / 2;
-					if (!(scopex & 1))
-						scope[x] = 0;
-					putscopepixel(x, (li * scopescale >> 16) + 16);
-					putscopepixel(x, (ri * scopescale >> 16) + 16);
-				}
-				scopex++;
-				if (scopex > 1024)
+			s16 li = dry2wetlr;
+			s16 ri = dry2wetlr >> 16;
+			static s16 prevli = 0;
+			static s16 prevprevli = 0;
+			static u16 bestedge = 0;
+			static s16 antiturningpointli = 0;
+			bool turningpoint = (prevli > prevprevli && prevli > li);
+			bool antiturningpoint = (prevli < prevprevli && prevli < li);
+			if (antiturningpoint)
+				antiturningpointli = prevli; // remember the last turning point at the bottom
+			if (turningpoint) {              // we are at a peak!
+				int edgesize = prevli - antiturningpointli;
+				if (scopex >= 256 || (scopex < 0 && edgesize > bestedge)) {
 					scopex = -256;
-				// scopex &= 4095;
+					bestedge = edgesize;
+				}
 			}
+			prevprevli = prevli;
+			prevli = li;
+			if (scopex < 256 && scopex >= 0) {
+				int x = scopex / 2;
+				if (!(scopex & 1))
+					scope[x] = 0;
+				putscopepixel(x, (li * scopescale >> 16) + 16);
+				putscopepixel(x, (ri * scopescale >> 16) + 16);
+			}
+			scopex++;
+			if (scopex > 1024)
+				scopex = -256;
 
 			u32 newwetlr = STEREOPACK(delayreturnl, delayreturnr);
 			MONITORPEAK(&m_delayreturn, newwetlr);
@@ -2602,7 +2392,6 @@ void OledFlipEmu(const u8* vram) {
 				u32 c = (b & 1) ? 0xffffffff : 0xff000000;
 				int y2 = y + yy;
 #ifdef ROTATE_OLED
-				// pixels[(y2 + (127-x) * 32)] = c; // rotated, pins at bottom
 				emupixels[((31 - y2) + x * 32)] = c; // rotated, pins at top
 #else
 				emupixels[(y2 * 128 + x)] = c;
@@ -2645,26 +2434,6 @@ void EMSCRIPTEN_KEEPALIVE uitick(u32* dst, const u32* src, int half) {
 	// pass thru: memcpy(dst,src,64*4);
 
 	DoAudio((u32*)dst, (u32*)src);
-	/* triangle wave test
-	static u16 foo;
-	for (int i=0;i<BLOCK_SAMPLES;++i) {
-	    s16 s=(foo<32768) ? foo*2-32768 : 65536+32767-foo*2;
-	    foo+=256;
-
-	    dst[i] = STEREOPACK(s,s);
-	}
-	*/
-	/*
-	static int th=0;
-	th+=16;
-
-	HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R,  adcbuf[ADC_IN5]>>4);
-	HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R,  adcbuf[ADC_IN6]>>4);
-
-	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, (th>>0)&255);
-	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, (th >> 1) & 255);
-*/
-
 	tc_stop(&_tc_all);
 }
 
@@ -3018,21 +2787,6 @@ void test_jig(void) {
 		else
 			fdrawstr(0, 0, F_32_BOLD, "%d ERRORS", errorcount);
 		oled_flip(vrambuf);
-		/* fill in cv calib - bias and scale x 10
-	{52100.f, 1.f / -9334.833333f},
-	{31716.f, 0.2f / -6548.1f},
-	{31665.f, 0.2f / -6548.1f},
-	{31666.f, 0.2f / -6548.1f},
-	{31041.f, 0.2f / -6548.1f},
-	{31712.f, 0.2f / -6548.1f},
-	// 2 pots
-	{32768.f, 1.05f / -32768.f},
-	{32768.f, 1.05f / -32768.f},
-	// 2 output
-	// 2048 per semitone, so...
-	{42490.f, (26620-42490) * (1.f / (2048.f * 12.f * 2.f))},
-	{42511.f, (26634-42511) * (1.f / (2048.f * 12.f * 2.f))},
-	*/
 		for (int ch = 0; ch < 8; ++ch) {
 			int zero = gndcalib[ch];
 			int range = gndcalib[ch] - refcalib[ch];
@@ -3292,8 +3046,6 @@ bool send_midimsg(u8 status, u8 data1, u8 data2) { // returns false if too full
 	if (status == 0x80 && data1 == 0)
 		return true; // er, no
 
-	// int midi_ch_out = ((GetParam(P_MIDI_CH_OUT, 0) * 16)/FULL) & 15;
-	// int midi_ch_out = clampi(((GetParam(P_MIDI_CH_OUT, 0) * 16)/FULL),0,15);
 	int midi_ch_out = clampi((mini(GetParam(P_MIDI_CH_OUT, 0), FULL - 1) * 16) / FULL, 0, 15);
 
 	if (status < 0xf0)
@@ -3301,9 +3053,6 @@ bool send_midimsg(u8 status, u8 data1, u8 data2) { // returns false if too full
 
 	u8 buf[4] = {status >> 4, status, data1, data2};
 	usb_midi_write(buf);
-#ifdef DEBUG
-//	DebugLog("%02x %02x %02x\r\n", status, data1, data2);
-#endif
 	send_midi_serial(buf + 1, len);
 	return true;
 }
@@ -3383,32 +3132,8 @@ void EMSCRIPTEN_KEEPALIVE plinky_init(void) {
 	// kick off serial midi in!
 	serial_midi_init();
 
-	/*
-   //  BIT BANG TEST
-#ifdef BITBANG
-	// PD1 is spiclk, pd4 is mosi
-	GPIO_InitStruct.Pin = GPIO_PIN_1 | GPIO_PIN_4;
-	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-	GPIO_InitStruct.Pull = GPIO_NOPULL;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-	HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
-	GPIOD->BSRR = (1<<1) + (1<<4); // clock, data high
-#endif
-	int count=0;
-	while (1) {
-	    SetExpanderDAC(0,(count&1)?0xfff:0);
-	    SetExpanderDAC(1,(count&2)?0xfff:0);
-	    SetExpanderDAC(2,(count&4)?0xfff:0);
-	    SetExpanderDAC(3,(count&8)?0xfff:0);
-	    count++;
-	    HAL_Delay(250);
-	}
-*/
 #endif
 	led_init();
-
-	// enable_audio=EA_PASSTHRU; // DO NOT CHECK IN
-	// while(1);
 
 	int flashvalid = flash_readcalib();
 	if (!(flashvalid & 1)) { // no calib at all
@@ -3430,8 +3155,6 @@ void EMSCRIPTEN_KEEPALIVE plinky_init(void) {
 	knoba = abs(knoba - (int)GetADCSmoothedNoCalib(ADC_AKNOB));
 	knobb = abs(knobb - (int)GetADCSmoothedNoCalib(ADC_BKNOB));
 	DebugLog("knob turned by %d,%d during boot\r\n", knoba, knobb);
-	// knoba = 10000; // DO NOT CHECK IN - FORCE CALIBRATION
-	// knobb = 10000; // DO NOT CHECK IN - FORCE CV CALIB
 	//  turn knobs during boot to force calibration
 #ifndef WASM
 	if (knoba > 4096 || knobb > 4096) {
@@ -3446,38 +3169,12 @@ void EMSCRIPTEN_KEEPALIVE plinky_init(void) {
 		}
 		else {
 			// right knob twist on boot - cv calib only
-			// cv_reset_calib();
 			cv_calib();
 		}
 		flash_writecalib(3);
 	}
 #endif
 	InitParamsOnBoot();
-
-	/*
-	DebugLog("erase test ...\r\n");
-	spi_erase64k(0, 0);
-	spi_read256(0);
-	for (int i = 0; i < 256; ++i) if (spibigrx[i + 4] != 255) {
-	    DebugLog("erase fail at %d\r\n", i);
-	}
-	memset(spibigrx, 0, sizeof(spibigrx));
-	for (int i = 0; i < 256; ++i) spibigtx[i + 4] = i * 23 + 72;
-	spi_write256(0);
-	memset(spibigrx, 0, sizeof(spibigrx));
-	spi_read256(0);
-	for (int i = 0; i < 256; ++i) if (spibigrx[i + 4] != (u8)(i*23+72)) {
-	    DebugLog("write fail at %d\r\n", i);
-	}
-	spi_erase64k(0, 0);
-	spi_read256(0);
-	for (int i = 0; i < 256; ++i) if (spibigrx[i + 4] != 255) {
-	    DebugLog("erase 2 fail at %d\r\n", i);
-	}
-
-
-	DebugSPIPage(65536+32768);
-	*/
 
 	enable_audio = EA_PLAY;
 }

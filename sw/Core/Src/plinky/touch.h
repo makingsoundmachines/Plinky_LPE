@@ -137,7 +137,6 @@ void sort8(int* dst, const int* src) {
 #undef SWAP
 
 void touch_reset_calib(void) {
-	//	memset(finger_max,0,sizeof(finger_max));
 	memset(finger_min, -1, sizeof(finger_min));
 	memset(finger_raw, 0, sizeof(finger_raw));
 	memset(calibresults, 0, sizeof(calibresults));
@@ -155,7 +154,6 @@ void check_curstep(void) { // enforces invariants
 }
 
 void set_cur_step(u8 newcurstep, bool triggerit) {
-	// u8 old = cur_step;
 	cur_step = newcurstep;
 	check_curstep();
 	seq_rhythm.did_a_retrig = triggerit; // make the sound play out once
@@ -274,9 +272,6 @@ void recording_stop_really(void) {
 	}
 	recsliceidx = 0;
 	ramtime[GEN_SAMPLE] = millis();
-	// DebugSPIPage(0);
-	// DebugSPIPage(1024*1024*2-65536);
-
 	enable_audio = EA_PLAY;
 }
 
@@ -364,11 +359,7 @@ void on_shift_down(void) {
 			playmode = PLAY_STOPPED;
 			OnLoop();
 		}
-		else if (playmode == PLAY_PREVIEW) {
-			// playmode = PLAYING;
-			// arp_reset();
-			// seq_step(true);
-		}
+		else if (playmode == PLAY_PREVIEW) {}
 		else if (playmode == PLAY_STOPPED) {
 			playmode = PLAY_PREVIEW;
 			seq_step(1);
@@ -377,10 +368,6 @@ void on_shift_down(void) {
 			playmode = PLAY_WAITING_FOR_CLOCK_STOP;
 		}
 		break;
-	// case SB_REWIND: // reset
-	//	playclock=loopstart+latency_fix;
-	//	OnLoop();
-	//	break;
 	case SB_PREV: // prev
 		editmode = EM_START;
 		if (isplaying())
@@ -465,16 +452,8 @@ void on_shift_up(int release_button) {
 		}
 		break;
 	case SB_PREV: // prev
-		// if (!touched_main_area && shift_down_time > 128 / 4 && prev_editmode == EM_PLAY) {
-		//	togglearp();
-		//	editmode = EM_PLAY;
-		// }
-		// else
 		if (!touched_main_area && shortpress) {
-			if (isplaying()) {
-				//	got_ui_reset = true; did it on note down already
-			}
-			else
+			if (!isplaying())
 				set_cur_step(cur_step - 1, !isplaying());
 			editmode = EM_PLAY;
 		}
@@ -1056,8 +1035,6 @@ short HAL_TSC_GroupGetValue(int* htsc, int groupidx) {
 		a = b;
 	a >>= 10;
 	a += 2048;
-	//	if (groupidx == 0)
-	//		printf("hello finger 0 %d %d = %d\n", pos, pressure, (2048 * 2048) / a);
 	a += rand() & 31;
 	return (2048 * 2048) / a;
 }
@@ -1110,8 +1087,6 @@ void update_finger(int srcidx) {
 	int rawpos = finger_rawpos(a, b);
 	int pos = rawpos, pressure = rawpressure;
 
-	//	if (pressure>500) DebugLog("%d %d\r\n", pressure, pos);
-
 	// scale pos and pressure by calibration
 	const CalibResult* c = &calibresults[srcidx];
 	if (c->pressure[0] != 0) { // if we dont have any calibration data, we just pass thru the raw values
@@ -1147,7 +1122,6 @@ void update_finger(int srcidx) {
 		if (maxp < 1000)
 			maxp = 1000;
 		pressure = (rawpressure * 4096) / maxp - 2048;
-		//	if (pressure>100) DebugLog("%d %d\r\n", pressure, pos);
 	}
 
 	int frame = finger_frame_ui;
@@ -1157,10 +1131,8 @@ void update_finger(int srcidx) {
 	Finger* uif = &fingers_ui_time[fi][frame];
 	Finger* prev_uif = &fingers_ui_time[fi][prevframe];
 	uif->pressure = pressure;
-	// bool written = 0;
 	if (pressure > 0 && pressure > prev_uif->pressure - 128) { // not significantly lifting finger off
 		uif->pos = clampi(pos, 0, 2047);
-		// written = 1;
 	}
 	else
 		uif->pos = prev_uif->pos;
@@ -1213,8 +1185,6 @@ void update_finger(int srcidx) {
 		}
 		if (uif->pressure <= 0)
 			last_time_shift_was_untouched = ticks();
-
-		// DebugLog("%d %d %02x\r\n", maxi(0,pressure), valid ? button*256 : -256, finger_stepmask);
 	}
 	else {
 		finger_editing(fi, finger_frame_ui);
@@ -1258,7 +1228,6 @@ again:
 	}
 	if (finger_state == 1) {
 		finger_state++;
-		// return; // more discharge time !
 	}
 	if (finger_state == 2) {
 		HAL_TSC_Start(&htsc);
@@ -1295,15 +1264,10 @@ again:
 #else
 		                                    HAL_TSC_GroupGetValue(&htsc, grp));
 #endif
-		//		if (oidx == 3 * 2 + 1) v = finger_min[1]; FAKE AN ERROR
-		//		if (oidx == 4) v = finger_min[3]; // FAKE AN ERROR
 		if (v > finger_max[oidx])
 			finger_max[oidx] = v;
 		if (v < finger_min[oidx])
 			finger_min[oidx] = v;
-		// if (oidx == 34 || oidx == 35 || oidx == 16 || oidx == 17) {
-		//	DebugLog("%d = %d\n", oidx, v);
-		// }
 	}
 	prevfingerediting = fingerediting;
 	HAL_TSC_Stop(&htsc);
