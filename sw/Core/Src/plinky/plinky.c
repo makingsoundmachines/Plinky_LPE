@@ -56,8 +56,8 @@ extern TIM_HandleTypeDef htim5;
 #include "hardware/leds.h"
 #include "hardware/midi.h"
 #include "hardware/ram.h"
+#include "hardware/spi.h"
 #include "low_level/codec.h"
-#include "low_level/spi.h"
 #include "synth/arp.h"
 #include "synth/audio.h"
 #include "synth/sampler.h"
@@ -417,7 +417,7 @@ void DoAudio(u32* dst, u32* audioin) {
 
 	// in the process of recording a new sample
 	if (sampler_mode > SM_PREVIEW) {
-		handle_sampler_audio(dst, audioin);
+		sampler_recording_tick(dst, audioin);
 		return; // skip all other synth functionality
 	}
 
@@ -453,10 +453,7 @@ void DoAudio(u32* dst, u32* audioin) {
 
 	tc_stop(&_tc_audio);
 
-	if (using_sampler())
-		sort_sample_voices();
-	else if (spistate == 0)
-		spi_update_dac(0); // just update dac when not in sampler mode
+	spi_tick();
 
 	tc_start(&_tc_fx);
 
@@ -594,8 +591,8 @@ void DoAudio(u32* dst, u32* audioin) {
 	static int delaytime = SAMPLES_PER_TICK << 12;
 	int scopescale = (65536 * 24) / maxi(16384, (int)peak);
 
-	if (g_disable_fx == 1)
-		g_disable_fx = 2; // tell the webusb on the main thread we are ready for them
+	// if (g_disable_fx == 1)
+	// 	g_disable_fx = 2; // tell the webusb on the main thread we are ready for them
 #ifdef DEBUG
 #define ENABLE_FX 0
 #else
@@ -604,7 +601,7 @@ void DoAudio(u32* dst, u32* audioin) {
 
 	// fx processing
 
-	if (ENABLE_FX && g_disable_fx == 0)
+	if (ENABLE_FX /*&& g_disable_fx == 0*/)
 		for (int i = 0; i < SAMPLES_PER_TICK / 2; ++i) {
 
 			// delay
@@ -1195,12 +1192,10 @@ void test_jig(void) {
 				    (-2.5f / 5.f)
 				    / range; // range is measured off 2.5; so this scales it so that we get 1 out for 5v in
 		}
-		// ok pdac[k][0] tells us what we got from the ADC when we set the DAC to PITCH_1V_OUT, and pdac[k][1] tells us
-		// what we got when we output PITCH_4V_OUT
-		// so we have dacb + dacs * plo0 = PITCH_1V_OUT
-		// and       dacb + dacs * plo1 = PITCH_4V_OUT
-		// dacs = (PITCH_1V_OUT-PITCH_4V_OUT) / (plo0-plo1)
-		// dacb = PITCH_1V_OUT - dacs*plo0
+		// ok pdac[k][0] tells us what we got from the ADC when we set the DAC to PITCH_1V_OUT, and pdac[k][1] tells
+		// us what we got when we output PITCH_4V_OUT so we have dacb + dacs * plo0 = PITCH_1V_OUT and       dacb +
+		// dacs * plo1 = PITCH_4V_OUT dacs = (PITCH_1V_OUT-PITCH_4V_OUT) / (plo0-plo1) dacb = PITCH_1V_OUT -
+		// dacs*plo0
 		for (int dacch = 0; dacch < 2; ++dacch) {
 			float range = (pdac[dacch][0] - pdac[dacch][1]);
 			if (range == 0)
@@ -1221,6 +1216,8 @@ void test_jig(void) {
 
 void plinky_frame(void);
 
+u16 expander_out[4] = {EXPANDER_ZERO, EXPANDER_ZERO, EXPANDER_ZERO, EXPANDER_ZERO};
+
 // #define BITBANG
 void SetExpanderDAC(int chan, int data) {
 #ifndef EMU
@@ -1240,10 +1237,10 @@ void SetExpanderDAC(int chan, int data) {
 	}
 	HAL_Delay(1);
 #else
-	spidelay();
+	spi_delay();
 	daccmd = (daccmd >> 8) | (daccmd << 8);
 	HAL_SPI_Transmit(&hspi2, (uint8_t*)&daccmd, 2, -1);
-	spidelay();
+	spi_delay();
 #endif
 	GPIOA->BSRR = 1 << 8; // cs high
 #endif
@@ -1337,13 +1334,7 @@ void EMSCRIPTEN_KEEPALIVE plinky_init(void) {
 	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 	GPIOA->BSRR = 1 << 8; // cs high
 	HAL_Delay(1);
-
-	spi_setchip(0xffffffff);
-	int spiid = spi_readid();
-	DebugLog("SPI flash chip 1 id %04x\r\n", spiid);
-	spi_setchip(0);
-	spiid = spi_readid();
-	DebugLog("SPI flash chip 0 id %04x\r\n", spiid);
+	spi_init();
 	midi_init();
 
 #endif

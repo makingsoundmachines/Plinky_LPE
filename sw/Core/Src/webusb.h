@@ -2,6 +2,7 @@
 #include "data/tables.h"
 #include "gfx/gfx.h"
 #include "hardware/ram.h"
+#include "hardware/spi.h"
 #include "synth/params.h"
 #ifdef DEBUG
 // #define DEBUG_WU
@@ -175,8 +176,8 @@ void PumpWebUSB(bool calling_from_audio_thread) {
 		}
 		if (millis() > wu_lasteventtime + WEB_USB_TIMEOUT) { // timeout!
 reset:
-			g_disable_fx = 0;
-			spistate = 0;
+			// g_disable_fx = 0;
+			spi_state = 0;
 			SetWUState(WU_MAGIC0, wu_hdr.magic, 1);
 		}
 		int n;
@@ -297,9 +298,9 @@ statedone:
 			}
 			else if (wu_hdr.cmd == 3) {
 				// write sample spi ram
-				g_disable_fx = 1;
-				while (g_disable_fx < 2)
-					;
+				// g_disable_fx = 1;
+				// while (g_disable_fx < 2)
+				// 	;
 				int ofs = wu_hdr_offset();
 				int len = wu_hdr_len();
 				wu_hdr.len_32 = len;
@@ -311,9 +312,9 @@ statedone:
 			}
 			else if (wu_hdr.cmd == 5) {
 				// write wavetable ram
-				g_disable_fx = 1;
-				while (g_disable_fx < 2)
-					;
+				// g_disable_fx = 1;
+				// while (g_disable_fx < 2)
+				// 	;
 				memcpy(delaybuf, wavetable, sizeof(wavetable));
 				SetWUState(WU_RECVDATA, ((u8*)delaybuf) + wu_hdr_offset() + wu_hdr.idx * WAVETABLE_SIZE * 2,
 				           wu_hdr_len());
@@ -357,9 +358,9 @@ statedone:
 			}
 			else if (wu_hdr.cmd == 3) {
 				// write to spi ram.
-				while (spistate != 0 && spistate != 255)
+				while (spi_state != 0 && spi_state != 255)
 					;
-				spistate = 255;
+				spi_state = 255;
 
 				int ofs = wu_hdr_offset();
 				int idx = wu_hdr.idx;
@@ -373,7 +374,7 @@ statedone:
 				for (int o = 0; o < len; o += 256) {
 					tud_task(); // keep the host happy
 					s16* src = (s16*)(delaybuf) + o / 2;
-					s16* dst = (s16*)(spibigtx + 4);
+					s16* dst = (s16*)(spi_bit_tx + 4);
 					// int peak = 0;
 					// for (int i = 0; i < 256 / 2; ++i) {
 					//   s16 smp = *src++;
@@ -405,15 +406,15 @@ statedone:
 				}
 				else {
 					// finished writing spi ram!
-					spistate = 0;
-					g_disable_fx = 0;
+					spi_state = 0;
+					// g_disable_fx = 0;
 				}
 			}
 			else if (wu_hdr.cmd == 5) {
 				// write to wavetable ram
 				flash_program_array((void*)wavetable, (void*)delaybuf, (sizeof(wavetable) + 7) & ~7);
 				memset(delaybuf, 0, (DLMASK + 1) * 2);
-				g_disable_fx = 0;
+				// g_disable_fx = 0;
 			}
 			goto reset;
 		case WU_SENDHDR: // ok we sent them the header; now send them the data
@@ -430,13 +431,13 @@ send_more_data: {
 			len = 256;
 		wu_hdr.len_32 -= len;
 		wu_hdr.offset_32 += len;
-		while (spistate != 0 && spistate != 255)
+		while (spi_state != 0 && spi_state != 255)
 			;
-		spistate = 255;
+		spi_state = 255;
 		// sampler_mode = SM_DISABLED;
-		memset(spibigrx, -2, sizeof(spibigrx));
-		spi_read256(ofs + idx * 4 * 1024 * 1024);
-		SetWUState(WU_SENDDATA, spibigrx + 4, len);
+		// memset(spi_big_rx, -2, sizeof(spi_big_rx));
+		// spi_read256(ofs + idx * 4 * 1024 * 1024);
+		// SetWUState(WU_SENDDATA, spi_big_rx + 4, len);
 	}
 	else if (wu_hdr.cmd == 1) {
 		// -- ram_sample_id not accessible atm
@@ -454,7 +455,7 @@ send_more_data: {
 		case WU_SENDDATA: // ok we finished sending our data. nothing to do except get ready for more.
 			if (wu_hdr.cmd == 3) {
 				if (wu_hdr.len_32 <= 0) {
-					spistate = 0;
+					spi_state = 0;
 					// sampler_mode = SM_PREVIEW;
 				}
 				else {

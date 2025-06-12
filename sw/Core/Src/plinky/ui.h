@@ -4,6 +4,7 @@
 #include "hardware/encoder.h"
 #include "hardware/flash.h"
 #include "hardware/ram.h"
+#include "hardware/spi.h"
 #include "synth/arp.h"
 #include "synth/lfos.h"
 #include "synth/params.h"
@@ -132,28 +133,6 @@ const char* notename(int note) {
 	return buf;
 }
 
-void DebugSPIPage(int addr) {
-	while (spistate)
-		;
-	spistate = 255;
-
-	int spiid = spi_readid();
-	DebugLog("SPI flash chip id %04x\r\n", spiid);
-
-	for (int i = 0; i < 256; ++i) {
-		memset(spibigrx, -2, sizeof(spibigrx));
-		spi_read256(i * 256 + addr);
-		memcpy(&delaybuf[i * 128], spibigrx + 4, 256);
-	}
-	DebugLog("first 256 samples of spi ram at addr %d:\r\n", addr);
-	for (int i = 0; i < 256; ++i) {
-		DebugLog("%5d ", delaybuf[i]);
-		if ((i & 31) == 31)
-			DebugLog("\r\n");
-	}
-	spistate = 0;
-}
-
 void DrawSample(SampleInfo* s, int slice_id) {
 	slice_id &= 7;
 	int ofs = s->splitpoints[slice_id] / 1024;
@@ -277,9 +256,9 @@ void samplemode_ui(void) {
 	if (sampler_mode == SM_ERASING) {
 		erasepos = 0;
 		draw_recording_ui();
-		while (spistate)
+		while (spi_state)
 			;
-		spistate = 255;
+		spi_state = 255;
 		HAL_Delay(10);
 		// mysteriously, sometimes page 0 wasn't erasing. maybe do it twice? WOOAHAHA
 		spi_erase64k(0 + record_flashaddr_base, draw_recording_ui);
@@ -290,7 +269,7 @@ void samplemode_ui(void) {
 		memset(s, 0, sizeof(SampleInfo)); // since we erased the ram, we might as well nuke the sample too
 		log_ram_edit(SEG_SAMPLE);
 		// done!
-		spistate = 0;
+		spi_state = 0;
 		sampler_mode = SM_PRE_ARMED;
 	}
 	if (sampler_mode == SM_PREVIEW) {
@@ -345,12 +324,12 @@ void samplemode_ui(void) {
 	if (sampler_mode >= SM_RECORDING) {
 
 		int locrecpos = buf_write_pos;
-		while (spistate)
+		while (spi_state)
 			;
-		spistate = 0xff; // prevent spi reads for a while!
+		spi_state = 0xff; // prevent spi reads for a while!
 		while (buf_read_pos + 256 / 2 <= locrecpos && s->samplelen < MAX_SAMPLE_LEN) {
 			s16* src = delaybuf + (buf_read_pos & DLMASK);
-			s16* dst = (s16*)(spibigtx + 4);
+			s16* dst = (s16*)(spi_bit_tx + 4);
 			int flashaddr = (buf_read_pos - buf_start_pos) * 2;
 			buf_read_pos += 256 / 2;
 			if (!pre_erase && (flashaddr & 65535) == 0)
@@ -378,7 +357,7 @@ void samplemode_ui(void) {
 			}
 		} // spi write loop
 
-		spistate = 0;
+		spi_state = 0;
 		if (sampler_mode == SM_STOPPING4) {
 			finish_recording_sample();
 		}
@@ -1065,24 +1044,15 @@ void plinky_frame(void) {
 
 	PumpWebUSB(false);
 
-	if (0)
-		if ((frame & 31) == 0) {
-			DebugLog("spi %d - ", spiduration);
-			spiduration = 0;
-			tc_log(&_tc_budget, "budget");
-			tc_log(&_tc_all, "all");
-			DebugLog("\r\n");
-		}
-
 	audiopeakhistory[audiohistpos] = clampi(audioin_peak / 64, 0, 255);
 
-	if (g_disable_fx) {
-		// web usb is up to its tricks :)
-		void draw_webusb_ui(int);
-		draw_webusb_ui(0);
-		HAL_Delay(30);
-		return;
-	}
+	// if (g_disable_fx) {
+	// 	// web usb is up to its tricks :)
+	// 	void draw_webusb_ui(int);
+	// 	draw_webusb_ui(0);
+	// 	HAL_Delay(30);
+	// 	return;
+	// }
 
 	if (ui_mode == UI_SAMPLE_EDIT) {
 		samplemode_ui();

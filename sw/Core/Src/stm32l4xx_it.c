@@ -250,12 +250,11 @@ void DMA1_Channel3_IRQHandler(void) {
 /**
  * @brief This function handles DMA1 channel4 global interrupt.
  */
+#include "hardware/spi.h"
 void DMA1_Channel4_IRQHandler(void) {
 	/* USER CODE BEGIN DMA1_Channel4_IRQn 0 */
-	extern unsigned char alexdmamode;
-	void alexdmadone(void);
-	if (alexdmamode) {
-		alexdmadone();
+	if (alex_dma_mode) {
+		alex_dma_done();
 		return;
 	}
 	/* USER CODE END DMA1_Channel4_IRQn 0 */

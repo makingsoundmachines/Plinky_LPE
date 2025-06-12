@@ -41,6 +41,7 @@ SRCS = \
 	../Core/Src/rebuild/hardware/leds.c \
 	../Core/Src/rebuild/hardware/midi.c \
 	../Core/Src/rebuild/hardware/ram.c \
+	../Core/Src/rebuild/hardware/spi.c \
 	../Core/Src/rebuild/hardware/touchstrips.c \
 	../Core/Src/rebuild/synth/arp.c \
 	../Core/Src/rebuild/synth/audio.c \

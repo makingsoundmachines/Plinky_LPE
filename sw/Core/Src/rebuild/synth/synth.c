@@ -420,4 +420,6 @@ void handle_synth_voices(u32* dst) {
 	for (u8 voice_id = 0; voice_id < NUM_VOICES; ++voice_id)
 		run_voice(voice_id, dst);
 	send_cvs();
+	if (using_sampler())
+		sampler_playing_tick();
 }

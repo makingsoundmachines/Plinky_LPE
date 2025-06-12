@@ -4,6 +4,7 @@
 #include "hardware/adc_dac.h"
 #include "hardware/flash.h"
 #include "hardware/ram.h"
+#include "hardware/spi.h"
 #include "params.h"
 #include "strings.h"
 #include "time.h"
@@ -11,12 +12,10 @@
 #include "ui/ui.h"
 
 // cleanup
-extern volatile u8 spistate;
 extern short* delaybuf;
 extern s16 audioin_peak;
 extern u32 record_flashaddr_base;
 
-int spi_readgrain_dma(int gi);
 void reverb_clear(void);
 void delay_clear(void);
 // -- cleanup
@@ -68,7 +67,7 @@ static int calcloopend(u8 slice_id) {
 	return (all || slice_id >= 7) ? cur_sample_info.samplelen - 192 : cur_sample_info.splitpoints[slice_id + 1];
 }
 
-void handle_sampler_audio(u32* dst, u32* audioin) {
+void sampler_recording_tick(u32* dst, u32* audioin) {
 	update_sample_ram(false);
 	// while armed => check for incoming audio
 	if ((sampler_mode == SM_ARMED) && (audioin_peak > 1024))
@@ -244,10 +243,9 @@ void apply_sample_lpg_noise(u8 voice_id, Voice* voice, float goal_lpg, float noi
 			const s16* src0 = (outofrange0 ? (const s16*)zero : &grain_buf[g0start + 2]) + g->bufadjust;
 			const s16* src0_backup = src0;
 			const s16* src1 = (outofrange1 ? (const s16*)zero : &grain_buf[g1start + 2]) + g->bufadjust;
-			if (spistate && spistate <= grainidx + 2) {
-				while (spistate && spistate <= grainidx + 2)
-					;
-			}
+
+			spi_ready_for_sampler(grainidx);
+
 			for (int i = 0; i < SAMPLES_PER_TICK; ++i) {
 				int o0, o1;
 				u32 ab0 = *(u32*)(src0); // fetch a pair of 16 bit samples to interpolate between
@@ -347,7 +345,7 @@ void apply_sample_lpg_noise(u8 voice_id, Voice* voice, float goal_lpg, float noi
 	}
 }
 
-void sort_sample_voices(void) {
+void sampler_playing_tick(void) {
 	// decide on a priority for 8 voices
 	int gprio[8];
 	u32 sampleaddr = cur_sample_id * MAX_SAMPLE_LEN;
@@ -393,8 +391,6 @@ void sort_sample_voices(void) {
 		pos += lengths[i / 4];
 		grain_buf_end[i] = pos;
 	}
-	if (spistate == 0)
-		spi_readgrain_dma(0); // kick off the dma for next time
 }
 
 // == RECORDING SAMPLES == //
