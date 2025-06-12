@@ -1,5 +1,6 @@
 #include "shift_states.h"
 #include "hardware/adc_dac.h"
+#include "hardware/ram.h"
 #include "hardware/touchstrips.h"
 #include "pad_actions.h"
 #include "synth/params.h"
@@ -8,13 +9,6 @@
 #include "synth/strings.h"
 #include "synth/time.h"
 #include "ui.h"
-
-// all of these need cleaning up
-extern SysParams sys_params;      // system
-extern u32 ramtime[GEN_LAST];     // system
-extern u8 copy_request;           // system
-extern s8 selected_preset_global; // system
-// - all of these need cleaning up
 
 #define SHORT_PRESS_TIME 250 // ms
 
@@ -94,7 +88,7 @@ void shift_set_state(ShiftState new_state) {
 	case SS_LOAD:
 		// activate preset load screen
 		ui_mode = UI_LOAD;
-		selected_preset_global = sys_params.curpreset;
+		touch_load_item(sys_params.curpreset);
 		break;
 	case SS_LEFT:
 		// if playing, jump to start of pattern
@@ -243,10 +237,9 @@ void shift_release_state(void) {
 void shift_hold_state(void) {
 	switch (ui_mode) {
 	case UI_LOAD:
-		// after a delay, initalize preset
-		if ((shift_state == SS_CLEAR) && (shift_state_frames > 64 + 4) && (selected_preset_global >= 0)
-		    && (selected_preset_global < 64))
-			copy_request = selected_preset_global + 128;
+		// after a delay, clear the last touched load item
+		if ((shift_state == SS_CLEAR) && (shift_state_frames > 64 + 4))
+			clear_load_item();
 		break;
 	case UI_SAMPLE_EDIT:
 		// long-pressing record or play in sampler preview mode records a new sample

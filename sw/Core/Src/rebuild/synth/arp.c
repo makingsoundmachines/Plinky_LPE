@@ -1,17 +1,14 @@
 #include "arp.h"
 #include "conditional_step.h"
 #include "data/tables.h"
+#include "hardware/ram.h"
 #include "params.h"
 #include "sequencer.h"
 #include "strings.h"
 #include "time.h"
 #include "ui/ui.h"
 
-// cleanup
-extern Preset rampreset;
-// -- cleanup
-
-ArpOrder arp_order = ARP_NONE;
+ArpOrder arp_order = ARP_UP;
 s8 arp_oct_offset = 0;
 
 static ConditionalStep c_step;
@@ -22,10 +19,6 @@ static s32 free_clock = 0;           // for keeping track of free running steps
 static s8 non_pedal_string = -1;     // for keeping track of the moving string in pedal ArpOrders
 static u8 strings_used_by_rand1 = 0; // for keeping tracks of which strings have been used by random ArpOrders
 static u8 strings_used_by_rand2 = 0; // this makes random effectively a shuffle, not a true random
-
-bool arp_active(void) {
-	return arp_order != ARP_NONE;
-}
 
 bool arp_touched(u8 string_id) {
 	return arp_touch_mask & (1 << string_id);
@@ -220,12 +213,12 @@ static void advance_step() {
 
 void arp_tick(void) {
 	// update properties
-	arp_order = (rampreset.flags & FLAGS_ARP) ? param_val(P_ARP_ORDER) : ARP_NONE;
+	arp_order = param_val(P_ARP_ORDER);
 	c_step.euclid_len = param_val(P_ARP_EUC_LEN);
 	c_step.density = param_val(P_ARP_CHANCE);
 
 	// arp not active
-	if (arp_order == ARP_NONE || ui_mode == UI_SAMPLE_EDIT)
+	if (!arp_on() || ui_mode == UI_SAMPLE_EDIT)
 		return;
 
 	// no touch
@@ -259,7 +252,7 @@ void arp_tick(void) {
 		return;
 
 	// step
-	do_conditional_step(&c_step, arp_order);
+	do_conditional_step(&c_step, arp_order == ARP_CHORD);
 	if (c_step.advance_step)
 		advance_step(); // move to the next position, this also fills arp_touch_mask
 	if (!c_step.play_step)

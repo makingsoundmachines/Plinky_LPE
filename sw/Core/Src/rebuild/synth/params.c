@@ -4,6 +4,7 @@
 #include "gfx/gfx.h"
 #include "hardware/accelerometer.h"
 #include "hardware/adc_dac.h"
+#include "hardware/ram.h"
 #include "lfos.h"
 #include "sequencer.h"
 #include "strings.h"
@@ -11,15 +12,6 @@
 #include "time.h"
 #include "ui/shift_states.h"
 #include "ui/ui.h"
-
-// cleanup
-extern Preset rampreset;
-extern PatternQuarter rampattern[NUM_QUARTERS];
-extern u32 ramtime[GEN_LAST];
-extern SysParams sys_params;
-extern Preset const init_params;
-bool CopyPresetToRam(bool force);
-// -- cleanup
 
 #define EDITING_PARAM (selected_param < NUM_PARAMS)
 
@@ -48,39 +40,27 @@ static int get_volume_as_param(void) {
 }
 
 static void set_arp(bool on) {
-	if (on == (rampreset.flags && FLAGS_ARP))
+	if (on == arp_on())
 		return;
-	if (on)
-		rampreset.flags |= FLAGS_ARP;
-	else
-		rampreset.flags &= ~FLAGS_ARP;
+	save_arp(on);
 	ShowMessage(F_32_BOLD, on ? "arp on" : "arp off", 0);
-	ramtime[GEN_SYS] = millis();
+	log_ram_edit(SEG_SYS);
 }
 
 static void toggle_arp(void) {
-	rampreset.flags ^= FLAGS_ARP;
-	ShowMessage(F_32_BOLD, ((rampreset.flags & FLAGS_ARP)) ? "arp on" : "arp off", 0);
-	ramtime[GEN_SYS] = millis();
+	set_arp(!arp_on());
 }
 
 static void set_latch(bool on) {
-	if (on == (rampreset.flags && FLAGS_LATCH))
+	if (on == latch_on())
 		return;
-	if (on)
-		rampreset.flags |= FLAGS_LATCH;
-	else
-		rampreset.flags &= ~FLAGS_LATCH;
+	save_latch(on);
 	ShowMessage(F_32_BOLD, on ? "latch on" : "latch off", 0);
-	ramtime[GEN_SYS] = millis();
+	log_ram_edit(SEG_SYS);
 }
 
 static void toggle_latch(void) {
-	rampreset.flags ^= FLAGS_LATCH;
-	ShowMessage(F_32_BOLD, ((rampreset.flags & FLAGS_LATCH)) ? "latch on" : "latch off", 0);
-	ramtime[GEN_SYS] = millis();
-	if (!((rampreset.flags & FLAGS_LATCH)))
-		clear_latch();
+	set_latch(!latch_on());
 }
 
 // == HELPERS == //
@@ -202,13 +182,13 @@ void params_tick(void) {
 s16 param_val_raw(Param param_id, ModSource mod_src) {
 	if (param_id == P_VOLUME)
 		return mod_src == SRC_BASE ? get_volume_as_param() : 0;
-	return rampreset.params[param_id][mod_src];
+	return cur_preset.params[param_id][mod_src];
 }
 
 // rj: the only reason the unscaled functions exist is because of one single call in ui.h - rewriting that so this
 // doesn't need a global unscaled function would allow this to look a lot cleaner
 static s32 param_val_unscaled_local(Param param_id, u16 rnd, u16 env, u16 pres) {
-	s16* param = rampreset.params[param_id];
+	s16* param = cur_preset.params[param_id];
 	// param_with_lfo has already applied the four lfos
 	s32 new_val = param_with_lfo[param_id];
 
@@ -248,6 +228,9 @@ static s32 param_val_local(Param param_id, u16 rnd, u16 env, u16 pres) {
 	int new_val = param_val_unscaled_local(param_id, rnd, env, pres);
 	if (range)
 		new_val = (new_val * range) >> 16;
+	if (param_id == P_SAMPLE)
+		// sample_id is stored 1-based, revert before returning
+		new_val = (new_val - 1 + SAMPLE_ID_RANGE) % SAMPLE_ID_RANGE;
 	return new_val;
 }
 
@@ -281,25 +264,29 @@ void save_param_raw(Param param_id, ModSource mod_src, s16 data) {
 			if (data == sys_params.headphonevol)
 				return;
 			sys_params.headphonevol = data;
-			ramtime[GEN_SYS] = millis();
+			log_ram_edit(SEG_SYS);
 		}
 		return;
 	}
 	// edit gets discarded if previous change isn't saved yet
-	if (!CopyPresetToRam(false))
+	if (!update_preset_ram(false))
 		return;
 	// don't save if no change
 	s16 old_data = param_val_raw(param_id, mod_src);
 	if (old_data == data)
 		return;
 	// save
-	rampreset.params[param_id][mod_src] = data;
+	cur_preset.params[param_id][mod_src] = data;
 	apply_lfo_mods(param_id);
-	ramtime[GEN_PRESET] = millis();
+	log_ram_edit(SEG_PRESET);
 }
 
 // constrain data to param_range bounds before saving, all data is scaled to s8 or smaller
 void save_param(Param param_id, ModSource mod_src, s16 data) {
+	if (param_id == P_SAMPLE)
+		// sample id is stored 1-based, with value NUM_SAMPLES representing "off" stored as 0
+		data = (data + 1) % SAMPLE_ID_RANGE;
+
 	u8 range = param_range[param_id] & RANGE_MASK;
 	// ranged parameters are truncated and scaled to [0, PARAM_SIZE] or [-PARAM_SIZE, PARAM_SIZE]
 	if (range > 0) {

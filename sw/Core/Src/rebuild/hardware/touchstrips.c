@@ -10,7 +10,6 @@
 
 // cleanup
 extern CalibResult calibresults[18];
-extern u8 copy_request;
 // -- cleanup
 
 // stm setup

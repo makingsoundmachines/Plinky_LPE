@@ -3,10 +3,6 @@
 #include "ui/shift_states.h"
 #include "utils.h"
 
-// cleanup
-extern u32 ramtime[GEN_LAST];
-// -- cleanup
-
 #define MAX_SAMPLE_VOICES 6
 #define MAX_SAMPLE_LEN (1024 * 1024 * 2)  // max sample length in samples
 #define AVG_GRAINBUF_SAMPLE_SIZE (64 + 4) // 2 extra for interpolation, 2 extra for SPI address at the start
@@ -34,16 +30,10 @@ extern u32 buf_write_pos;
 extern u32 buf_read_pos;
 extern u8 cur_slice_id;
 
-// other
-extern u8 cur_sample_id1;
-
 // spi
 extern int grain_pos[32];
 extern s16 grain_buf[GRAINBUF_BUDGET];
 extern s16 grain_buf_end[32];
-
-// possibly removable after ui/params/web cleanup
-SampleInfo* get_sample_info(void);
 
 int using_sampler(void);
 void open_sampler(u8 with_sample_id);

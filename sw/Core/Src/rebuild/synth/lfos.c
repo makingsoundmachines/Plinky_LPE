@@ -2,11 +2,11 @@
 #include "data/tables.h"
 #include "hardware/accelerometer.h"
 #include "hardware/adc_dac.h"
+#include "hardware/ram.h"
 #include "params.h"
 #include "time.h"
 
 // cleanup
-extern Preset rampreset;
 extern u16 expander_out[4];
 // -- cleanup
 
@@ -173,7 +173,7 @@ void update_lfos(void) {
 void apply_lfo_mods(Param param_id) {
 	if (param_id == P_VOLUME)
 		return;
-	s16* param = rampreset.params[param_id];
+	s16* param = cur_preset.params[param_id];
 	s32 new_val = param[SRC_BASE] << 16;
 	for (u8 lfo_id = 0; lfo_id < NUM_LFOS; lfo_id++)
 		new_val += (lfo_cur[lfo_id] * param[SRC_LFO_A + lfo_id]);

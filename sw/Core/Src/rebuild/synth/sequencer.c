@@ -2,28 +2,18 @@
 #include "arp.h"
 #include "conditional_step.h"
 #include "hardware/cv.h"
+#include "hardware/ram.h"
 #include "params.h"
-#include "pattern.h"
 #include "time.h"
 #include "ui/shift_states.h"
 
 // cleanup
 #include "hardware/adc_dac.h"
-#include "sampler.h"
-extern u8 pending_preset;
-extern u8 pending_pattern;
-extern Preset rampreset;
-extern u32 ramtime[GEN_LAST];
-extern u8 pending_sample1;
-extern u8 rampattern_idx;
-extern u8 cur_pattern;
-extern PatternQuarter rampattern[NUM_QUARTERS];
-void SetPreset(u8 preset, bool force);
-bool OnLoop(void);
 // -- cleanup
 
 #define GATE_LEN_SUBSTEPS 256
 #define SEQ_CLOCK_SYNCED (step_32nds >= 0)
+#define CUR_QUARTER ((cur_seq_step >> 4) & 3)
 
 SeqFlags seq_flags = {0};
 static ConditionalStep c_step;
@@ -76,12 +66,12 @@ u32 seq_substep(u32 resolution) {
 
 // keep cur_seq_step within bounds of both the local sequence length and the global max of 64
 static void align_cur_step(void) {
-	cur_seq_step = (modi(cur_seq_step - cur_seq_start, rampreset.seq_len) + cur_seq_start) & 63;
+	cur_seq_step = (modi(cur_seq_step - cur_seq_start, cur_preset.seq_len) + cur_seq_start) & 63;
 }
 
 // calculate start step from preset and step offset modulation
 static void recalc_start_step(void) {
-	cur_seq_start = (rampreset.seq_start + param_val(P_STEP_OFFSET) + 64) & 63;
+	cur_seq_start = (cur_preset.seq_start + param_val(P_STEP_OFFSET) + 64) & 63;
 	// this always needs an align of cur step as well
 	align_cur_step();
 }
@@ -96,8 +86,8 @@ static void seq_set_start(u8 new_step) {
 	// save the relative step position
 	u8 relative_step = cur_seq_step - cur_seq_start + 64;
 	// set the new pattern start
-	rampreset.seq_start = new_step;
-	ramtime[GEN_PRESET] = millis();
+	cur_preset.seq_start = new_step;
+	log_ram_edit(SEG_PRESET);
 	recalc_start_step();
 	// set the new absolute step position
 	jump_to_step((cur_seq_start + relative_step) & 63);
@@ -111,7 +101,7 @@ static void apply_cued_changes(void) {
 		needs_start_recalc = true;
 		cued_ptn_start = 255;
 	}
-	if (OnLoop() || needs_start_recalc)
+	if (apply_cued_load_items() || needs_start_recalc)
 		recalc_start_step();
 }
 
@@ -131,7 +121,7 @@ static void seq_step(void) {
 	if (SEQ_CLOCK_SYNCED) {
 		c_step.euclid_len = param_val(P_SEQ_EUC_LEN);
 		c_step.density = param_val(P_SEQ_CHANCE);
-		do_conditional_step(&c_step, ARP_NONE);
+		do_conditional_step(&c_step, false);
 	}
 	// gate sync is not conditional
 	else {
@@ -157,7 +147,7 @@ static void seq_step(void) {
 		wrapped = seq_dec_step();
 		break;
 	case SEQ_ORD_PINGPONG: {
-		u8 end_step = cur_seq_start + rampreset.seq_len - 1;
+		u8 end_step = cur_seq_start + cur_preset.seq_len - 1;
 		// current step is at either extreme => switch directions
 
 		// == this should just be equal signs?? test! == //
@@ -171,7 +161,7 @@ static void seq_step(void) {
 		break;
 	}
 	case SEQ_ORD_PINGPONG_REP: {
-		u8 end_step = rampreset.seq_len + cur_seq_start - 1;
+		u8 end_step = cur_preset.seq_len + cur_seq_start - 1;
 		// current step is at either extreme => switch directions but trigger the *same* step again
 		if ((!seq_flags.playing_backwards && cur_seq_step >= end_step)
 		    || (seq_flags.playing_backwards && cur_seq_step <= cur_seq_start)) {
@@ -191,7 +181,7 @@ static void seq_step(void) {
 		// no steps left: end of a "loop"
 		if (!random_steps_avail) {
 			// all steps are available again
-			random_steps_avail = ((u64)1 << rampreset.seq_len) - 1;
+			random_steps_avail = ((u64)1 << cur_preset.seq_len) - 1;
 			wrapped = true;
 		}
 
@@ -254,7 +244,7 @@ void seq_try_rec_touch(u8 string_id, s16 pressure, s16 position, bool pres_incre
 	static u8 last_edited_step[8] = {255, 255, 255, 255, 255, 255, 255, 255};
 
 	// not recording
-	if (!seq_flags.recording || rampattern_idx != cur_pattern) {
+	if (!seq_flags.recording || pattern_outdated()) {
 		// clear this for next recording and exit
 		last_edited_step_global = 255;
 		return;
@@ -264,8 +254,7 @@ void seq_try_rec_touch(u8 string_id, s16 pressure, s16 position, bool pres_incre
 	u8 seq_pres = shift_state == SS_CLEAR ? 0 : pres_compress(pressure);
 	u8 seq_pos = shift_state == SS_CLEAR ? 0 : pos_compress(position);
 
-	u8 seq_quarter = (cur_seq_step >> 4) & 3;
-	PatternStringStep* string_step = &rampattern[seq_quarter].steps[cur_seq_step & 15][string_id];
+	PatternStringStep* string_step = string_step_ptr(string_id, false);
 	bool data_saved = false;
 	u8 substep = seq_substep(8);
 
@@ -322,7 +311,7 @@ void seq_try_rec_touch(u8 string_id, s16 pressure, s16 position, bool pres_incre
 		data_saved = true;
 	}
 	if (data_saved)
-		ramtime[GEN_PAT0 + seq_quarter] = millis();
+		log_ram_edit(SEG_PAT0 + CUR_QUARTER);
 }
 
 // try receiving touch data from sequencer
@@ -330,8 +319,8 @@ void seq_try_get_touch(u8 string_id, s16* pressure, s16* position) {
 	// exit if we're not playing a sequencer note
 	if (!c_step.play_step || shift_state == SS_CLEAR)
 		return;
+	PatternStringStep* string_step = string_step_ptr(string_id, true);
 	// exit if there is no data in the step
-	PatternStringStep* string_step = get_string_step(string_id);
 	if (!string_step)
 		return;
 	// exit if there's no pressure in the substep
@@ -446,9 +435,9 @@ void seq_try_set_start(u8 new_step) {
 
 void seq_set_end(u8 new_step) {
 	u8 new_len = (new_step - cur_seq_start + 1 + 64) & 63;
-	if (new_len != rampreset.seq_len) {
-		rampreset.seq_len = new_len;
-		ramtime[GEN_PRESET] = millis();
+	if (new_len != cur_preset.seq_len) {
+		cur_preset.seq_len = new_len;
+		log_ram_edit(SEG_PRESET);
 	}
 	align_cur_step();
 }
@@ -456,8 +445,7 @@ void seq_set_end(u8 new_step) {
 void seq_clear_step(void) {
 	// clear pressures from all substeps, from all strings, for the current step
 	bool data_saved = false;
-	u8 qtr = (cur_seq_step >> 4) & 3;
-	PatternStringStep* string_step = &rampattern[qtr].steps[cur_seq_step & 15][0];
+	PatternStringStep* string_step = string_step_ptr(0, false);
 	for (u8 string_id = 0; string_id < 8; ++string_id, ++string_step) {
 		for (u8 substep_id = 0; substep_id < 8; ++substep_id) {
 			if (string_step->pres[substep_id] > 0) {
@@ -467,5 +455,5 @@ void seq_clear_step(void) {
 		}
 	}
 	if (data_saved)
-		ramtime[GEN_PAT0 + qtr] = millis();
+		log_ram_edit(SEG_PAT0 + CUR_QUARTER);
 }

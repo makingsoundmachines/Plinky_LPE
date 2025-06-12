@@ -2,10 +2,11 @@
 #include "gfx/gfx.h"
 #include "hardware/accelerometer.h"
 #include "hardware/encoder.h"
+#include "hardware/flash.h"
+#include "hardware/ram.h"
 #include "synth/arp.h"
 #include "synth/lfos.h"
 #include "synth/params.h"
-#include "synth/pattern.h"
 #include "synth/pitch_tools.h"
 #include "synth/sampler.h"
 #include "synth/strings.h"
@@ -72,7 +73,7 @@ void flip(void) {
 
 void draw_recording_ui(void) {
 	oled_clear();
-	SampleInfo* s = get_sample_info();
+	SampleInfo* s = &cur_sample_info;
 
 	int peak = maxi(0, audioin_peak / 128);
 	int hold = maxi(0, audioin_hold / 128);
@@ -272,7 +273,7 @@ const bool pre_erase = true;
 u32 record_flashaddr_base = 0;
 
 void samplemode_ui(void) {
-	SampleInfo* s = get_sample_info();
+	SampleInfo* s = &cur_sample_info;
 	if (sampler_mode == SM_ERASING) {
 		erasepos = 0;
 		draw_recording_ui();
@@ -287,7 +288,7 @@ void samplemode_ui(void) {
 			erasepos++;
 		}
 		memset(s, 0, sizeof(SampleInfo)); // since we erased the ram, we might as well nuke the sample too
-		ramtime[GEN_SAMPLE] = millis();
+		log_ram_edit(SEG_SAMPLE);
 		// done!
 		spistate = 0;
 		sampler_mode = SM_PRE_ARMED;
@@ -369,7 +370,7 @@ void samplemode_ui(void) {
 				DebugLog("flash write fail\n");
 			}
 			s->samplelen = buf_read_pos - buf_start_pos;
-			ramtime[GEN_SAMPLE] = millis();
+			log_ram_edit(SEG_SAMPLE);
 			// sample full => stop recording
 			if (s->samplelen >= MAX_SAMPLE_LEN) {
 				stop_recording_sample();
@@ -444,7 +445,7 @@ void DrawVoices(void) {
 	static float touchLineHeight[8];
 	static float maxVolume[8];
 	static float volLineHeight[8];
-	u8 rightOffset = (rampreset.flags & FLAGS_LATCH) ? 38 : 14;
+	u8 rightOffset = latch_on() ? 38 : 14;
 	// all voices
 	for (u8 i = 0; i < 8; i++) {
 		// string volume
@@ -488,11 +489,11 @@ void DrawVoices(void) {
 
 void DrawFlags() {
 	gfx_text_color = 0;
-	if ((rampreset.flags & FLAGS_ARP)) {
+	if (arp_on()) {
 		fill_rectangle(128 - 32, 0, 128 - 17, 8);
 		draw_str(-(128 - 17), -1, F_8, "arp");
 	}
-	if ((rampreset.flags & FLAGS_LATCH)) {
+	if (latch_on()) {
 		fill_rectangle(128 - 38, 32 - 8, 128 - 17, 32);
 		draw_str(-(128 - 17), 32 - 7, F_8, "latch");
 	}
@@ -518,11 +519,11 @@ const char* getparamstr(int p, int mod, int v, char* valbuf, char* decbuf) {
 		case P_ARP_TOGGLE:
 			if (mod)
 				return "";
-			return ((rampreset.flags & FLAGS_ARP)) ? "On" : "Off";
+			return (arp_on()) ? "On" : "Off";
 		case P_LATCH_TOGGLE:
 			if (mod)
 				return "";
-			return ((rampreset.flags & FLAGS_LATCH)) ? "On" : "Off";
+			return latch_on() ? "On" : "Off";
 		case P_SAMPLE:
 			if (vscale == 0) {
 				return "Off";
@@ -651,7 +652,7 @@ void edit_mode_ui(void) {
 			target *= damping;
 			if (curfinger->pos >> 8 == y) {
 				float pressure = curfinger->pres * (1.f / 2048.f);
-				if ((rampreset.flags & FLAGS_ARP) && !arp_touched(x))
+				if (arp_on() && !arp_touched(x))
 					pressure = 0.f;
 
 				target = lerp(target, life_input_power, clampf(pressure * 2.f, 0.f, 1.f));
@@ -664,7 +665,7 @@ void edit_mode_ui(void) {
 	} // y
 
 	char presetname[9];
-	memcpy(presetname, rampreset.name, 8);
+	memcpy(presetname, cur_preset.name, 8);
 	presetname[8] = 0;
 
 	u8* vr = oled_buffer();
@@ -691,7 +692,7 @@ void edit_mode_ui(void) {
 		switch (ui_mode) {
 		case UI_DEFAULT:
 			if (using_sampler())
-				DrawSamplePlayback(get_sample_info());
+				DrawSamplePlayback(&cur_sample_info);
 			else {
 				for (int x = 0; x < 128; ++x) {
 					u32 m = scope[x];
@@ -711,23 +712,23 @@ void edit_mode_ui(void) {
 			if (mem_param < NUM_PARAMS && enc_recently_used())
 				goto draw_parameter;
 			DrawFlags();
-			char seqicon = (rampreset.flags & FLAGS_ARP) ? I_NOTES[0] : I_SEQ[0];
+			char seqicon = arp_on() ? I_NOTES[0] : I_SEQ[0];
 			char preseticon = I_PRESET[0];
 			int xtab = 0;
-			if (pending_preset != 255 && pending_preset != sys_params.curpreset)
-				xtab = fdraw_str(0, 0, F_20_BOLD, "%c%d->%d", preseticon, sys_params.curpreset + 1, pending_preset + 1);
-			else if (synth_max_pres > 1 && !(using_sampler() && !get_sample_info()->pitched)) {
+			if (cued_preset_id != 255 && cued_preset_id != sys_params.curpreset)
+				xtab = fdraw_str(0, 0, F_20_BOLD, "%c%d->%d", preseticon, sys_params.curpreset + 1, cued_preset_id + 1);
+			else if (synth_max_pres > 1 && !(using_sampler() && !cur_sample_info.pitched)) {
 				xtab = fdraw_str(0, 0, F_20_BOLD, "%s", notename((high_string_pitch + 1024) / 2048));
 			}
 			else
 				xtab = fdraw_str(0, 0, F_20_BOLD, "%c%d", preseticon, sys_params.curpreset + 1);
 			draw_str(xtab + 2, 0, F_8_BOLD, presetname);
-			if (rampreset.category > 0 && rampreset.category < CAT_LAST)
-				draw_str(xtab + 2, 8, F_8, kpresetcats[rampreset.category]);
-			if (pending_pattern != 255 && pending_pattern != cur_pattern)
-				fdraw_str(0, 16, F_20_BOLD, "%c%d->%d", seqicon, cur_pattern + 1, pending_pattern + 1);
+			if (cur_preset.category > 0 && cur_preset.category < CAT_LAST)
+				draw_str(xtab + 2, 8, F_8, kpresetcats[cur_preset.category]);
+			if (cued_pattern_id != 255 && cued_pattern_id != cur_pattern_id)
+				fdraw_str(0, 16, F_20_BOLD, "%c%d->%d", seqicon, cur_pattern_id + 1, cued_pattern_id + 1);
 			else
-				fdraw_str(0, 16, F_20_BOLD, "%c%d", seqicon, cur_pattern + 1);
+				fdraw_str(0, 16, F_20_BOLD, "%c%d", seqicon, cur_pattern_id + 1);
 			break;
 		case UI_EDITING_A:
 		case UI_EDITING_B:
@@ -750,14 +751,7 @@ draw_parameter:
 				case P_TEMPO:
 					pagename = I_TEMPO "Tap";
 					break;
-#ifndef NEW_LAYOUT
-				case P_ENV_LVL2:
-				case P_ENV_REPEAT:
-				case P_ENV_WARP:
-				case P_ENV_RATE:
-					pagename = "env2";
-					break;
-#endif
+
 				case P_NOISE:
 					pagename = I_WAVE "noise";
 					break;
@@ -808,32 +802,32 @@ draw_parameter:
 			fdraw_str(0, 16, F_20_BOLD, I_PLAY "Current %d", cur_seq_step + 1);
 			break;
 		case UI_PTN_END:
-			fdraw_str(0, 0, F_20_BOLD, I_NEXT "End %d", ((rampreset.seq_len + start_step) & 63) + 1);
-			fdraw_str(0, 16, F_20_BOLD, I_INTERVAL "Length %d", rampreset.seq_len);
+			fdraw_str(0, 0, F_20_BOLD, I_NEXT "End %d", ((cur_preset.seq_len + start_step) & 63) + 1);
+			fdraw_str(0, 16, F_20_BOLD, I_INTERVAL "Length %d", cur_preset.seq_len);
 			break;
 		case UI_LOAD:
 			if (shift_state_frames > 4 && shift_state == SS_CLEAR) {
 				bool done = (shift_state_frames - 4) > 64;
-				if (selected_preset_global < 32)
+				if (recent_load_item < PATTERNS_START)
 					fdraw_str(0, 0, F_16_BOLD,
 					          done ? "cleared\n" I_PRESET "Preset %d" : "initialize\n" I_PRESET "Preset %d?",
-					          selected_preset_global + 1);
-				else if (selected_preset_global < 64 - 8)
+					          recent_load_item + 1);
+				else if (recent_load_item < SAMPLES_START)
 					fdraw_str(0, 0, F_16_BOLD, done ? "cleared\n" I_SEQ "Pattern %d." : "Clear\n" I_SEQ "Pattern %d?",
-					          selected_preset_global - 32 + 1);
-				else if (selected_preset_global < 64 && selected_preset_global > 0)
+					          recent_load_item - PATTERNS_START + 1);
+				else
 					fdraw_str(0, 0, F_16_BOLD, done ? "cleared\n" I_WAVE "Sample %d." : "Clear\n" I_WAVE "Sample %d?",
-					          selected_preset_global - (64 - 8) + 1);
+					          recent_load_item - SAMPLES_START + 1);
 				inverted_rectangle(0, 0, shift_state_frames * 2 - 4, 32);
 			}
 			else if (long_press_frames >= 32) {
 				bool done = (long_press_frames - 32) > 128;
 				if (long_press_pad >= 56)
 					fdraw_str(0, 0, F_16_BOLD, done ? "ok!" : "Edit\n" I_WAVE "Sample %d?", long_press_pad - 56 + 1);
-				else if (long_press_pad == preset_copy_source)
+				else if (long_press_pad == copy_preset_id)
 					fdraw_str(0, 0, F_16_BOLD,
 					          done ? "toggled\n" I_PRESET "Preset %d" : "toggle\n" I_PRESET "Preset %d?",
-					          preset_copy_source + 1);
+					          copy_preset_id + 1);
 				else if (long_press_pad < 32)
 					fdraw_str(0, 0, F_16_BOLD, done ? "copied to " I_PRESET "%d" : "copy over\n" I_PRESET "Preset %d?",
 					          long_press_pad + 1);
@@ -846,11 +840,12 @@ draw_parameter:
 			else {
 				int xtab = fdraw_str(0, 0, F_20_BOLD, I_PRESET "%d", sys_params.curpreset + 1);
 				draw_str(xtab + 2, 0, F_8_BOLD, presetname);
-				if (rampreset.category > 0 && rampreset.category < CAT_LAST)
-					draw_str(xtab + 2, 8, F_8, kpresetcats[rampreset.category]);
+				if (cur_preset.category > 0 && cur_preset.category < CAT_LAST)
+					draw_str(xtab + 2, 8, F_8, kpresetcats[cur_preset.category]);
 
-				fdraw_str(0, 16, F_20_BOLD, I_SEQ "Pat %d ", cur_pattern + 1);
-				fdraw_str(-128, 16, F_20_BOLD, cur_sample_id1 ? I_WAVE "%d" : I_WAVE "Off", cur_sample_id1);
+				fdraw_str(0, 16, F_20_BOLD, I_SEQ "Pat %d ", cur_pattern_id + 1);
+				fdraw_str(-128, 16, F_20_BOLD, cur_sample_id < NUM_SAMPLES ? I_WAVE "%d" : I_WAVE "Off",
+				          cur_sample_id + 1);
 			}
 			break;
 		default:
@@ -867,7 +862,7 @@ draw_parameter:
 	int cvpitch = adc_get_smooth(ADC_S_PITCH);
 
 	for (int fi = 0; fi < 8; ++fi) {
-		PatternStringStep* fr = get_string_step(fi);
+		PatternStringStep* fr = string_step_ptr(fi, true);
 
 		///////////////////////////////////// ROOT NOTE DISPLAY
 		/// per finger
@@ -885,8 +880,8 @@ draw_parameter:
 		root += scale_steps_at_string(scale, fi);
 		Touch* synthf = get_string_touch(fi);
 		///////////////////////////////////////////////////////
-		int sp0 = get_sample_info()->splitpoints[fi];
-		int sp1 = (fi < 7) ? get_sample_info()->splitpoints[fi + 1] : get_sample_info()->samplelen;
+		int sp0 = cur_sample_info.splitpoints[fi];
+		int sp1 = (fi < 7) ? cur_sample_info.splitpoints[fi + 1] : cur_sample_info.samplelen;
 
 		for (int y = 0; y < 8; ++y) {
 
@@ -901,7 +896,7 @@ draw_parameter:
 			if (fr && fr->pos[phase0 / 2] / 32 == y)
 				k = maxi(k, fr->pres[phase0]);
 
-			bool inloop = ((step - start_step) & 63) < rampreset.seq_len;
+			bool inloop = ((step - start_step) & 63) < cur_preset.seq_len;
 #ifdef NEW_LAYOUT
 			int pA = (fi > 0 && fi < 7) ? (fi - 1) + (y) * 12 : NUM_PARAMS;
 #else
@@ -961,13 +956,13 @@ bargraph:
 				}
 #ifdef NEW_LAYOUT
 				if (pAorB == P_ARP_TOGGLE)
-					k = (rampreset.flags & FLAGS_ARP) ? 255 : 0;
+					k = arp_on() ? 255 : 0;
 				else if (pAorB == P_LATCH_TOGGLE)
-					k = (rampreset.flags & FLAGS_LATCH) ? 255 : 0;
+					k = latch_on() ? 255 : 0;
 #else
 				if (y == 0) {
 					if (fi == 1)
-						k = maxi(k, (rampreset.arpon) ? 255 : 0);
+						k = maxi(k, (cur_preset.arpon) ? 255 : 0);
 					else if (fi == 6)
 						k = maxi(k, (sys_params.systemflags & SYS_LATCHON) ? 255 : 0);
 				}
@@ -980,10 +975,10 @@ bargraph:
 				if (ui_edit_param < NUM_PARAMS && (ui_edit_param == pA || ui_edit_param == pA + 6) && fi > 0 && fi < 7)
 					k = flickery;
 				{
-					if (using_sampler() && !get_sample_info()->pitched) {
+					if (using_sampler() && !cur_sample_info.pitched) {
 						int samp = sp0 + (((sp1 - sp0) * y) >> 3);
 						const static int zoom = 3;
-						u16 avgpeak = getwaveform4zoom(get_sample_info(), samp / 1024, zoom) & 15;
+						u16 avgpeak = getwaveform4zoom(&cur_sample_info, samp / 1024, zoom) & 15;
 						k = maxi(k, avgpeak * (96 / 16));
 					}
 					else {
@@ -1005,7 +1000,7 @@ bargraph:
 					k = maxi(k, loopbright);
 				if (step == start_step && ui_mode == UI_PTN_START)
 					k = 255;
-				if (((step + 1) & 63) == ((start_step + rampreset.seq_len) & 63) && ui_mode == UI_PTN_END)
+				if (((step + 1) & 63) == ((start_step + cur_preset.seq_len) & 63) && ui_mode == UI_PTN_END)
 					k = 255;
 				// playhead
 				if (step == cur_seq_step)
@@ -1015,17 +1010,17 @@ bargraph:
 				break;
 			case UI_LOAD:
 				k = (fi >= 4 && fi < 7) ? 64 : 0;
-				if (rotstep == pending_preset)
+				if (rotstep == cued_preset_id)
 					k = flickeryfast;
 				if (rotstep == sys_params.curpreset)
 					k = 255;
-				if (rotstep == pending_pattern + 32)
+				if (rotstep == PATTERNS_START + cued_pattern_id)
 					k = flickeryfast;
-				if (rotstep == cur_pattern + 32)
+				if (rotstep == PATTERNS_START + cur_pattern_id)
 					k = 255;
-				if (pending_sample1 && rotstep == (pending_sample1 - 1) + 32 + 24)
+				if (cued_sample_id && rotstep == SAMPLES_START + cued_sample_id)
 					k = flickeryfast;
-				if (cur_sample_id1 && rotstep == (cur_sample_id1 - 1) + 32 + 24)
+				if (cur_sample_id < NUM_SAMPLES && rotstep == SAMPLES_START + cur_sample_id)
 					k = 255;
 				break;
 			default: // suppres warning
@@ -1098,5 +1093,8 @@ void plinky_frame(void) {
 	// reading the accelerometer needs to live in the main thread because it involves (blocking) I2C communication
 	accel_read();
 	audiohistpos = (audiohistpos + 1) & 31;
-	PumpFlashWrites();
+
+	// always do a ram_frame, except when in ui_sample_edit *and* working on a new sample
+	if (sampler_mode == SM_PREVIEW)
+		ram_frame();
 }

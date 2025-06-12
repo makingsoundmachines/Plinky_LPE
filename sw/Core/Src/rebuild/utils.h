@@ -168,74 +168,12 @@ static inline void sort8(int *dst, const int *src) {
 // clang-format on
 
 // TEMP - these will get organised into their appropriate modules
-// save/load
-typedef struct Preset {
-	s16 params[96][8];
-	u8 flags;
-	u8 seq_start;
-	u8 seq_len;
-	u8 paddy[3];
-	u8 version;
-	u8 category;
-	u8 name[8];
-} Preset;
-// static_assert((sizeof(Preset) & 15) == 0, "?");
-// static_assert(sizeof(Preset) + sizeof(SysParams) + sizeof(PageFooter) <= 2048, "?");
-
-// save/load
-typedef struct SysParams {
-	u8 curpreset;
-	u8 paddy;
-	u8 systemflags;
-	s8 headphonevol;
-	u8 pad[16 - 4];
-} SysParams;
-
-// save/load
-enum { GEN_PRESET, GEN_PAT0, GEN_PAT1, GEN_PAT2, GEN_PAT3, GEN_SYS, GEN_SAMPLE, GEN_LAST };
 
 #include "low_level/audiointrin.h"
-
-#define NUM_KNOBS 2
-#define NUM_QUARTERS 4
 
 #define EXPANDER_ZERO 0x800
 #define EXPANDER_RANGE 0x7ff
 #define EXPANDER_MAX 0xfff
 #define EXPANDER_GAIN 0.715f
-#define MAX_PTN_STEPS 64
-#define PTN_STEPS_PER_QTR (MAX_PTN_STEPS / NUM_QUARTERS)
-#define PTN_SUBSTEPS 8
 
 #define I2C_TIMEOUT 20
-
-typedef struct PatternStringStep {
-	u8 pos[PTN_SUBSTEPS / 2];
-	u8 pres[PTN_SUBSTEPS];
-} PatternStringStep;
-
-typedef struct PatternQuarter {
-	PatternStringStep steps[PTN_STEPS_PER_QTR][NUM_STRINGS];
-	s8 autoknob[PTN_STEPS_PER_QTR * PTN_SUBSTEPS][NUM_KNOBS];
-} PatternQuarter;
-// these should be incorporated in memory module:
-// static_assert(sizeof(PatternQuarter) + sizeof(SysParams) + sizeof(PageFooter) <= 2048, "?");
-// static_assert((sizeof(PatternQuarter) & 15) == 0, "?");
-
-#define CUR_PRESET_VERSION 2
-
-#define NUM_PRESETS 32
-#define NUM_PATTERNS 24
-#define NUM_SAMPLES 8
-
-typedef struct SampleInfo {
-	u8 waveform4_b[1024]; // 4 bits x 2048 points, every 1024 samples
-	int splitpoints[8];
-	int samplelen; // must be after splitpoints, so that splitpoints[8] is always the length.
-	s8 notes[8];
-	u8 pitched;
-	u8 loop; // bottom bit: loop; next bit: slice vs all
-	u8 paddy[2];
-} SampleInfo;
-// static_assert(sizeof(SampleInfo) + sizeof(SysParams) + sizeof(PageFooter) <= 2048, "?");
-// static_assert((sizeof(SampleInfo) & 15) == 0, "?");

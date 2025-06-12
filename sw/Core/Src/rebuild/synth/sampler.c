@@ -2,6 +2,8 @@
 #include "audio.h"
 #include "data/tables.h"
 #include "hardware/adc_dac.h"
+#include "hardware/flash.h"
+#include "hardware/ram.h"
 #include "params.h"
 #include "strings.h"
 #include "time.h"
@@ -13,15 +15,10 @@ extern volatile u8 spistate;
 extern short* delaybuf;
 extern s16 audioin_peak;
 extern u32 record_flashaddr_base;
-extern u8 pending_sample1;
-
-extern u8 ramsample1_idx;
 
 int spi_readgrain_dma(int gi);
 void reverb_clear(void);
 void delay_clear(void);
-SampleInfo* sample_info_flash_ptr(u8 sample0);
-bool CopySampleToRam(bool force);
 // -- cleanup
 
 #define SMUAD(o, a, b) asm("smuad %0, %1, %2" : "=r"(o) : "r"(a), "r"(b))
@@ -32,10 +29,7 @@ int grain_pos[32];
 s16 grain_buf[GRAINBUF_BUDGET];
 s16 grain_buf_end[32]; // for each of the 32 grain fetches, where does it end in the grain_buf?
 
-static SampleInfo cur_sample_info;
-static u8 edit_sample_id0 = 0; // this is the one we are editing. no modulation. sample 0-7. not 1 based!
-u8 cur_sample_id1 = 0; // this is the one we are playing, derived from param, can modulate. 0 means off, 1-8 is sample
-u8 cur_slice_id = 0;   // active slice id, used during recording and to register/adjust slice points
+u8 cur_slice_id = 0; // active slice id, used during recording and to register/adjust slice points
 
 // used while recording a new sample
 u32 buf_start_pos = 0;
@@ -49,20 +43,13 @@ u32 buf_read_pos = 0;
 // 	return s->y1;
 // }
 
-SampleInfo* get_sample_info(void) {
-	return &cur_sample_info;
-}
-
 int using_sampler(void) {
-	return get_sample_info()->samplelen;
+	return cur_sample_info.samplelen;
 }
 
 void open_sampler(u8 with_sample_id) {
-	edit_sample_id0 = with_sample_id;
-	save_param(P_SAMPLE, SRC_BASE, edit_sample_id0 + 1);
-	memcpy(&cur_sample_info, sample_info_flash_ptr(edit_sample_id0), sizeof(SampleInfo));
-	ramsample1_idx = cur_sample_id1 = edit_sample_id0 + 1;
-	pending_sample1 = 255;
+	load_sample(with_sample_id);
+	save_param(P_SAMPLE, SRC_BASE, with_sample_id);
 	ui_mode = UI_SAMPLE_EDIT;
 	cur_slice_id = 7;
 }
@@ -82,8 +69,7 @@ static int calcloopend(u8 slice_id) {
 }
 
 void handle_sampler_audio(u32* dst, u32* audioin) {
-	cur_sample_id1 = edit_sample_id0 + 1;
-	CopySampleToRam(false);
+	update_sample_ram(false);
 	// while armed => check for incoming audio
 	if ((sampler_mode == SM_ARMED) && (audioin_peak > 1024))
 		start_recording_sample();
@@ -364,7 +350,7 @@ void apply_sample_lpg_noise(u8 voice_id, Voice* voice, float goal_lpg, float noi
 void sort_sample_voices(void) {
 	// decide on a priority for 8 voices
 	int gprio[8];
-	u32 sampleaddr = ((cur_sample_id1 - 1) & 7) * MAX_SAMPLE_LEN;
+	u32 sampleaddr = cur_sample_id * MAX_SAMPLE_LEN;
 
 	for (int i = 0; i < 8; ++i) {
 		GrainPair* g = voices[i].grain_pair;
@@ -415,7 +401,7 @@ void sort_sample_voices(void) {
 
 // reset all sample recording variables and initiate erasing the sample flash buffer
 void start_erasing_sample_buffer(void) {
-	record_flashaddr_base = (edit_sample_id0 & 7) * (2 * MAX_SAMPLE_LEN);
+	record_flashaddr_base = 2 * MAX_SAMPLE_LEN * cur_sample_id;
 	cur_slice_id = 0;
 	buf_start_pos = 0;
 	buf_read_pos = 0;
@@ -461,7 +447,7 @@ void finish_recording_sample(void) {
 	// clear out the raw audio in the delaybuf
 	reverb_clear();
 	delay_clear();
-	ramtime[GEN_SAMPLE] = millis(); // fill in the remaining split points
+	log_ram_edit(SEG_SAMPLE); // fill in the remaining split points
 	int startsamp = cur_sample_info.splitpoints[cur_slice_id];
 	int endsamp = cur_sample_info.samplelen;
 	int n = 8 - cur_slice_id;
@@ -470,7 +456,7 @@ void finish_recording_sample(void) {
 		cur_sample_info.splitpoints[i] = samp;
 	}
 	cur_slice_id = 0;
-	ramtime[GEN_SAMPLE] = millis();
+	log_ram_edit(SEG_SAMPLE);
 	sampler_mode = SM_PREVIEW;
 }
 
@@ -483,7 +469,7 @@ static void set_slice_point(u8 slice_id, float slice_pos) {
 	slice_pos = clampf(slice_pos, smin, smax);
 	if (cur_sample_info.splitpoints[slice_id] != slice_pos) {
 		cur_sample_info.splitpoints[slice_id] = slice_pos;
-		ramtime[GEN_SAMPLE] = millis();
+		log_ram_edit(SEG_SAMPLE);
 	}
 }
 
@@ -515,18 +501,18 @@ void sampler_adjust_cur_slice_pitch(s8 diff) {
 	u8 newnote = clampi(cur_sample_info.notes[cur_slice_id] + diff, 0, 96);
 	if (newnote != cur_sample_info.notes[cur_slice_id]) {
 		cur_sample_info.notes[cur_slice_id] = newnote;
-		ramtime[GEN_SAMPLE] = millis();
+		log_ram_edit(SEG_SAMPLE);
 	}
 }
 
 // == MODES == //
 
 void sampler_toggle_play_mode(void) {
-	get_sample_info()->pitched = !get_sample_info()->pitched;
-	ramtime[GEN_SAMPLE] = millis();
+	cur_sample_info.pitched = !cur_sample_info.pitched;
+	log_ram_edit(SEG_SAMPLE);
 }
 
 void sampler_iterate_loop_mode(void) {
-	get_sample_info()->loop = (get_sample_info()->loop + 1) & 3;
-	ramtime[GEN_SAMPLE] = millis();
+	cur_sample_info.loop = (cur_sample_info.loop + 1) & 3;
+	log_ram_edit(SEG_SAMPLE);
 }

@@ -15,7 +15,7 @@ typedef struct ConditionalStep {
 	bool advance_step;
 } ConditionalStep;
 
-static void do_conditional_step(ConditionalStep* c_step, ArpOrder arp_order) {
+static void do_conditional_step(ConditionalStep* c_step, bool chord_mode) {
 	u8 len_abs = abs(c_step->euclid_len);                            // max 64
 	u8 dens_abs = clampi((abs(c_step->density) + 256) >> 9, 0, 128); // density, 128 equals 100%
 	bool cond_trig;
@@ -27,10 +27,10 @@ static void do_conditional_step(ConditionalStep* c_step, ArpOrder arp_order) {
 	}
 	// 0 or 1 length
 	else {
-		// chord arp: chord is played every step, some notes are suppressed according to density value
-		if (arp_order == ARP_CHORD)
+		// chord mode: trigger is always true, some notes are suppressed according to density value
+		if (chord_mode)
 			cond_trig = true;
-		// seq and other arps: density is used as a true random trigger percentage
+		// default: density is used as a true random trigger percentage
 		else
 			cond_trig = (rand() & 127) < dens_abs;
 	}

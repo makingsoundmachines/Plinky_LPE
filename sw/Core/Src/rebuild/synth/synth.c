@@ -4,6 +4,7 @@
 #include "hardware/cv.h"
 #include "hardware/midi.h"
 #include "hardware/midi_defs.h"
+#include "hardware/ram.h"
 #include "hardware/touchstrips.h"
 #include "params.h"
 #include "pitch_tools.h"
@@ -15,12 +16,6 @@
 #include "ui/ui.h"
 
 // cleanup
-int param_eval_int(u8 paramidx, int rnd, int env16, int pressure16);
-extern u16 any_rnd;
-extern int env16;
-extern int pressure16;
-extern Preset rampreset;
-
 #define clz __builtin_clz
 #define unlikely(x) __builtin_expect((x), 0)
 #define SMUAD(o, a, b) asm("smuad %0, %1, %2" : "=r"(o) : "r"(a), "r"(b))
@@ -147,7 +142,7 @@ void generate_oscs(u8 string_id, Voice* voice) {
 		low_string_pitch = summed_pitch;
 		got_low_pitch = true;
 	}
-	if (!arp_active() || arp_touched(string_id)) {
+	if (!arp_on() || arp_touched(string_id)) {
 		high_string_pitch = summed_pitch;
 		got_high_pitch = true;
 	}
@@ -172,7 +167,7 @@ static float update_envelope(u8 voice_id, Voice* voice) {
 	const float release = is_sample_preview ? 0.5f : lpf_k((param_val_poly(P_RELEASE1, voice_id)));
 
 	u8 mask = 1 << voice_id;
-	if (arp_active() && !arp_touched(voice_id))
+	if (arp_on() && !arp_touched(voice_id))
 		goal_lpg = 0.f; // this suppresses touches when arp is active
 	float env_lvl = voice->env1_lvl;
 
@@ -210,7 +205,7 @@ static void apply_subtractive_lpg_noise(u8 voice_id, Voice* voice, float goal_lp
 	float glide = lpf_k(param_val_poly(P_GLIDE, voice_id) >> 2) * (0.5f / SAMPLES_PER_TICK);
 
 	// oscillator shape
-	s32 osc_shape_raw = rampreset.params[P_SHAPE][0]; // unmodulated
+	s32 osc_shape_raw = cur_preset.params[P_SHAPE][0]; // unmodulated
 	s32 osc_shape = param_val_poly(P_SHAPE, voice_id);
 	// raw from -8 to 7, snap to 0 => supersaw
 	if (osc_shape_raw >= -8 && osc_shape_raw < 8)

@@ -55,11 +55,11 @@ extern TIM_HandleTypeDef htim5;
 #include "hardware/flash.h"
 #include "hardware/leds.h"
 #include "hardware/midi.h"
+#include "hardware/ram.h"
 #include "low_level/codec.h"
 #include "low_level/spi.h"
 #include "synth/arp.h"
 #include "synth/audio.h"
-#include "synth/pattern.h"
 #include "synth/sampler.h"
 #include "synth/sequencer.h"
 #include "synth/synth.h"
@@ -126,8 +126,6 @@ u32 scope[128];
 
 // clang-format off
 
-#include "low_level/flash.h"
-#include "utils/params.h"
 #include "touch.h"
 #include "calib.h"
 
@@ -426,7 +424,7 @@ void DoAudio(u32* dst, u32* audioin) {
 	//////////////////////////////////////////////////////////
 	// PLAYMODE
 
-	CopyPresetToRam(false);
+	update_preset_ram(false);
 	// a few midi messages per tick. WCGW
 	process_all_midi_out();
 #ifndef EMU
@@ -446,11 +444,8 @@ void DoAudio(u32* dst, u32* audioin) {
 
 	params_tick();
 
-	// memory stuff
-	cur_sample_id1 = param_val(P_SAMPLE);
-	cur_pattern = param_val(P_PATTERN);
-	CopySampleToRam(false);
-	CopyPatternToRam(false);
+	update_sample_ram(false);
+	update_pattern_ram(false);
 
 	// synth
 
@@ -823,6 +818,26 @@ void EMSCRIPTEN_KEEPALIVE uitick(u32* dst, const u32* src, int half) {
 	if (do_every(log_cycle / 2, &_tc_all_log))
 		tc_reset(&_tc_all);
 #endif
+}
+
+static void jumptobootloader(void) {
+	// todo - maybe set a flag in the flash and then use NVIC_SystemReset() which will cause it to jumptobootloader
+	// earlier https://community.st.com/s/question/0D50X00009XkeeW/stm32l476rg-jump-to-bootloader-from-software
+	typedef void (*pFunction)(void);
+	pFunction JumpToApplication;
+	HAL_RCC_DeInit();
+	HAL_DeInit();
+	SysTick->CTRL = 0;
+	SysTick->LOAD = 0;
+	SysTick->VAL = 0;
+	__disable_irq();
+	__DSB();
+	__HAL_SYSCFG_REMAPMEMORY_SYSTEMFLASH(); /* Remap is bot visible at once. Execute some unrelated command! */
+	__DSB();
+	__ISB();
+	JumpToApplication = (void (*)(void))(*((uint32_t*)(0x1FFF0000 + 4)));
+	__set_MSP(*(__IO uint32_t*)0x1FFF0000);
+	JumpToApplication();
 }
 
 void reflash(void) {
@@ -1263,7 +1278,7 @@ uint8_t* EMSCRIPTEN_KEEPALIVE get_wasm_audio_buf(void) {
 	return (uint8_t*)wasmbuf;
 }
 uint8_t* EMSCRIPTEN_KEEPALIVE get_wasm_preset_buf(void) {
-	return (uint8_t*)&rampreset;
+	return (uint8_t*)&cur_preset;
 }
 void EMSCRIPTEN_KEEPALIVE wasm_audio(void) {
 	static u8 half = 0;
@@ -1272,19 +1287,19 @@ void EMSCRIPTEN_KEEPALIVE wasm_audio(void) {
 	half = 1 - half;
 }
 void EMSCRIPTEN_KEEPALIVE wasm_pokepreset(int offset, int byte) {
-	if (offset >= 0 && offset < sizeof(rampreset))
-		((u8*)&rampreset)[offset] = byte;
+	if (offset >= 0 && offset < sizeof(cur_preset))
+		((u8*)&cur_preset)[offset] = byte;
 }
 int EMSCRIPTEN_KEEPALIVE wasm_peekpreset(int offset) {
-	if (offset >= 0 && offset < sizeof(rampreset))
-		return ((u8*)&rampreset)[offset];
+	if (offset >= 0 && offset < sizeof(cur_preset))
+		return ((u8*)&cur_preset)[offset];
 	return 0;
 }
 int EMSCRIPTEN_KEEPALIVE wasm_getcurpreset(void) {
 	return sys_params.curpreset;
 }
 void EMSCRIPTEN_KEEPALIVE wasm_setcurpreset(int i) {
-	SetPreset(i, false);
+	load_preset(i, false);
 }
 #endif
 
@@ -1374,7 +1389,7 @@ void EMSCRIPTEN_KEEPALIVE plinky_init(void) {
 	}
 #endif
 	init_flash();
-	InitParamsOnBoot();
+	init_ram();
 
 	sampler_mode = SM_PREVIEW;
 }

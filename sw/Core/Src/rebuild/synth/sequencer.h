@@ -33,8 +33,8 @@ typedef enum SeqOrder {
 
 extern SeqFlags seq_flags;
 
-extern s8 cur_seq_step;   // for autoknobs & ui
-extern u8 cur_seq_start;  // for autoknobs & ui
+extern s8 cur_seq_step;   // for ui
+extern u8 cur_seq_start;  // for ui
 extern u8 cued_ptn_start; // for ui
 
 // == SEQ INFO == //

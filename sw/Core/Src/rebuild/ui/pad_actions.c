@@ -1,35 +1,12 @@
 #include "pad_actions.h"
 #include "gfx/data/names.h"
+#include "hardware/ram.h"
 #include "hardware/touchstrips.h"
 #include "shift_states.h"
 #include "synth/params.h"
 #include "synth/sampler.h"
 #include "synth/time.h"
 #include "ui.h"
-
-// needs cleaning up
-
-// system
-extern u32 ramtime[GEN_LAST];
-extern Preset rampreset;
-extern SysParams sys_params;
-extern s8 selected_preset_global; // system
-void SetPreset(u8 preset, bool force);
-// memory
-SampleInfo* sample_info_flash_ptr(u8 sample0);
-// parameters
-extern u8 copy_request;
-extern u8 preset_copy_source;
-extern u8 pattern_copy_source;
-extern u8 sample_copy_source;
-extern u8 pending_preset;
-extern u8 pending_pattern;
-extern u8 pending_sample1;
-extern u8 prev_pending_preset;
-extern u8 prev_pending_pattern;
-extern u8 prev_pending_sample1;
-extern u8 cur_pattern;
-// - needs cleaning up
 
 #define LONGPRESS_THRESH 160 // full read cycles
 
@@ -40,13 +17,6 @@ u16 long_press_frames = 0;
 u8 long_press_pad = 0;
 
 // local
-
-static u8 get_load_section(u8 pad_id) {
-	return pad_id < 32   ? 0  // presets
-	       : pad_id < 56 ? 1  // patterns
-	       : pad_id < 64 ? 2  // samples
-	                     : 3; // none
-}
 
 void handle_pad_actions(u8 strip_id, Touch* strip_cur) {
 	Touch* strip_2back = get_touch_prev(strip_id, 2);
@@ -80,35 +50,8 @@ void handle_pad_actions(u8 strip_id, Touch* strip_cur) {
 		if ((strip_is_action_pressed & strip_mask) && strip_cur->pres <= 0) { // pressure under 0,
 			strip_is_action_pressed &= ~strip_mask;                           // clear pressed flag
 			// release in load preset mode
-			if (ui_mode == UI_LOAD) {
-				s8 load_section = get_load_section(long_press_pad);
-				switch (load_section) {
-				case 0: // presets
-					if (pending_preset == prev_pending_preset || !seq_playing()) {
-						if (pending_preset != 255) {
-							SetPreset(pending_preset, false);
-							pending_preset = 255;
-						}
-					}
-					break;
-				case 1: // patterns
-					if (pending_pattern == prev_pending_pattern || !seq_playing()) {
-						if (pending_pattern != 255) {
-							save_param(P_PATTERN, SRC_BASE, pending_pattern);
-							pending_pattern = 255;
-						}
-					}
-					break;
-				case 2: // samples
-					if (pending_sample1 == prev_pending_sample1 || !seq_playing()) {
-						if (pending_sample1 != 255) {
-							save_param(P_SAMPLE, SRC_BASE, pending_sample1);
-							pending_sample1 = 255;
-						}
-					}
-					break;
-				}
-			}
+			if (ui_mode == UI_LOAD)
+				try_apply_cued_ram_item(long_press_pad);
 		}
 	}
 
@@ -172,40 +115,12 @@ void handle_pad_actions(u8 strip_id, Touch* strip_cur) {
 			if (is_press_start)
 				seq_set_end(pad_y * 8 + strip_id);
 			break;
-		case UI_LOAD: { // belongs in load/save module
-			selected_preset_global = pad_id;
-			s8 load_section = get_load_section(pad_id);
-			if (load_section == get_load_section(long_press_pad))
-				// line up items to be set (*_pending) or copied from (copy_source)
-				switch (load_section) {
-				case 0:
-					// preset
-					preset_copy_source = sys_params.curpreset;
-					prev_pending_preset = pending_preset;
-					pending_preset = pad_id;
-					break;
-				case 1: {
-					// pattern
-					pattern_copy_source = cur_pattern;
-					prev_pending_pattern = pending_pattern;
-					pending_pattern = pad_id - 32;
-					break;
-				}
-				case 2: {
-					// sample
-					int sample_id = pad_id - 56 + 1;
-					if (is_press_start) {
-						prev_pending_sample1 = pending_sample1;
-						sample_copy_source = cur_sample_id1;
-						if (sample_id == sample_copy_source)
-							sample_id = 0;
-						pending_sample1 = sample_id;
-					}
-					break;
-				}
-				} // section switch
+		case UI_LOAD:
+			if (is_press_start) {
+				touch_load_item(pad_id);
+				cue_ram_item(pad_id);
+			}
 			break;
-		} // preset
 		} // mode
 	}
 }
@@ -240,6 +155,6 @@ void handle_pad_action_long_presses(void) {
 			open_sampler(pad_id & 7);
 		// patch or pattern, request copy
 		else
-			copy_request = pad_id;
+			copy_load_item(pad_id);
 	}
 }

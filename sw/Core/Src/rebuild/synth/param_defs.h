@@ -1,15 +1,17 @@
 #pragma once
+#include "hardware/cv.h"
+#include "hardware/mem_defs.h"
 #include "utils.h"
 
 #define RANGE_MASK 127   // the actual range is stored in the 7 lsb of a byte
 #define RANGE_SIGNED 128 // the msb indicates whether the range is signed
 #define PARAM_SIZE 1024  // range of a parameter
 #define HALF_PARAM_SIZE (PARAM_SIZE / 2)
+#define QUARTER (PARAM_SIZE / 4)
+#define EIGHTH (PARAM_SIZE / 8)
+#define QUANT(v, maxi) (((v) * PARAM_SIZE + PARAM_SIZE / 2) / (maxi))
 
-enum {
-	FLAGS_ARP = 1,
-	FLAGS_LATCH = 2,
-};
+#define SAMPLE_ID_RANGE (NUM_SAMPLES + 1)
 
 typedef enum ModSource {
 	SRC_BASE,
@@ -289,3 +291,111 @@ const static u8 param_range[NUM_PARAMS] = {
     [P_ACCEL_SENS] = RANGE_SIGNED,
     [P_MIX_WIDTH] = RANGE_SIGNED,
 };
+
+static Preset const init_params = {
+
+    .seq_len = 8,
+    .version = CUR_PRESET_VERSION,
+    .params = {
+        [P_ENV_LVL1] = {HALF_PARAM_SIZE},
+        [P_DISTORTION] = {0},
+        [P_ATTACK1] = {EIGHTH},
+        [P_DECAY1] = {QUARTER},
+        [P_SUSTAIN1] = {PARAM_SIZE},
+        [P_RELEASE1] = {EIGHTH},
+
+        [P_OCT] = {0, 0, 0},
+        [P_PITCH] = {0, 0, 0},
+        // [P_SCALE] = {QUANT(S_MAJOR, NUM_SCALES)},
+        [P_SCALE] = {QUANT(0, 27)},
+        [P_MICROTONE] = {EIGHTH},
+        [P_COLUMN] = {QUANT(7, 13)},
+        [P_INTERVAL] = {(0 * PARAM_SIZE) / 12},
+        [P_DEGREE] = {0, 0, 0},
+
+        [P_NOISE] = {0, 0, 0},
+
+        [P_SMP_SPEED] = {HALF_PARAM_SIZE},
+        [P_SMP_GRAINSIZE] = {HALF_PARAM_SIZE},
+        [P_SMP_STRETCH] = {HALF_PARAM_SIZE},
+
+        //		[P_ARP_ORDER]={QUANT(ARP_UP,NUM_ARP_ORDERS)},
+        [P_ARP_CLK_DIV] = {QUANT(2, 22)}, // NUM_SYNC_DIVS
+        [P_ARP_CHANCE] = {PARAM_SIZE},
+        [P_ARP_EUC_LEN] = {QUANT(8, 17)},
+        [P_ARP_OCTAVES] = {QUANT(0, 4)},
+        [P_GLIDE] = {0},
+
+        // [P_SEQ_ORDER] = {QUANT(SEQ_FWD, SEQ_LAST)},
+        [P_SEQ_ORDER] = {QUANT(1, 6)},
+        [P_SEQ_CLK_DIV] = {QUANT(6, 23)}, // NUM_SYNC_DIVS + 1
+        [P_SEQ_CHANCE] = {PARAM_SIZE},
+        [P_SEQ_EUC_LEN] = {QUANT(8, 17)},
+        [P_PATTERN] = {QUANT(0, 24)},
+        [P_STEP_OFFSET] = {0},
+        [P_TEMPO] = {0},
+
+        [P_GATE_LENGTH] = {PARAM_SIZE},
+
+        //[P_DLY_SEND]={HALF_PARAM_SIZE},
+        [P_DLY_TIME] = {QUANT(3, 8)},
+        [P_DLY_FEEDBACK] = {HALF_PARAM_SIZE},
+        //[P_DLCOLOR]={PARAM_SIZE},
+        [P_DLY_WOBBLE] = {QUARTER},
+        [P_DLY_PINGPONG] = {PARAM_SIZE},
+
+        [P_RVB_SEND] = {QUARTER},
+        [P_RVB_TIME] = {HALF_PARAM_SIZE},
+        [P_RVB_SHIMMER] = {QUARTER},
+        //[P_RVCOLOR]={PARAM_SIZE-QUARTER},
+        [P_RVB_WOBBLE] = {QUARTER},
+        //[P_RVB_UNUSED]={0},
+
+        [P_SYNTH_LVL] = {HALF_PARAM_SIZE},
+        [P_MIX_WIDTH] = {(HALF_PARAM_SIZE * 7) / 8},
+        [P_INPUT_WET_DRY] = {0},
+        [P_INPUT_LVL] = {HALF_PARAM_SIZE},
+        [P_SYNTH_WET_DRY] = {0},
+
+        [P_ATTACK2] = {EIGHTH},
+        [P_DECAY2] = {QUARTER},
+        [P_SUSTAIN2] = {PARAM_SIZE},
+        [P_RELEASE2] = {EIGHTH},
+        [P_SWING] = {0},
+        [P_ENV_LVL2] = {HALF_PARAM_SIZE},
+        [P_CV_QUANT] = {QUANT(CVQ_OFF, CVQ_LAST)},
+
+        [P_A_OFFSET] = {0},
+        [P_A_SCALE] = {HALF_PARAM_SIZE},
+        [P_A_DEPTH] = {0},
+        [P_A_RATE] = {0},
+        //[P_A_SHAPE] = {QUANT(LFO_ENV,NUM_LFO_SHAPES)},
+        [P_A_SYM] = {0},
+
+        [P_B_OFFSET] = {0},
+        [P_B_SCALE] = {HALF_PARAM_SIZE},
+        [P_B_DEPTH] = {0},
+        [P_B_RATE] = {100},
+        [P_B_SHAPE] = {0},
+        [P_B_SYM] = {0},
+
+        [P_X_OFFSET] = {0},
+        [P_X_SCALE] = {HALF_PARAM_SIZE},
+        [P_X_DEPTH] = {0},
+        [P_X_RATE] = {-123},
+        [P_X_SHAPE] = {0},
+        [P_X_SYM] = {0},
+
+        [P_Y_OFFSET] = {0},
+        [P_Y_SCALE] = {HALF_PARAM_SIZE},
+        [P_Y_DEPTH] = {0},
+        [P_Y_RATE] = {-315},
+        [P_Y_SHAPE] = {0},
+        [P_Y_SYM] = {0},
+
+        [P_ACCEL_SENS] = {HALF_PARAM_SIZE},
+
+        [P_MIDI_CH_IN] = {0},
+        [P_MIDI_CH_OUT] = {0},
+
+    }}; // init params

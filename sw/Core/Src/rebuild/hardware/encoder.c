@@ -1,6 +1,7 @@
 #include "encoder.h"
 #include "gfx/data/icons.h"
 #include "gfx/gfx.h"
+#include "hardware/ram.h"
 #include "synth/params.h"
 #include "synth/sampler.h"
 #include "ui/pad_actions.h"
@@ -102,7 +103,7 @@ void encoder_tick(void) {
 		break;
 	case UI_SAMPLE_EDIT:
 		if (enc_diff) {
-			if (get_sample_info()->pitched)
+			if (cur_sample_info.pitched)
 				sampler_adjust_cur_slice_pitch(enc_diff);
 			else
 				sampler_adjust_cur_slice_point(enc_diff * 512);

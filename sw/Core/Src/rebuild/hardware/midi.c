@@ -1,5 +1,6 @@
 #include "midi.h"
 #include "gfx/gfx.h"
+#include "hardware/ram.h"
 #include "midi_defs.h"
 #include "synth/arp.h"
 #include "synth/params.h"
@@ -8,13 +9,6 @@
 #include "synth/time.h"
 #include "touchstrips.h"
 #include "tusb.h"
-
-// needs cleaning up
-extern Preset rampreset;
-
-extern void SetPreset(u8 preset, bool force);
-extern void ShowMessage(Font fnt, const char* msg, const char* submsg);
-// -- needs cleaning up
 
 // midi uart, lives in main.c
 extern UART_HandleTypeDef huart3;
@@ -125,7 +119,7 @@ void process_all_midi_out(void) {
 		// take out some undesired note/pressure values
 		if (!target_note)
 			target_pressure = 0;
-		if (arp_active() && !arp_touched(string_id))
+		if (arp_on() && !arp_touched(string_id))
 			target_pressure = 0;
 		if (!target_pressure)
 			target_note = 0;
@@ -212,7 +206,7 @@ static void process_midi_msg(u8 status, u8 d1, u8 d2) {
 	switch (type) {
 	case MIDI_PROGRAM_CHANGE:
 		if (d1 < 32)
-			SetPreset(d1, false);
+			load_preset(d1, false);
 		break;
 	// note related: to the strings!
 	case MIDI_NOTE_OFF:

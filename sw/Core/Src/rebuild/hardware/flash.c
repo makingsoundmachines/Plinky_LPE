@@ -1,9 +1,6 @@
 #include "flash.h"
-
-// cleanup
-extern Preset const init_params;
-extern SysParams sys_params;
-// -- cleanup
+#include "ram.h"
+#include "synth/param_defs.h"
 
 static u8 latest_page_id[NUM_FLASH_ITEMS] = {};
 static u8 backup_page_id[NUM_PRESETS] = {};
@@ -35,7 +32,7 @@ Preset* preset_flash_ptr(u8 preset_id) {
 	return (Preset*)fp;
 }
 
-PatternQuarter* ptr_quarter_flash_ptr(u8 quarter_id) {
+PatternQuarter* ptn_quarter_flash_ptr(u8 quarter_id) {
 	if (quarter_id >= NUM_PTN_QUARTERS)
 		return (PatternQuarter*)zero;
 	FlashPage* fp = flash_page_ptr(latest_page_id[PATTERNS_START + quarter_id]);

@@ -2,7 +2,6 @@
 #include "utils.h"
 
 typedef enum ArpOrder {
-	ARP_NONE = -1,
 	ARP_UP,
 	ARP_DOWN,
 	ARP_UPDOWN,
@@ -24,8 +23,6 @@ typedef enum ArpOrder {
 extern ArpOrder arp_order;
 extern s8 arp_oct_offset;
 
-bool arp_active(void);
 bool arp_touched(u8 string_id);
-
 void arp_tick(void);
 void arp_reset(void);

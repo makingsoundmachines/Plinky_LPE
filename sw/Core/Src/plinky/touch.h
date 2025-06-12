@@ -17,25 +17,6 @@ static inline CalibProgress* GetCalibProgress(int sensoridx) {
 }
 CalibResult calibresults[18];
 
-bool OnLoop(void) {
-	bool needs_start_recalc = false;
-	if (pending_preset != 255) {
-		SetPreset(pending_preset, false);
-		needs_start_recalc = true;
-		pending_preset = 255;
-	}
-	if (pending_pattern != 255) {
-		save_param(P_PATTERN, SRC_BASE, pending_pattern);
-		needs_start_recalc = true;
-		pending_pattern = 255;
-	}
-	if (pending_sample1 != cur_sample_id1 && pending_sample1 != 255) {
-		save_param(P_SAMPLE, SRC_BASE, pending_sample1);
-		pending_sample1 = 255;
-	}
-	return needs_start_recalc;
-}
-
 void reverb_clear(void) {
 	memset(reverbbuf, 0, (RVMASK + 1) * 2);
 }

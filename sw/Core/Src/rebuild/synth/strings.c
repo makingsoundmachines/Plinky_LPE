@@ -3,6 +3,7 @@
 #include "hardware/adc_dac.h"
 #include "hardware/midi.h"
 #include "hardware/midi_defs.h"
+#include "hardware/ram.h"
 #include "hardware/touchstrips.h"
 #include "pitch_tools.h"
 #include "sequencer.h"
@@ -12,9 +13,6 @@
 #include "ui/pad_actions.h"
 #include "ui/shift_states.h"
 #include "ui/ui.h"
-
-extern Preset rampreset;
-// -- needs cleaning up
 
 // current frame in string_touch
 static u8 strings_write_frame;
@@ -111,7 +109,7 @@ static void generate_string_touch(u8 string_id) {
 		// === LATCH WRITE === //
 
 		// finger touching and pressure increasing
-		if ((rampreset.flags & FLAGS_LATCH) && pressure > 0 && pres_increasing) {
+		if (latch_on() && pressure > 0 && pres_increasing) {
 			// is this a new touch after no fingers where touching?
 			if (pres_2back <= 0 && strings_phys_touched == mask) {
 				// start a new latch, clear all previous latch values
@@ -154,8 +152,7 @@ static void generate_string_touch(u8 string_id) {
 	// === LATCH RECALL === //
 
 	// latch pressure larger than touch pressure
-	if ((rampreset.flags & FLAGS_LATCH) && latch_touch[string_id].pres > 0
-	    && latch_touch[string_id].pres * 24 > pressure) {
+	if (latch_on() && latch_touch[string_id].pres > 0 && latch_touch[string_id].pres * 24 > pressure) {
 		// recall latch values
 		pressure = pres_decompress(latch_touch[string_id].pres);
 		position = pos_decompress(latch_touch[string_id].pos);
@@ -243,7 +240,7 @@ void generate_string_touches(void) {
 		strings_phys_touch_1back = strings_phys_touched;
 
 		// new (virtual) touch: restart arp
-		if (arp_order != ARP_NONE && write_string_touched_copy && !write_string_touched_1back) {
+		if (arp_on() && write_string_touched_copy && !write_string_touched_1back) {
 			arp_reset();
 			// if the sequencer is not playing, resync the clock so the arp gets a trigger immediately
 			if (!seq_playing())

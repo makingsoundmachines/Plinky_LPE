@@ -6,7 +6,6 @@
 // cleanup
 #include "hardware/adc_dac.h"
 #include "hardware/cv.h"
-extern Preset rampreset;
 // -- cleanup
 
 typedef enum ExtTrig { EXT_NONE, EXT_MIDI, EXT_CV } ExtTrig;
