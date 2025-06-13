@@ -1,5 +1,5 @@
 #include "oled.h"
-#include "SSD1306.h"
+#include "SSD130x.h"
 
 // debug
 #define DEBUG_DISPLAY_TIME 1500
@@ -15,8 +15,8 @@ u8* oled_buffer(void) {
 }
 
 void oled_init(void) {
-	// ssd1306 init settings
-	ssd1306_init();
+	// ssd130x init settings
+	ssd130x_init();
 	// first element of the buffer is always 0x40
 	oled[0] = 0x40;
 	memset(&oled[1], 0, OLED_BUFFER_SIZE - 1);
@@ -32,11 +32,11 @@ void oled_flip() {
 	// debug timeout
 	if (debug_view_active && (millis() - debug_start_time >= DEBUG_DISPLAY_TIME))
 		debug_view_active = false;
-	ssd1306_flip(debug_view_active ? oled_debug : oled);
+	ssd130x_flip(debug_view_active ? oled_debug : oled);
 }
 
 void oled_flip_with_buffer(u8* buffer) {
-	ssd1306_flip(buffer);
+	ssd130x_flip(buffer);
 }
 
 // DEBUG

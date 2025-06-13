@@ -126,8 +126,12 @@ static void draw_startup_visuals(void) {
 		gfx_dither_logo(frame);
 	// draw version number
 	gfx_text_color = 3;
-	fdraw_str(32, maxi(frame - 255 + 32, 20), F_12, VERSION2, version_tail);
+	u8 y = maxi(frame - 255 + 32, 20);
+	fdraw_str(32, y, F_12, VERSION2, version_tail);
 	frame += 4;
+	// draw plinky plus
+	if (hw_version == HW_PLINKY_PLUS)
+		fdraw_str(32, y - 12, F_12, "PLINKY+");
 }
 
 static void draw_preset_info(void) {

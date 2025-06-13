@@ -20,9 +20,23 @@
 
 UIMode ui_mode = UI_DEFAULT;
 
+HardwareVersion hw_version;
+
+static void define_hardware_version(void) {
+	GPIO_InitTypeDef GPIO_InitStruct = {0};
+	GPIO_InitStruct.Pin = GPIO_PIN_1;
+	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+	GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+	HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+	HAL_Delay(1);
+	GPIO_PinState state = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_1);
+	hw_version = state == GPIO_PIN_SET ? HW_PLINKY_PLUS : HW_PLINKY;
+}
+
 void plinky_init(void) {
 	accel_init();
 	reset_touches();
+	define_hardware_version();
 	HAL_Delay(100); // stablise power before bringing oled up
 	gfx_init();     // also initializes oled
 	check_bootloader_flash();
