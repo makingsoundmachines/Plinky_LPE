@@ -25,6 +25,18 @@ typedef char bool;
 #define false 0
 #endif
 
+// custom typedefs
+
+typedef struct Touch {
+	s16 pres;
+	u16 pos;
+} Touch;
+
+typedef struct CalibResult {
+	u16 pres[8];
+	s16 pos[8];
+} CalibResult;
+
 // time
 #define RDTSC() (DWT->CYCCNT)
 static inline u32 millis(void) {

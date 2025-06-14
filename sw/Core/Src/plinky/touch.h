@@ -1,25 +1,9 @@
-u16 finger_raw[36]; // raw value back from stm
-u16 finger_min[36]; // lowest value seen (zero point)
-u16 finger_max[36]; // highest value seen (zero point)
+#include "hardware/touchstrips.h"
 
-static inline int finger_cap(int sensoridx) {
-	return finger_raw[sensoridx];
-}
-static inline int finger_mincap(int sensoridx) {
-	return finger_min[sensoridx];
-}
-static inline int finger_maxcap(int sensoridx) {
-	return finger_max[sensoridx];
-}
-
-typedef struct CalibResult {
-	u16 pressure[8];
-	s16 pos[8];
-} CalibResult;
 typedef struct CalibProgress {
 	float weight[8];
 	float pos[8];
-	float pressure[8];
+	float pres[8];
 } CalibProgress;
 static inline CalibProgress* GetCalibProgress(int sensoridx) {
 	CalibProgress* p = (CalibProgress*)delaybuf;
@@ -27,27 +11,10 @@ static inline CalibProgress* GetCalibProgress(int sensoridx) {
 }
 CalibResult calibresults[18];
 
-typedef union Finger {
-	s32 x;
-	struct {
-		s16 pressure;
-		s16 pos : 15;
-		s16 written : 1;
-	};
-} Finger;
-Finger fingers_ui_time[9][8];    // 8 frames for 9 fingers
-Finger fingers_synth_time[8][8]; // 8 frames for 8 fingers
-Finger fingers_synth_sorted[8][8];
-u8 finger_state;
-u8 finger_step;
-u16 finger_stepmask;
-volatile u8 finger_frame_ui;
+Touch fingers_synth_time[8][8]; // 8 frames for 8 fingers
+Touch fingers_synth_sorted[8][8];
 volatile u8 finger_frame_synth;
-u8 finger_ui_done_this_frame;
-u8 waitcounter;
-u8 finalwait;
 u8 fingerediting = 0; // finger is over some kind of non-musical edit control
-u8 prevfingerediting = 0;
 
 typedef struct euclid_state {
 	int trigcount;
@@ -59,16 +26,6 @@ typedef struct euclid_state {
 euclid_state arp_rhythm;
 euclid_state seq_rhythm;
 
-static inline u8 touch_ui_writingframe(void) {
-	return (finger_frame_ui) & 7;
-}
-static inline u8 touch_ui_frame(void) {
-	return (finger_frame_ui - 1) & 7;
-}
-static inline u8 touch_ui_prevframe(void) {
-	return (finger_frame_ui - 2) & 7;
-}
-
 static inline u8 touch_synth_writingframe(void) {
 	return (finger_frame_synth) & 7;
 }
@@ -79,23 +36,14 @@ static inline u8 touch_synth_prevframe(void) {
 	return (finger_frame_synth - 2) & 7;
 }
 
-static inline Finger* touch_synth_getlatest(int finger) {
+static inline Touch* touch_synth_getlatest(int finger) {
 	return &fingers_synth_time[finger][touch_synth_frame()];
 }
-static inline Finger* touch_synth_getprev(int finger) {
+static inline Touch* touch_synth_getprev(int finger) {
 	return &fingers_synth_time[finger][touch_synth_prevframe()];
 }
-static inline Finger* touch_synth_getwriting(int finger) {
+static inline Touch* touch_synth_getwriting(int finger) {
 	return &fingers_synth_time[finger][touch_synth_writingframe()];
-}
-static inline Finger* touch_ui_getwriting(int finger) {
-	return &fingers_ui_time[finger][touch_ui_writingframe()];
-}
-static inline Finger* touch_ui_getlatest(int finger) {
-	return &fingers_ui_time[finger][touch_ui_frame()];
-}
-static inline Finger* touch_ui_getprev(int finger) {
-	return &fingers_ui_time[finger][touch_ui_prevframe()];
 }
 
 #define SWAP(a, b)                                                                                                     \
@@ -135,12 +83,6 @@ void sort8(int* dst, const int* src) {
 	dst[7] = a7;
 }
 #undef SWAP
-
-void touch_reset_calib(void) {
-	memset(finger_min, -1, sizeof(finger_min));
-	memset(finger_raw, 0, sizeof(finger_raw));
-	memset(calibresults, 0, sizeof(calibresults));
-}
 
 void check_curstep(void) { // enforces invariants
 	if (rampreset.looplen_step <= 0 || rampreset.looplen_step > 64)
@@ -489,9 +431,9 @@ void on_shift_up(int release_button) {
 			FingerRecord* fr = &rampattern[q].steps[cur_step & 15][0];
 			for (int fi = 0; fi < 8; ++fi, ++fr) {
 				for (int k = 0; k < 8; ++k) {
-					if (fr->pressure[k] > 0)
+					if (fr->pres[k] > 0)
 						dirty = true;
-					fr->pressure[k] = 0;
+					fr->pres[k] = 0;
 					if (fi < 2) {
 						s8* d = &rampattern[q].autoknob[(cur_step & 15) * 8 + k][fi];
 						if (*d) {
@@ -528,7 +470,7 @@ static inline int randrange(int mn, int mx) {
 	return mn + (((rand() & 255) * (mx - mn)) >> 8);
 }
 
-int param_eval_finger(u8 paramidx, int fingeridx, Finger* f);
+int param_eval_finger(u8 paramidx, int fingeridx, Touch* f);
 u8 synthfingerdown_nogatelen_internal;
 u8 physical_touch_finger = 0;
 bool read_from_seq = false;
@@ -540,7 +482,7 @@ FingerRecord* readpattern(int fi) {
 	// does any substep hold data?
 	int record_pressure = 0;
 	for (u8 i = 0; i < 8; i++)
-		record_pressure += fr->pressure[i];
+		record_pressure += fr->pres[i];
 	return record_pressure == 0 ? 0 : fr;
 }
 
@@ -574,7 +516,7 @@ u8 find_midi_note(u8 chan, u8 note) {
 int stride(u32 scale, int stride_semitones, int fingeridx);
 
 int string_pitch_at_pad(u8 fi, u8 pad) {
-	Finger* synthf = touch_synth_getlatest(fi);
+	Touch* synthf = touch_synth_getlatest(fi);
 	u32 scale = param_eval_finger(P_SCALE, fi, synthf);
 	// pitch calculation:
 	return
@@ -637,7 +579,7 @@ int find_string_position_for_midi_pitch(u8 fi, int midi_pitch) {
 }
 
 u8 find_free_midi_string(u8 midi_note_number, int* midi_note_position) {
-	Finger* synthf = touch_synth_getlatest(0);
+	Touch* synthf = touch_synth_getlatest(0);
 	int midi_pitch =
 	    // base pitch
 	    12 * ((param_eval_finger(P_OCT, 0, synthf) << 9) + (param_eval_finger(P_PITCH, 0, synthf) >> 7)) +
@@ -723,10 +665,10 @@ void finger_synth_update(int fi) {
 	static bool suppress_latch = false;
 
 	int bit = 1 << fi;
-	int ui_frame = (finger_frame_ui - (finger_ui_done_this_frame & bit ? 0 : 1)) & 7;
-	Finger* ui_finger = &fingers_ui_time[fi][ui_frame];
-	Finger* synth_finger = &fingers_synth_time[fi][finger_frame_synth];
-	int previous_pressure = fingers_ui_time[fi][(ui_frame - 2) & 7].pressure;
+	bool is_read = touch_read_this_frame(fi);
+	Touch* ui_finger = get_touch_prev(fi, is_read ? 0 : 1);
+	Touch* synth_finger = &fingers_synth_time[fi][finger_frame_synth];
+	int previous_pressure = get_touch_prev(fi, is_read ? 2 : 3)->pres;
 	int substep = calcseqsubstep(0, 8);
 	bool latchon = (rampreset.flags & FLAGS_LATCH);
 	int pressure = 0;
@@ -738,7 +680,7 @@ void finger_synth_update(int fi) {
 
 	if (!is_finger_an_edit_operation(fi)) {
 		// read touch values from ui
-		pressure = ui_finger->pressure;
+		pressure = ui_finger->pres;
 		position = ui_finger->pos;
 		pressure_increasing = (pressure > previous_pressure);
 		if (pressure > 0) {
@@ -775,17 +717,17 @@ void finger_synth_update(int fi) {
 				// sluggish or gave undesired intermediate values - slides and in-between notes
 				// Current solution is just saving one value and randomizing when reading it out
 				// Result feels great, but good to reconsider when the exact contents of
-				// fingers_ui_time and fingers_synth_time are more clear
+				// touchstrip and fingers_synth_time are more clear
 
 				// Averaging code for reference:
 				//
 				// u8 maxpos = 0, minpos = 255, maxpressure = 0;
-				// Finger* f = fingers_synth_time[fi];
+				// Touch* f = fingers_synth_time[fi];
 				// for (int j = 0; j < 8; ++j, ++f) {
 				// 	u8 p = clampi((f->pos + 4) / 8, 0, 255);
 				// 	minpos = mini(p, minpos);
 				// 	maxpos = maxi(p, maxpos);
-				// 	u8 pr = clampi(f->pressure / 12, 0, 255);
+				// 	u8 pr = clampi(f->pres / 12, 0, 255);
 				// 	maxpressure = maxi(maxpressure, pr);
 				// }
 				// latch[fi].avgvel = maxpressure;
@@ -861,7 +803,7 @@ void finger_synth_update(int fi) {
 						else {
 							// push all data one substep backward
 							for (u8 i = 0; i < 7; i++) {
-								seq_record->pressure[i] = seq_record->pressure[i + 1];
+								seq_record->pres[i] = seq_record->pres[i + 1];
 								if (!(substep & 1) && !(i & 1))
 									seq_record->pos[i / 2] = seq_record->pos[i / 2 + 1];
 							}
@@ -871,14 +813,14 @@ void finger_synth_update(int fi) {
 					// first finger edit on this step
 					if (cur_step != last_edited_step[fi]) {
 						// clear the step for this finger
-						memset(seq_record->pressure, 0, sizeof(seq_record->pressure));
+						memset(seq_record->pres, 0, sizeof(seq_record->pres));
 						memset(seq_record->pos, 0, sizeof(seq_record->pos));
 						// we're now editing this step with this finger
 						last_edited_step[fi] = cur_step;
 					}
 				}
 				// record!
-				seq_record->pressure[mini(record_to_substep, 7)] = seq_pressure;
+				seq_record->pres[mini(record_to_substep, 7)] = seq_pressure;
 				seq_record->pos[mini(record_to_substep, 7) / 2] = seq_position;
 				data_saved = true;
 			}
@@ -900,10 +842,10 @@ void finger_synth_update(int fi) {
 		if (seq_record) {
 			int gatelen = param_eval_finger(P_GATE_LENGTH, fi, synth_finger) >> 8;
 			int small_substep = calcseqsubstep(0, 256);
-			if (seq_record->pressure[substep] && !seq_rhythm.supress && small_substep <= gatelen
+			if (seq_record->pres[substep] && !seq_rhythm.supress && small_substep <= gatelen
 			    && shift_down != SB_CLEAR) {
 				read_from_seq = true;
-				pressure = pres_decompress(seq_record->pressure[substep]);
+				pressure = pres_decompress(seq_record->pres[substep]);
 				position = pos_decompress(seq_record->pos[substep / 2]);
 				position_updated = true;
 			}
@@ -936,10 +878,10 @@ void finger_synth_update(int fi) {
 	pressure = (int)((pressure + 256) * adc_smooth[7].y2) - 256;
 
 	// save input results to global variables to be used by other code
-	synth_finger->pressure = pressure;
+	synth_finger->pres = pressure;
 	synth_finger->pos = position;
-	total_ui_pressure += maxi(0, synth_finger->pressure);
-	if (synth_finger->pressure > 0) {
+	total_ui_pressure += maxi(0, synth_finger->pres);
+	if (synth_finger->pres > 0) {
 		synthfingerdown_nogatelen_internal |= bit;
 	}
 	else {
@@ -948,17 +890,17 @@ void finger_synth_update(int fi) {
 
 	// new finger touch, slightly randomize touch-values in history to avoid static touch values
 	static s16 prevpressure[8];
-	if (prevpressure[fi] <= 0 && synth_finger->pressure > 0) {
-		Finger* of = fingers_synth_time[fi];
+	if (prevpressure[fi] <= 0 && synth_finger->pres > 0) {
+		Touch* of = fingers_synth_time[fi];
 		int newp = synth_finger->pos;
 		for (int h = 0; h < 8; ++h, of++)
 			if (h != finger_frame_synth) {
-				if (of->pressure <= 0) {
+				if (of->pres <= 0) {
 					of->pos = (of->pos & 3) ^ newp;
 				}
 			}
 	}
-	prevpressure[fi] = synth_finger->pressure;
+	prevpressure[fi] = synth_finger->pres;
 
 	// sort fingers by pitch
 	sort8((int*)fingers_synth_sorted[fi], (int*)fingers_synth_time[fi]);
@@ -966,185 +908,16 @@ void finger_synth_update(int fi) {
 
 void finger_editing(int fi, int frame);
 
-#ifdef EMU
-int htsc;
-typedef struct TSC_IOConfigTypeDef {
-	u32 ChannelIOs;
-	u32 SamplingIOs;
-} TSC_IOConfigTypeDef;
-typedef int TSC_GroupStatusTypeDef;
-#define TSC_GROUP1_IO1 (1 << 0)
-#define TSC_GROUP1_IO2 (1 << 1)
-#define TSC_GROUP1_IO3 (1 << 2)
-#define TSC_GROUP1_IO4 (1 << 3)
-#define TSC_GROUP2_IO1 (1 << 4)
-#define TSC_GROUP2_IO2 (1 << 5)
-#define TSC_GROUP2_IO3 (1 << 6)
-#define TSC_GROUP2_IO4 (1 << 7)
-#define TSC_GROUP3_IO1 (1 << 8)
-#define TSC_GROUP3_IO2 (1 << 9)
-#define TSC_GROUP3_IO3 (1 << 10)
-#define TSC_GROUP3_IO4 (1 << 11)
-#define TSC_GROUP4_IO1 (1 << 12)
-#define TSC_GROUP4_IO2 (1 << 13)
-#define TSC_GROUP4_IO3 (1 << 14)
-#define TSC_GROUP4_IO4 (1 << 15)
-#define TSC_GROUP5_IO1 (1 << 16)
-#define TSC_GROUP5_IO2 (1 << 17)
-#define TSC_GROUP5_IO3 (1 << 18)
-#define TSC_GROUP5_IO4 (1 << 19)
-#define TSC_GROUP6_IO1 (1 << 20)
-#define TSC_GROUP6_IO2 (1 << 21)
-#define TSC_GROUP6_IO3 (1 << 22)
-#define TSC_GROUP6_IO4 (1 << 23)
-#define TSC_GROUP7_IO1 (1 << 24)
-#define TSC_GROUP7_IO2 (1 << 25)
-#define TSC_GROUP7_IO3 (1 << 26)
-#define TSC_GROUP7_IO4 (1 << 27)
-
-#define ENABLE 1
-#define TSC_GROUP_COMPLETED 1
-u32 _chanios;
-void HAL_TSC_IOConfig(int* htsc, TSC_IOConfigTypeDef* config) {
-	_chanios = config->ChannelIOs;
-}
-void HAL_TSC_IODischarge(int* htsc, int enable) {
-}
-void HAL_TSC_Start(int* htsc) {
-}
-void HAL_TSC_Stop(int* htsc) {
-}
-TSC_GroupStatusTypeDef HAL_TSC_GroupGetStatus(int* htsc, int groupidx) {
-	return TSC_GROUP_COMPLETED;
-}
-short HAL_TSC_GroupGetValue(int* htsc, int groupidx) {
-	// hacked so groupidx is actually 0-35 sensor idx
-	groupidx %= 18;
-	int fingeridx = groupidx / 2;
-	extern int emutouch[9][2];
-	int pos = emutouch[fingeridx][1];
-	int pressure = emutouch[fingeridx][0];
-	int a = pressure * (2048 - pos);
-	int b = pressure * (pos);
-	if (fingeridx == 8) {
-		int t = a;
-		a = b;
-		b = t; // oops I swapped the pins
-	}
-	if (groupidx & 1)
-		a = b;
-	a >>= 10;
-	a += 2048;
-	a += rand() & 31;
-	return (2048 * 2048) / a;
-}
-#endif
-
-#define FF0 TSC_GROUP1_IO2 + TSC_GROUP4_IO2
-#define FF1 TSC_GROUP2_IO2 + TSC_GROUP5_IO2
-#define FF2 TSC_GROUP3_IO3 + TSC_GROUP6_IO2
-#define FF3 TSC_GROUP1_IO3 + TSC_GROUP4_IO3
-#define FF4 TSC_GROUP2_IO3 + TSC_GROUP5_IO3
-#define FF5 TSC_GROUP3_IO4 + TSC_GROUP6_IO3
-#define FF6 TSC_GROUP1_IO4 + TSC_GROUP4_IO4
-#define FF7 TSC_GROUP2_IO4 + TSC_GROUP5_IO4
-#define FF8a TSC_GROUP7_IO2
-#define FF8b TSC_GROUP7_IO3
-#define SS0 TSC_GROUP1_IO1 + TSC_GROUP4_IO1
-#define SS1 TSC_GROUP2_IO1 + TSC_GROUP5_IO1
-#define SS2 TSC_GROUP3_IO2 + TSC_GROUP6_IO1
-#define SS3 TSC_GROUP1_IO1 + TSC_GROUP4_IO1
-#define SS4 TSC_GROUP2_IO1 + TSC_GROUP5_IO1
-#define SS5 TSC_GROUP3_IO2 + TSC_GROUP6_IO1
-#define SS6 TSC_GROUP1_IO1 + TSC_GROUP4_IO1
-#define SS7 TSC_GROUP2_IO1 + TSC_GROUP5_IO1
-#define SS8a TSC_GROUP7_IO1
-#define SS8b TSC_GROUP7_IO1
-
-int raw_isdown(int srcidx) {
-	int a = finger_cap(srcidx * 2) - finger_mincap(srcidx * 2);
-	int b = finger_cap(srcidx * 2 + 1) - finger_mincap(srcidx * 2 + 1);
-	return (a + b > 1000) ? 1 : 0;
-}
-
-static inline int finger_rawpos(int a, int b) {
-	return clampi(((b - a) << 12) / (a + b + 1), -32767, 32767);
-}
-
-static inline int finger_rawpressure(int a, int b) {
-	return clampi(a + b, 0, 32767);
-}
-
-void update_finger(int srcidx) {
-	int dstidx = srcidx;
-	if (dstidx >= 9)
-		dstidx -= 9;
-	int a = finger_cap(srcidx * 2);
-	int b = finger_cap(srcidx * 2 + 1);
-	int amin = finger_mincap(srcidx * 2);
-	int bmin = finger_mincap(srcidx * 2 + 1);
-	int rawpressure = finger_rawpressure(a - amin, b - bmin);
-	int rawpos = finger_rawpos(a, b);
-	int pos = rawpos, pressure = rawpressure;
-
-	// scale pos and pressure by calibration
-	const CalibResult* c = &calibresults[srcidx];
-	if (c->pressure[0] != 0) { // if we dont have any calibration data, we just pass thru the raw values
-		int prev = c->pos[0] - (c->pos[1] - c->pos[0]); // extrapolate below 0
-		int reversed = c->pos[7] < c->pos[0];
-		int maxp;
-		if ((rawpos < prev) ^ reversed) {
-			pos = -128;
-			maxp = c->pressure[0];
-		}
-		else {
-			pos = 8 * 256 + 128;
-			maxp = c->pressure[7];
-			for (int x = 0; x <= 8; ++x) {
-				int next;
-				if (x == 8)
-					next = c->pos[7] + (c->pos[7] - c->pos[6]); // extrapolate
-				else
-					next = c->pos[x];
-				if ((rawpos < next) ^ reversed) {
-					int diff = next - prev;
-
-					int t = diff ? ((rawpos - prev) * 256) / diff : 0;
-					pos = x * 256 - 128 + t;
-					int prevp = c->pressure[maxi(0, x - 1)];
-					int nextp = c->pressure[mini(7, x)];
-					maxp = prevp + (((nextp - prevp) * t) >> 8);
-					break;
-				}
-				prev = next;
-			}
-		}
-		if (maxp < 1000)
-			maxp = 1000;
-		pressure = (rawpressure * 4096) / maxp - 2048;
-	}
-
-	int frame = finger_frame_ui;
-	ASSERT(frame >= 0 && frame < 8);
-	int prevframe = (frame - 1) & 7;
-	int fi = dstidx;
-	Finger* uif = &fingers_ui_time[fi][frame];
-	Finger* prev_uif = &fingers_ui_time[fi][prevframe];
-	uif->pressure = pressure;
-	if (pressure > 0 && pressure > prev_uif->pressure - 128) { // not significantly lifting finger off
-		uif->pos = clampi(pos, 0, 2047);
-	}
-	else
-		uif->pos = prev_uif->pos;
-	uif->written = 1; // written;
-	// else dont even write pos! let it be old random values
+void update_finger(u8 strip_id) {
+	Touch* uif = get_touch(strip_id);
+	Touch* prev_uif = get_touch_prev(strip_id, 1);
 
 	if (enable_audio <= EA_OFF) {
 		return;
 	}
 
-	if (fi == 8) {
-		Finger* oldf = &fingers_ui_time[fi][(frame - 2) & 7];
+	if (strip_id == 8) {
+		Touch* oldf = get_touch_prev(strip_id, 2);
 		int button = uif->pos >> 8;
 		if (shift_down != SB_NOT_PRESSED) {
 			int oldpos = shift_down * 256 + 128;
@@ -1153,20 +926,20 @@ void update_finger(int srcidx) {
 		}
 		int midbutton = prev_uif->pos >> 8;
 		int oldbutton = oldf->pos >> 8;
-		bool valid = oldf->pressure > 700 && uif->pressure > 700 && abs(uif->pos - oldf->pos) < 60;
+		bool valid = oldf->pres > 700 && uif->pres > 700 && abs(uif->pos - oldf->pos) < 60;
 		if (shift_down == SB_NOT_PRESSED)
 			valid &= oldbutton == midbutton && button == oldbutton;
 
 		if (valid) {
 			if (shift_down != button) {
 				// check for ghosted presses
-				Finger* f0 = touch_ui_getwriting(button);
-				Finger* fl = touch_ui_getwriting(maxi(0, button - 1));
-				Finger* fr = touch_ui_getwriting(mini(7, button + 1));
-				if ((f0->pressure > 256 && f0->pos >= 6 * 256) || (fl->pressure > 256 && fl->pos >= 7 * 256)
-				    || (fr->pressure > 256 && fr->pos >= 7 * 256))
-					shift_down =
-					    SB_GHOSTED; // ghosted press! they have a finger on a nearby strip, maybe it was an accident.
+				Touch* f0 = get_touch(button);
+				Touch* fl = get_touch(maxi(0, button - 1));
+				Touch* fr = get_touch(mini(7, button + 1));
+				if ((f0->pres > 256 && f0->pos >= 6 * 256) || (fl->pres > 256 && fl->pos >= 7 * 256)
+				    || (fr->pres > 256 && fr->pos >= 7 * 256))
+					shift_down = SB_GHOSTED; // ghosted press! they have a finger on a nearby strip, maybe it was an
+					                         // accident.
 				else {
 					shift_down = button;
 					shift_down_time = 0;
@@ -1174,7 +947,7 @@ void update_finger(int srcidx) {
 				}
 			}
 		}
-		else if (uif->pressure <= 0) {
+		else if (uif->pres <= 0) {
 			if (shift_down >= 0)
 				on_shift_up(button);
 			shift_down = SB_NOT_PRESSED;
@@ -1183,194 +956,14 @@ void update_finger(int srcidx) {
 			shift_down_time++;
 			on_shift_hold(button);
 		}
-		if (uif->pressure <= 0)
+		if (uif->pres <= 0)
 			last_time_shift_was_untouched = ticks();
 	}
 	else {
-		finger_editing(fi, finger_frame_ui);
-		finger_ui_done_this_frame |= 1 << fi;
+		finger_editing(strip_id, touch_frame);
 	}
 }
 
-u32 fingererror = 0;
-
 void touch_update(void) {
-again:
-	waitcounter++;
-#define MAX_STEPS 13 // 13 steps that generate 36 sensor readings.
-	static u8 const sensororder[MAX_STEPS][8] = {
-	    {0, 2, 4, 1, 3, 5, 16},   // first step does a group of first three touch + half of strip
-	    {6, 8, 10, 7, 9, 11, 17}, // second step does next 3 touch in a group + other half of step
-	    {12, 14, 13, 15},         // third step does last 2 touch in a group
-	    {18, 19},                 // remaining steps do single fingers at a time
-	    {20, 21},
-	    {22, 23},
-	    {24, 25},
-	    {26, 27},
-	    {28, 29},
-	    {30, 31},
-	    {32, 33},
-	    {34},
-	    {35}}; // this is actually two steps, doh pin wiring
-	// the bitmask version of the above table:
-	static u32 const chansio[MAX_STEPS] = {
-	    FF0 + FF1 + FF2 + FF8a, FF3 + FF4 + FF5 + FF8b, FF6 + FF7, FF0, FF1, FF2, FF3, FF4, FF5, FF6, FF7, FF8a, FF8b};
-	static u32 const sampio[MAX_STEPS] = {
-	    SS0 + SS1 + SS2 + SS8a, SS3 + SS4 + SS5 + SS8b, SS6 + SS7, SS0, SS1, SS2, SS3, SS4, SS5, SS6, SS7, SS8a, SS8b};
-	if (finger_state == 0) {
-		TSC_IOConfigTypeDef config = {0};
-		config.ChannelIOs = chansio[finger_step];
-		config.SamplingIOs = sampio[finger_step];
-		HAL_TSC_IOConfig(&htsc, &config);
-		HAL_TSC_IODischarge(&htsc, ENABLE);
-		finger_state++;
-		return;
-	}
-	if (finger_state == 1) {
-		finger_state++;
-	}
-	if (finger_state == 2) {
-		HAL_TSC_Start(&htsc);
-		finger_state++;
-		return;
-	}
-	u32 chans = chansio[finger_step];
-	int subchan = 0;
-	bool errorstate = false;
-#ifndef EMU
-	if (HAL_TSC_GetState(&htsc) == HAL_TSC_STATE_ERROR) {
-		errorstate = true;
-	}
-#endif
-	for (int grp = 0; grp < 7; ++grp) {
-		if (!(chans & (0xf << (grp * 4))))
-			continue;
-		TSC_GroupStatusTypeDef status = HAL_TSC_GroupGetStatus(&htsc, grp);
-		int oidx = sensororder[finger_step][subchan++];
-		if (status != TSC_GROUP_COMPLETED) {
-			if (errorstate) {
-				fingererror |= (1 << oidx);
-			}
-			else
-				return; // not done yet
-		}
-		else {
-			fingererror &= ~(1 << oidx);
-		}
-		short v = finger_raw[oidx] = (1 << 23)
-		                             / maxi(129,
-#ifdef EMU
-		                                    HAL_TSC_GroupGetValue(&htsc, oidx));
-#else
-		                                    HAL_TSC_GroupGetValue(&htsc, grp));
-#endif
-		if (v > finger_max[oidx])
-			finger_max[oidx] = v;
-		if (v < finger_min[oidx])
-			finger_min[oidx] = v;
-	}
-	prevfingerediting = fingerediting;
-	HAL_TSC_Stop(&htsc);
-	// update fingers and decide next step
-	bool calib = (enable_audio == EA_OFF);
-	switch (finger_step) {
-	case 0: {                // group of fingers 0,1,2 plus half of strip
-		finger_stepmask = 7; // always do the first 3 steps, doh
-		bool d0 = raw_isdown(0), d1 = raw_isdown(1), d2 = raw_isdown(2), d8 = raw_isdown(8);
-		int numdown = d0 + d1 + d2 + d8 * 2;
-		if (numdown <= 1 || calib) {
-			update_finger(0);
-			update_finger(1);
-			update_finger(2);
-			// do the shift finger in the next one
-		}
-		else {
-			if (d0)
-				finger_stepmask |= 1 << (3 + 0);
-			else
-				update_finger(0);
-			if (d1)
-				finger_stepmask |= 1 << (3 + 1);
-			else
-				update_finger(1);
-			if (d2)
-				finger_stepmask |= 1 << (3 + 2);
-			else
-				update_finger(2);
-		}
-	} break;
-	case 1: { // group of fingers 3,4,5 plus half of strip
-		bool d3 = raw_isdown(3), d4 = raw_isdown(4), d5 = raw_isdown(5), d8 = raw_isdown(8);
-		int numdown = d3 + d4 + d5 + d8 * 2;
-		if (numdown <= 1 || calib) {
-			update_finger(3);
-			update_finger(4);
-			update_finger(5);
-			update_finger(8);
-		}
-		else {
-			if (d3)
-				finger_stepmask |= 1 << (3 + 3);
-			else
-				update_finger(3);
-			if (d4)
-				finger_stepmask |= 1 << (3 + 4);
-			else
-				update_finger(4);
-			if (d5)
-				finger_stepmask |= 1 << (3 + 5);
-			else
-				update_finger(5);
-			if (d8)
-				finger_stepmask |= (1 << (3 + 8)) + (1 << (3 + 9));
-			else
-				update_finger(8); // strip is two steps alas
-		}
-	} break;
-	case 2: { // group of fingers 6,7
-		bool d6 = raw_isdown(6), d7 = raw_isdown(7);
-		int numdown = d6 + d7;
-		if (numdown <= 1 || calib) {
-			update_finger(6);
-			update_finger(7);
-		}
-		else {
-			if (d6)
-				finger_stepmask |= 1 << (3 + 6);
-			else
-				update_finger(6);
-			if (d7)
-				finger_stepmask |= 1 << (3 + 7);
-			else
-				update_finger(7);
-		}
-	} break;
-	default: // 3...10: individual fingers
-		update_finger(9 + finger_step - 3);
-		break;
-	case 11: // half of strip. do nothing :(
-		break;
-	case 12: // second half of strip! yay!
-		update_finger(9 + 8);
-		break;
-	}
-	finger_state = 0;
-	// find next step that is active
-	while (finger_step < MAX_STEPS) {
-		finger_step++;
-		if (calib)
-			break;
-		if (finger_stepmask & (1 << finger_step))
-			break;
-	}
-
-	// move on to next step!
-	if (finger_step == MAX_STEPS) {
-		finalwait = waitcounter;
-		waitcounter = 0;
-		finger_step = 0;
-		finger_frame_ui = (finger_frame_ui + 1) & 7;
-		finger_ui_done_this_frame = 0;
-	}
-	goto again;
+	read_touchstrips();
 }

@@ -213,14 +213,14 @@ void finger_editing(int fi, int frame) {
 			encbtndowntime = 0;
 		prevencbtn = encbtn;
 	}
-	Finger* uif = &fingers_ui_time[fi][frame];
-	Finger* uif_prev = &fingers_ui_time[fi][(frame + 5) & 7];
+	Touch* uif = get_touch(fi);
+	Touch* uif_prev = get_touch_prev(fi, 2);
 	///////////////////////////////////////// FINGER BASED EDITING
 	bool trig = false;
 	int bit = 1 << fi;
-	bool pressurestable = abs(uif_prev->pressure - uif->pressure) < 200;
+	bool pressurestable = abs(uif_prev->pres - uif->pres) < 200;
 	bool posstable = abs(uif_prev->pos - uif->pos) < 32;
-	if (uif->pressure > 100) {
+	if (uif->pres > 100) {
 		//  finger down
 		bool isediting = is_finger_an_edit_operation(fi);
 
@@ -241,7 +241,7 @@ void finger_editing(int fi, int frame) {
 	}
 	else {
 		// finger up!
-		if (uif->pressure < 1 && (fingerstable & bit)) {
+		if (uif->pres < 1 && (fingerstable & bit)) {
 			fingerstable &= ~bit;
 			if (editmode == EM_PRESET) {
 				int firstsection = preset_section_from_rotstep(first_finger_rotstep);
@@ -512,7 +512,7 @@ void finger_editing(int fi, int frame) {
 			for (; fi < 8; ++fi)
 				if (fingerstable & (1 << fi))
 					break;
-			int fyi = (touch_ui_getlatest(fi)->pos >> 8);
+			int fyi = get_touch_prev(fi, 1)->pos >> 8;
 			int rotstep = fi * 8 + fyi;
 			if (rotstep == first_finger_rotstep) {
 				longpress += 2;

@@ -609,7 +609,7 @@ void editmode_ui(void) {
 	int i = 0;
 	for (int y = 0; y < 8; ++y) {
 		for (int x = 0; x < 8; ++x, ++i) {
-			Finger* curfinger = touch_synth_getlatest(x);
+			Touch* curfinger = touch_synth_getlatest(x);
 			float corners = 0.f, edges = 0.f;
 			if (x > 0) {
 				if (y > 0)
@@ -632,7 +632,7 @@ void editmode_ui(void) {
 			float target = corners * (1.f / 12.f) + edges * (1.f * 2.f / 12.f);
 			target *= damping;
 			if (curfinger->pos >> 8 == y) {
-				float pressure = curfinger->pressure * (1.f / 2048.f);
+				float pressure = curfinger->pres * (1.f / 2048.f);
 				if ((rampreset.flags & FLAGS_ARP) && !(arpbits & (1 << x)))
 					pressure = 0.f;
 
@@ -867,7 +867,7 @@ draw_parameter:
 	}
 
 	for (int fi = 0; fi < 8; ++fi) {
-		Finger* synthf = touch_synth_getlatest(fi);
+		Touch* synthf = touch_synth_getlatest(fi);
 		FingerRecord* fr = readpattern(fi);
 
 		///////////////////////////////////// ROOT NOTE DISPLAY
@@ -893,14 +893,14 @@ draw_parameter:
 
 			int step = fi + y * 8;
 			int rotstep = fi * 8 + y;
-			int k = 0; // f->pressure - (y^7) * 128;
+			int k = 0; // f->pres - (y^7) * 128;
 			k = clampi((int)((next[step]) * 64.f) - 20, 0, 128);
 
 			if (synthf->pos / 256 == y)
-				k = maxi(k, synthf->pressure / 8);
+				k = maxi(k, synthf->pres / 8);
 
 			if (fr && fr->pos[phase0 / 2] / 32 == y)
-				k = maxi(k, fr->pressure[phase0]);
+				k = maxi(k, fr->pres[phase0]);
 
 			bool inloop = ((step - loopstart_step) & 63) < rampreset.looplen_step;
 #ifdef NEW_LAYOUT

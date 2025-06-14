@@ -16,8 +16,7 @@ int flash_readcalib(void) {
 		// fake calib results
 		for (int i = 0; i < 18; ++i) {
 			for (int j = 0; j < 8; ++j)
-				calibresults[i].pressure[j] = 8000,
-				calibresults[i].pos[j] = (512 * j - 1792) * (((i % 9) == 8) ? -1 : 1);
+				calibresults[i].pres[j] = 8000, calibresults[i].pos[j] = (512 * j - 1792) * (((i % 9) == 8) ? -1 : 1);
 		}
 		return 3;
 	}
@@ -108,7 +107,7 @@ void cv_calib(void) {
 	int toplinew = str_width(F_16, topline);
 	const char* const botlines[5] = {"plug gate out->in", "Pitch lo=0v/C0", "Pitch lo=2v/C2", "Pitch hi=0v/C0",
 	                                 "Pitch hi=2v/C2"};
-	u8 ff = finger_frame_ui;
+	u8 ff = touch_frame;
 	float adcavgs[6][2];
 	for (int i = 0; i < 6; ++i)
 		adcavgs[i][0] = -1.f;
@@ -140,9 +139,9 @@ void cv_calib(void) {
 		topscroll -= 2;
 		if (topscroll < -toplinew)
 			topscroll = 128;
-		while (finger_frame_ui == ff)
+		while (touch_frame == ff)
 			; // wait for new touch data
-		ff = finger_frame_ui;
+		ff = touch_frame;
 		int pitchsense = getpitchsense();
 		if (pitchsense && !prevprevpitchsense && gateok)
 			break;
@@ -161,10 +160,10 @@ void cv_calib(void) {
 			adcavgs[i][1] += (adcavgs[i][0] - adcavgs[i][1]) * 0.05f;
 		}
 		for (int x = 0; x < 4; ++x) {
-			Finger* f = touch_ui_getlatest(x);
-			Finger* pf = touch_ui_getprev(x);
-			if (f->pressure >= 500) {
-				if (pf->pressure < 500) {
+			Touch* f = get_touch_prev(x, 1);
+			Touch* pf = get_touch_prev(x, 2);
+			if (f->pres >= 500) {
+				if (pf->pres < 500) {
 					downpos[x] = f->pos;
 					downval[x] = cvout[x];
 					curx = x;
@@ -294,16 +293,11 @@ void led_test(void) {
 		          encval >> 2, encbtn);
 		oled_flip();
 		HAL_Delay(20);
-		for (int srcidx = 0; srcidx < 9; ++srcidx) {
-			int a = finger_cap(srcidx * 2);
-			int b = finger_cap(srcidx * 2 + 1);
-			int amin = finger_mincap(srcidx * 2);
-			int bmin = finger_mincap(srcidx * 2 + 1);
-			int rawpressure = finger_rawpressure(a - amin, b - bmin);
-			int rawpos = finger_rawpos(a, b);
+		for (int srcidx = 0; srcidx < NUM_TOUCHES; ++srcidx) {
+			int rawpressure = sensor_reading_pressure(srcidx);
+			int rawpos = sensor_reading_position(srcidx);
 			if (rawpressure > 300) {
-				DebugLog("f %d - a=%4d b=%4d amin=%4d bmin=%4d pos=%4d pr=%4d   \r\n", srcidx, a, b, amin, bmin, rawpos,
-				         rawpressure);
+				DebugLog("f %d - a=%4d b=%4d amin=%4d bmin=%4d pos=%4d pr=%4d   \r\n", srcidx, rawpos, rawpressure);
 			}
 		}
 		tri += 256;
@@ -323,7 +317,7 @@ again:
 #endif
 
 	enable_audio = EA_OFF;
-	touch_reset_calib();
+	reset_touches();
 
 	HAL_Delay(20);
 	CalibProgress* state = GetCalibProgress(0);
@@ -331,7 +325,7 @@ again:
 	int prevrawpressure[18] = {0};
 	s8 curstep[9] = {7, 7, 7, 7, 7, 7, 7, 7, 7};
 	int done = false;
-	u8 ff = finger_frame_ui;
+	u8 ff = touch_frame;
 	u8 refreshscreen = 0;
 	char helptext[64] = "slowly/evenly press lit pads.\ntake care, be accurate!";
 	bool blink = false;
@@ -357,23 +351,21 @@ again:
 			goto again;
 		}
 
-		while (finger_frame_ui == ff)
+		while (touch_frame == ff)
 			; // wait for new touch data
-		ff = finger_frame_ui;
+		ff = touch_frame;
 		// update the 18 calibration entries for the current step
 		done = 0;
 		int readymask = 0;
-		for (int si = 0; si < 18; ++si) {
-			int a = finger_cap(si * 2);
-			int b = finger_cap(si * 2 + 1);
-			int amin = finger_mincap(si * 2);
-			int bmin = finger_mincap(si * 2 + 1);
-			int amax = finger_maxcap(si * 2);
-			int bmax = finger_maxcap(si * 2 + 1);
-			int rawpressure = finger_rawpressure(a - amin, b - bmin);
+		for (int si = 0; si < NUM_TOUCH_READINGS; ++si) {
+			int amin = sensor_min[si * 2];
+			int bmin = sensor_min[si * 2 + 1];
+			int amax = sensor_max[si * 2];
+			int bmax = sensor_max[si * 2 + 1];
+			int rawpressure = sensor_reading_pressure(si);
 			int prevrawp = prevrawpressure[si];
-			int rawpos = finger_rawpos(a, b);
-			int step = curstep[si % 9];
+			int rawpos = sensor_reading_position(si);
+			int step = curstep[si % NUM_TOUCHES];
 
 			int pressureband = rawpressure / 20;
 			if (step >= 0 && step < 8 && rawpressure > 1200 && rawpressure > prevrawp - pressureband / 2
@@ -388,18 +380,18 @@ again:
 				const static float LEAK = 0.90f;
 				state[si].weight[step] *= LEAK;
 				state[si].pos[step] *= LEAK;
-				state[si].pressure[step] *= LEAK;
+				state[si].pres[step] *= LEAK;
 				state[si].weight[step] += w;
 				state[si].pos[step] += rawpos * w;
-				state[si].pressure[step] += rawpressure * w;
+				state[si].pres[step] += rawpressure * w;
 
 				if (0)
 					if (si < 9)
 						DebugLog("finger %d step %d pos %4d %4d pressure %5d %5d weight %3d %d      \r\n", si, step,
 						         (int)(state[si].pos[step] / state[si].weight[step]),
 						         (int)(state[si + 9].pos[step] / state[si + 9].weight[step]),
-						         (int)(state[si].pressure[step] / state[si].weight[step]),
-						         (int)(state[si + 9].pressure[step] / state[si + 9].weight[step]),
+						         (int)(state[si].pres[step] / state[si].weight[step]),
+						         (int)(state[si + 9].pres[step] / state[si + 9].weight[step]),
 						         (int)state[si].weight[step], (int)state[si + 9].weight[step]);
 			}
 			int ti = si + 9;
@@ -408,9 +400,9 @@ again:
 			if (ready) {
 				if (rawpressure < 900) {
 					// move on!
-					calibresults[si].pressure[step] = state[si].pressure[step] / state[si].weight[step];
+					calibresults[si].pres[step] = state[si].pres[step] / state[si].weight[step];
 					calibresults[si].pos[step] = state[si].pos[step] / state[si].weight[step];
-					calibresults[ti].pressure[step] = state[ti].pressure[step] / state[ti].weight[step];
+					calibresults[ti].pres[step] = state[ti].pres[step] / state[ti].weight[step];
 					calibresults[ti].pos[step] = state[ti].pos[step] / state[ti].weight[step];
 					if (step <= 4) {
 						errors &= ~(1 << si);

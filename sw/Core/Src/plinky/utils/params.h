@@ -483,7 +483,7 @@ static_assert(sizeof(SampleInfo) + sizeof(SysParams) + sizeof(PageFooter) <= 204
 static_assert((sizeof(SampleInfo)&15)==0,"?");
 typedef struct FingerRecord {
 	u8 pos[4];
-	u8 pressure[8];
+	u8 pres[8];
 } FingerRecord;
 typedef struct PatternQuarter {
 	FingerRecord steps[16][8];

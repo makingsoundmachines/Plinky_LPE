@@ -37,8 +37,6 @@ extern TIM_HandleTypeDef htim4;
 extern TIM_HandleTypeDef htim5;
 extern TIM_HandleTypeDef htim6;
 
-extern TSC_HandleTypeDef htsc;
-
 extern UART_HandleTypeDef huart3;
 
 #endif
@@ -322,8 +320,8 @@ float param_eval_float(u8 paramidx, int rnd, int env16, int pressure16) {
 	return param_eval_int(paramidx, rnd, env16, pressure16) * (1.f / 65536.f);
 }
 
-int param_eval_finger(u8 paramidx, int fingeridx, Finger* f) {
-	return param_eval_int(paramidx, finger_rnd[fingeridx], voices[fingeridx].env_cur16, f->pressure * 32);
+int param_eval_finger(u8 paramidx, int fingeridx, Touch* f) {
+	return param_eval_int(paramidx, finger_rnd[fingeridx], voices[fingeridx].env_cur16, f->pres * 32);
 }
 
 extern int16_t accel_raw[3];
@@ -349,7 +347,7 @@ void update_params(int fingertrig, int fingerdown) {
 	for (int vi = 0; vi < 8; ++vi) {
 		int bit = 1 << vi;
 		Voice* v = &voices[vi];
-		Finger* f = touch_synth_getlatest(vi);
+		Touch* f = touch_synth_getlatest(vi);
 #ifdef NEW_LAYOUT
 		if (fingertrig & bit) {
 			v->env_level = 0.f;
@@ -389,8 +387,8 @@ void update_params(int fingertrig, int fingerdown) {
 	int maxp = 0;
 	int maxenv = 0;
 	for (int fi = 0; fi < 8; ++fi) {
-		Finger* f = touch_synth_getlatest(fi);
-		int p = f->pressure;
+		Touch* f = touch_synth_getlatest(fi);
+		int p = f->pres;
 		if (p < 0)
 			p = 0;
 		totw += p;
@@ -531,7 +529,7 @@ static inline void putscopepixel(unsigned int x, unsigned int y) {
 bool trigout = false;
 
 float UpdateEnvelope(Voice* v, int fingeridx, float targetvol) {
-	Finger* f = touch_synth_getlatest(fingeridx);
+	Touch* f = touch_synth_getlatest(fingeridx);
 	float sens = param_eval_finger(P_SENS, fingeridx, f);
 	sens *= (2.f / 65536.f);
 	targetvol *= sens * sens;
@@ -680,7 +678,7 @@ void RunVoice(Voice* v, int fingeridx, float targetvol, u32* outbuf) {
 		                                 // }
 	}
 #endif
-	Finger* f = touch_synth_getlatest(fingeridx);
+	Touch* f = touch_synth_getlatest(fingeridx);
 
 	float glide = lpf_k(param_eval_finger(P_GLIDE, fingeridx, f) >> 2) * (0.5f / BLOCK_SAMPLES);
 	int drivelvl = param_eval_finger(P_DRIVE, fingeridx, f);
@@ -700,7 +698,7 @@ void RunVoice(Voice* v, int fingeridx, float targetvol, u32* outbuf) {
 
 	drive *= 2.f / (resonance + 2.f);
 
-	Finger* synthf = touch_synth_getlatest(fingeridx);
+	Touch* synthf = touch_synth_getlatest(fingeridx);
 	float timestretch = 1.f;
 	float posjit = 0.f;
 	float sizejit = 1.f;
@@ -1746,16 +1744,16 @@ void midi_send_update(void) {
 	if (!serial_midi_ready())
 		return;
 	for (int i = 0; i < 8; ++i) {
-		Finger* synthf = touch_synth_getlatest(midi_send_chan);
-		Finger* prevsynthf = touch_synth_getprev(midi_send_chan);
+		Touch* synthf = touch_synth_getlatest(midi_send_chan);
+		Touch* prevsynthf = touch_synth_getprev(midi_send_chan);
 
-		bool pressurestable = abs(prevsynthf->pressure - synthf->pressure) < 100;
+		bool pressurestable = abs(prevsynthf->pres - synthf->pres) < 100;
 		bool posstable = abs(prevsynthf->pos - synthf->pos) < 32;
-		bool pressure_significant = synthf->pressure > 200;
+		bool pressure_significant = synthf->pres > 200;
 
 		int desired_pitch = midi_desired_note[midi_send_chan];
-		int desired_vol = clampi((synthf->pressure - 100) / 48, 0, 127);
-		// int prev_vol = clampi((prevsynthf->pressure-100) / 48, 0, 127);
+		int desired_vol = clampi((synthf->pres - 100) / 48, 0, 127);
+		// int prev_vol = clampi((prevsynthf->pres-100) / 48, 0, 127);
 		u8 desired_pos = clampi(127 - (synthf->pos / 13 - 16), 0, 127);
 		if (desired_pitch == 0)
 			desired_vol = 0;
@@ -1897,7 +1895,7 @@ void DoAudio(u32* dst, u32* audioin) {
 		prev_total_ui_pressure = total_ui_pressure;
 		// rather than incrementing, we let finger_frame_synth shadow the ui. that way we get the full variability of
 		// the ui input (due to it ticking slowly), but we dont accidentally read ahead
-		finger_frame_synth = finger_frame_ui;
+		finger_frame_synth = touch_frame;
 	}
 	whichhalf ^= 4;
 
@@ -1907,9 +1905,9 @@ void DoAudio(u32* dst, u32* audioin) {
 	prevsynthfingerdown_nogatelen = synthfingerdown_nogatelen;
 	synthfingerdown_nogatelen = synthfingerdown_nogatelen_internal;
 	for (int fi = 0; fi < 8; ++fi) {
-		Finger* synthf = touch_synth_getlatest(fi);
+		Touch* synthf = touch_synth_getlatest(fi);
 		int thresh = (prevsynthfingerdown & (1 << fi)) ? -50 : 1;
-		if (synthf->pressure > thresh) {
+		if (synthf->pres > thresh) {
 			synthfingerdown |= 1 << fi;
 		}
 	}
@@ -1951,8 +1949,8 @@ void DoAudio(u32* dst, u32* audioin) {
 	}
 	for (int fi = 0; fi < 8; ++fi) {
 		u8 bit = 1 << fi;
-		Finger* synthf = touch_synth_getlatest(fi);
-		float vol = (synthf->pressure) * 1.f / 2048.f; // sensitivity
+		Touch* synthf = touch_synth_getlatest(fi);
+		float vol = (synthf->pres) * 1.f / 2048.f; // sensitivity
 		{
 			// pitch table is (64*8) steps per semitone, ie 512 per semitone
 			int octave = arpoctave + param_eval_finger(P_OCT, fi, synthf);
@@ -1970,7 +1968,7 @@ void DoAudio(u32* dst, u32* audioin) {
 			int totpitch = 0;
 			// sounding out a midi note
 			if ((midi_pitch_override & bit) && !(midi_suppress & bit)) {
-				Finger* f = fingers_synth_sorted[fi] + 2;
+				Touch* f = fingers_synth_sorted[fi] + 2;
 				int midinote = ((midi_notes[fi] - 12 * 2) << 9) + midi_chan_pitchbend[midi_channels[fi]] / 8;
 				for (int i = 0; i < 4; ++i) {
 					int pitch = pitchbase + ((i & 1) ? interval : 0) + (i - 2) * 64
@@ -2004,9 +2002,9 @@ void DoAudio(u32* dst, u32* audioin) {
 				root += stride(scale, stride_semitones, fi);
 				int microtune = 64 + param_eval_finger(P_MICROTUNE, fi, synthf); // really, micro-tune amount
 
-				Finger* f = fingers_synth_sorted[fi] + 2;
+				Touch* f = fingers_synth_sorted[fi] + 2;
 				for (int i = 0; i < 4; ++i) {
-					int position = f->pressure <= 0 ? memory_position[fi] : f->pos;
+					int position = f->pres <= 0 ? memory_position[fi] : f->pos;
 					int ystep = 7 - (position >> 8);
 					int fine = 128 - (position & 255);
 					int pitch = pitchbase + (lookupscale(scale, ystep + root)) + ((i & 1) ? interval : 0)
@@ -2036,8 +2034,8 @@ void DoAudio(u32* dst, u32* audioin) {
 			}
 			maxvol = maxi(maxvol, (int)(vol * 65536.f));
 		}
-		if (synthf->pressure > maxpressure)
-			maxpressure = synthf->pressure;
+		if (synthf->pres > maxpressure)
+			maxpressure = synthf->pres;
 	}
 	SetOutputCVPressure(maxpressure * 8);
 	SetOutputCVTrigger(trigout ? 65535 : 0);
@@ -3097,7 +3095,7 @@ void serial_midi_update(void) {
 
 void EMSCRIPTEN_KEEPALIVE plinky_init(void) {
 	denormals_init();
-	touch_reset_calib();
+	reset_touches();
 	tc_init();
 
 	adc_init();
@@ -3148,7 +3146,7 @@ void EMSCRIPTEN_KEEPALIVE plinky_init(void) {
 
 	int flashvalid = flash_readcalib();
 	if (!(flashvalid & 1)) { // no calib at all
-		touch_reset_calib();
+		reset_touches();
 		calib();
 		flashvalid |= 1;
 		flash_writecalib(flashvalid);
@@ -3175,7 +3173,7 @@ void EMSCRIPTEN_KEEPALIVE plinky_init(void) {
 		}
 		if (knoba > 4096) {
 			// left knob twist on boot - full calib
-			touch_reset_calib();
+			reset_touches();
 			calib();
 		}
 		else {

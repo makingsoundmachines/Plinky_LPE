@@ -24,6 +24,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #define FLASH_LATENCY_5 FLASH_LATENCY_4 // WOOHAHAHAHAH
+#include "hardware/touchstrips.h"
 #include "plinky/core.h"
 #include <stdlib.h>
 #include <string.h>
@@ -67,8 +68,6 @@ TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim5;
 TIM_HandleTypeDef htim6;
 
-TSC_HandleTypeDef htsc;
-
 UART_HandleTypeDef huart3;
 DMA_HandleTypeDef hdma_usart3_tx;
 DMA_HandleTypeDef hdma_usart3_rx;
@@ -106,7 +105,6 @@ static void MX_USART3_UART_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM4_Init(void);
-static void MX_TSC_Init(void);
 static void MX_I2C2_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_DAC1_Init(void);
@@ -967,49 +965,6 @@ static void MX_TIM6_Init(void) {
 	/* USER CODE BEGIN TIM6_Init 2 */
 
 	/* USER CODE END TIM6_Init 2 */
-}
-
-/**
- * @brief TSC Initialization Function
- * @param None
- * @retval None
- */
-static void MX_TSC_Init(void) {
-
-	/* USER CODE BEGIN TSC_Init 0 */
-
-	/* USER CODE END TSC_Init 0 */
-
-	/* USER CODE BEGIN TSC_Init 1 */
-
-	/* USER CODE END TSC_Init 1 */
-	/** Configure the TSC peripheral
-	 */
-	htsc.Instance = TSC;
-	htsc.Init.CTPulseHighLength = TSC_CTPH_7CYCLES;
-	htsc.Init.CTPulseLowLength = TSC_CTPL_7CYCLES;
-	htsc.Init.SpreadSpectrum = DISABLE;
-	htsc.Init.SpreadSpectrumDeviation = 32;
-	htsc.Init.SpreadSpectrumPrescaler = TSC_SS_PRESC_DIV1;
-	htsc.Init.PulseGeneratorPrescaler = TSC_PG_PRESC_DIV2;
-	htsc.Init.MaxCountValue = TSC_MCV_16383;
-	htsc.Init.IODefaultMode = TSC_IODEF_OUT_PP_LOW;
-	htsc.Init.SynchroPinPolarity = TSC_SYNC_POLARITY_FALLING;
-	htsc.Init.AcquisitionMode = TSC_ACQ_MODE_NORMAL;
-	htsc.Init.MaxCountInterrupt = DISABLE;
-	htsc.Init.ChannelIOs = TSC_GROUP1_IO2 | TSC_GROUP1_IO3 | TSC_GROUP1_IO4 | TSC_GROUP2_IO2 | TSC_GROUP2_IO3
-	                       | TSC_GROUP2_IO4 | TSC_GROUP3_IO3 | TSC_GROUP3_IO4 | TSC_GROUP4_IO2 | TSC_GROUP4_IO3
-	                       | TSC_GROUP4_IO4 | TSC_GROUP5_IO2 | TSC_GROUP5_IO3 | TSC_GROUP5_IO4 | TSC_GROUP6_IO2
-	                       | TSC_GROUP6_IO3 | TSC_GROUP7_IO2 | TSC_GROUP7_IO3;
-	htsc.Init.ShieldIOs = 0;
-	htsc.Init.SamplingIOs = TSC_GROUP1_IO1 | TSC_GROUP2_IO1 | TSC_GROUP3_IO2 | TSC_GROUP4_IO1 | TSC_GROUP5_IO1
-	                        | TSC_GROUP6_IO1 | TSC_GROUP7_IO1;
-	if (HAL_TSC_Init(&htsc) != HAL_OK) {
-		Error_Handler();
-	}
-	/* USER CODE BEGIN TSC_Init 2 */
-
-	/* USER CODE END TSC_Init 2 */
 }
 
 /**
