@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gfx/data/icons.h"
+// clang-format off
 #include "wtenum.h"
 
 enum ECats {
@@ -31,17 +32,6 @@ const char* const kpresetcats[CAT_LAST] = {
 };
 
 #ifdef NEW_LAYOUT
-enum EPages {
-	PG_SOUND1, PG_SOUND2,
-	PG_ENV1, PG_ENV2,
-	PG_DELAY, PG_REVERB,
-	PG_ARP, PG_SEQ,
-	PG_SAMPLER, PG_JITTER,
-	PG_A, PG_B,
-	PG_X, PG_Y,
-	PG_MIX1, PG_MIX2,
-	PG_LAST,
-};
 const char* const pagenames[PG_LAST] = {
 								[PG_SOUND1] = I_SLIDERS "Sound",[PG_SOUND2] = I_PIANO "Sound",[PG_ENV1] = I_ADSR_A "Env1",[PG_ENV2] = I_ADSR_A "Env2",
 								[PG_ARP] = I_NOTES "Arp",[PG_SEQ] = I_NOTES "Seq",[PG_DELAY] = I_DELAY "Delay",[PG_REVERB] = I_REVERB "Reverb",
@@ -88,40 +78,7 @@ enum EModSources {
 };
 #endif
 
-enum ECVQuant {
-	CVQ_OFF,
-	CVQ_ON,
-	CVQ_SCALE,
-	CVQ_LAST
-};
-
-// Values for shift_down, which represents current state of the shift buttons (bottom row).
-// Only 1 shift button can be active at a time.
-enum {
-	SB_PARAMSA,
-	SB_PARAMSB,
-	SB_PRESET,
-	SB_PREV,
-	SB_NEXT,
-	SB_CLEAR,
-	SB_RECORD,
-	SB_PLAY,
-	SB_NOT_PRESSED = -1,
-	// suppressed touch; user has a finger on a nearby strip, maybe it was an accident.
-	SB_GHOSTED = -2,
-};
-
-// Values for editmode.
-enum {
-	EM_PLAY,
-	EM_PARAMSA,
-	EM_PARAMSB,
-	EM_START,
-	EM_END,
-	EM_PRESET,
-	EM_SAMPLE,
-};
-
+enum ECVQuant { CVQ_OFF, CVQ_ON, CVQ_SCALE, CVQ_LAST };
 
 enum EArpModes {
 	ARP_UP,

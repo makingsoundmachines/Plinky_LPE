@@ -1,5 +1,6 @@
 #include "gfx/gfx.h"
-#include "hardware/leds.h"
+#include "ui/shift_states.h"
+#include "ui/ui.h"
 
 u8 audiohistpos = 0;
 u8 audiopeakhistory[32];
@@ -278,10 +279,10 @@ void samplemode_ui(void) {
 		enable_audio = EA_MONITOR_LEVEL;
 	}
 	if (enable_audio == EA_PLAY) {
-		if (shift_down_time > 4 && (shift_down == SB_RECORD) && enable_audio == EA_PLAY) {
+		if (shift_state_frames > 4 && (shift_state == SS_RECORD) && enable_audio == EA_PLAY) {
 			oled_clear();
 			draw_str(0, 0, F_32, "record?");
-			inverted_rectangle(0, 0, shift_down_time * 2, 32);
+			inverted_rectangle(0, 0, shift_state_frames * 2, 32);
 			oled_flip();
 			return;
 		}
@@ -318,10 +319,10 @@ void samplemode_ui(void) {
 			}
 			leds[8][x] = 0;
 		}
-		leds[8][SB_RECORD] = triangle(millis());
-		leds[8][SB_PLAY] = 0;
-		leds[8][SB_PARAMSA] = (s->pitched ? 255 : 0);
-		leds[8][SB_PARAMSB] = ((s->loop & 1) ? 255 : 0);
+		leds[8][SS_RECORD] = triangle(millis());
+		leds[8][SS_PLAY] = 0;
+		leds[8][SS_SHIFT_A] = (s->pitched ? 255 : 0);
+		leds[8][SS_SHIFT_B] = ((s->loop & 1) ? 255 : 0);
 		return;
 	}
 
@@ -390,7 +391,7 @@ void samplemode_ui(void) {
 		}
 		leds[8][x] = 0;
 	}
-	leds[8][SB_RECORD] = (enable_audio == EA_RECORDING) ? 255 : triangle(millis() / 2);
+	leds[8][SS_RECORD] = (enable_audio == EA_RECORDING) ? 255 : triangle(millis() / 2);
 }
 
 const static float life_damping = 0.91f; //  0.9f;
@@ -597,7 +598,7 @@ const char* getparamstr(int p, int mod, int v, char* valbuf, char* decbuf) {
 	return valbuf;
 }
 
-void editmode_ui(void) {
+void edit_mode_ui(void) {
 
 	oled_clear();
 
@@ -659,29 +660,29 @@ void editmode_ui(void) {
 	u8 loopstart_step = (rampreset.loopstart_step_no_offset + step_offset) & 63;
 
 	const char* pagename = 0;
-	if (shift_down == SB_RECORD) {
-		if (isshortpress())
+	if (shift_state == SS_RECORD) {
+		if (shift_short_pressed())
 			draw_str(0, 4, F_20_BOLD, recording ? I_RECORD "record >off" : I_RECORD "record >on");
 		else if (recording) {
-			if (recordingknobs == 0)
+			if (recording_knobs == 0)
 				draw_str(0, 4, F_20_BOLD, "record " I_A I_B "?");
-			else if (recordingknobs == 1)
+			else if (recording_knobs == 1)
 				draw_str(0, 4, F_20_BOLD, "recording " I_A);
-			else if (recordingknobs == 2)
+			else if (recording_knobs == 2)
 				draw_str(0, 4, F_20_BOLD, "recording " I_B);
-			else if (recordingknobs == 3)
+			else if (recording_knobs == 3)
 				draw_str(0, 4, F_20_BOLD, "recording " I_A I_B);
 		}
 	}
-	else if (shift_down == SB_PLAY) {
+	else if (shift_state == SS_PLAY) {
 		draw_str(0, 0, F_32_BOLD, I_PLAY "play");
 	}
-	else if (shift_down == SB_CLEAR && editmode != EM_PRESET) {
+	else if (shift_state == SS_CLEAR && ui_mode != UI_LOAD) {
 		draw_str(0, 0, F_32_BOLD, I_CROSS "clear");
 	}
 	else
-		switch (editmode) {
-		case EM_PLAY:
+		switch (ui_mode) {
+		case UI_DEFAULT:
 			if (ramsample.samplelen) {
 				DrawSamplePlayback(&ramsample);
 			}
@@ -725,8 +726,8 @@ void editmode_ui(void) {
 			else
 				fdraw_str(0, 16, F_20_BOLD, "%c%d", seqicon, cur_pattern + 1);
 			break;
-		case EM_PARAMSA:
-		case EM_PARAMSB:
+		case UI_EDITING_A:
+		case UI_EDITING_B:
 			if (ui_edit_param >= P_LAST) {
 				draw_str(0, 0, F_20_BOLD, modnames[ui_edit_mod]);
 				draw_str(0, 16, F_16, "select parameter");
@@ -799,17 +800,17 @@ draw_parameter:
 					draw_str(x, 0, F_8, decbuf);
 			}
 			break;
-		case EM_START:
+		case UI_PTN_START:
 			fdraw_str(0, 0, F_20_BOLD, I_PREV "Start %d", loopstart_step + 1);
 			fdraw_str(0, 16, F_20_BOLD, I_PLAY "Current %d", cur_step + 1);
 			break;
-		case EM_END:
+		case UI_PTN_END:
 			fdraw_str(0, 0, F_20_BOLD, I_NEXT "End %d", ((rampreset.looplen_step + loopstart_step) & 63) + 1);
 			fdraw_str(0, 16, F_20_BOLD, I_INTERVAL "Length %d", rampreset.looplen_step);
 			break;
-		case EM_PRESET:
-			if (shift_down_time > 4 && shift_down == SB_CLEAR) {
-				bool done = (shift_down_time - 4) > 64;
+		case UI_LOAD:
+			if (shift_state_frames > 4 && shift_state == SS_CLEAR) {
+				bool done = (shift_state_frames - 4) > 64;
 				if (last_preset_selection_rotstep < 32)
 					fdraw_str(0, 0, F_16_BOLD,
 					          done ? "cleared\n" I_PRESET "Preset %d" : "initialize\n" I_PRESET "Preset %d?",
@@ -820,7 +821,7 @@ draw_parameter:
 				else if (last_preset_selection_rotstep < 64 && last_preset_selection_rotstep > 0)
 					fdraw_str(0, 0, F_16_BOLD, done ? "cleared\n" I_WAVE "Sample %d." : "Clear\n" I_WAVE "Sample %d?",
 					          last_preset_selection_rotstep - (64 - 8) + 1);
-				inverted_rectangle(0, 0, shift_down_time * 2 - 4, 32);
+				inverted_rectangle(0, 0, shift_state_frames * 2 - 4, 32);
 			}
 			else if (longpress >= 32) {
 				bool done = (longpress - 32) > 128;
@@ -849,6 +850,8 @@ draw_parameter:
 				fdraw_str(0, 16, F_20_BOLD, I_SEQ "Pat %d ", cur_pattern + 1);
 				fdraw_str(-128, 16, F_20_BOLD, cur_sample1 ? I_WAVE "%d" : I_WAVE "Off", cur_sample1);
 			}
+			break;
+		default:
 			break;
 		}
 
@@ -909,11 +912,11 @@ draw_parameter:
 			int p = (fi - 1) + (y - 1) * 12;
 #endif
 
-			int pAorB = pA + ((editmode == EM_PARAMSB) ? 6 : 0);
+			int pAorB = pA + ((ui_mode == UI_EDITING_B) ? 6 : 0);
 
-			switch (editmode) {
-			case EM_PARAMSA:
-			case EM_PARAMSB: {
+			switch (ui_mode) {
+			case UI_EDITING_A:
+			case UI_EDITING_B: {
 				if (fi == 7) {
 					if (y == ui_edit_mod)
 						k = flickery;
@@ -975,7 +978,7 @@ bargraph:
 #endif
 				break;
 			}
-			case EM_PLAY:
+			case UI_DEFAULT:
 				if (fi == 0 && ui_edit_param < P_LAST)
 					goto bargraph;
 				if (ui_edit_param < P_LAST && (ui_edit_param == pA || ui_edit_param == pA + 6) && fi > 0 && fi < 7)
@@ -999,14 +1002,14 @@ bargraph:
 
 				loopbright = 48;
 				// fall thru
-			case EM_START:
-			case EM_END:
+			case UI_PTN_START:
+			case UI_PTN_END:
 				// show looping region faintly; show current playpos brightly
 				if (inloop)
 					k = maxi(k, loopbright);
-				if (step == loopstart_step && editmode == EM_START)
+				if (step == loopstart_step && ui_mode == UI_PTN_START)
 					k = 255;
-				if (((step + 1) & 63) == ((loopstart_step + rampreset.looplen_step) & 63) && editmode == EM_END)
+				if (((step + 1) & 63) == ((loopstart_step + rampreset.looplen_step) & 63) && ui_mode == UI_PTN_END)
 					k = 255;
 				// playhead
 				if (step == cur_step)
@@ -1014,7 +1017,7 @@ bargraph:
 				if (step == pending_loopstart_step && playing)
 					k = maxi(k, (clockglow * 4) & 255);
 				break;
-			case EM_PRESET:
+			case UI_LOAD:
 				k = (fi >= 4 && fi < 7) ? 64 : 0;
 				if (rotstep == edit_preset_pending)
 					k = flickeryfast;
@@ -1029,9 +1032,11 @@ bargraph:
 				if (cur_sample1 && rotstep == (cur_sample1 - 1) + 32 + 24)
 					k = 255;
 				break;
+			default: // suppres warning
+				break;
 			}
 
-			if (editmode == EM_PLAY) {
+			if (ui_mode == UI_DEFAULT) {
 				int delay = 1 + (((7 - y) * (7 - y) + fi * fi) >> 2);
 				u8 histpos = (audiohistpos + 31 - delay) & 31;
 				u8 ainlvl = audiopeakhistory[histpos];
@@ -1044,21 +1049,22 @@ bargraph:
 		}
 	}
 	{
-		leds[8][SB_PLAY] = playing ? led_add_gamma(clockglow) : 0;
-		leds[8][SB_PREV] = (editmode == EM_START) ? 255 : 0;
-		leds[8][SB_NEXT] = (editmode == EM_END) ? 255 : 0;
-		leds[8][SB_RECORD] = recording ? 255 : 0;
-		leds[8][SB_CLEAR] = 0;
-		leds[8][SB_PRESET] = (editmode == EM_PRESET) ? 255 : 0;
+		leds[8][SS_PLAY] = playing ? led_add_gamma(clockglow) : 0;
+		leds[8][SS_LEFT] = (ui_mode == UI_PTN_START) ? 255 : 0;
+		leds[8][SS_RIGHT] = (ui_mode == UI_PTN_END) ? 255 : 0;
+		leds[8][SS_RECORD] = recording ? 255 : 0;
+		leds[8][SS_CLEAR] = 0;
+		leds[8][SS_LOAD] = (ui_mode == UI_LOAD) ? 255 : 0;
 		;
-		leds[8][SB_PARAMSA] = (editmode == EM_PARAMSA)                                                      ? 255
-		                      : (editmode == EM_PLAY && ui_edit_param < P_LAST && (ui_edit_param % 12) < 6) ? flickery
-		                                                                                                    : 0;
-		leds[8][SB_PARAMSB] = (editmode == EM_PARAMSB)                                                       ? 255
-		                      : (editmode == EM_PLAY && ui_edit_param < P_LAST && (ui_edit_param % 12) >= 6) ? flickery
-		                                                                                                     : 0;
-		if (shift_down >= 0 && shift_down < 8)
-			leds[8][shift_down] = maxi(leds[8][shift_down], 128);
+		leds[8][SS_SHIFT_A] = (ui_mode == UI_EDITING_A)                                                       ? 255
+		                      : (ui_mode == UI_DEFAULT && ui_edit_param < P_LAST && (ui_edit_param % 12) < 6) ? flickery
+		                                                                                                      : 0;
+		leds[8][SS_SHIFT_B] = (ui_mode == UI_EDITING_B) ? 255
+		                      : (ui_mode == UI_DEFAULT && ui_edit_param < P_LAST && (ui_edit_param % 12) >= 6)
+		                          ? flickery
+		                          : 0;
+		if (shift_state >= 0 && shift_state < 8)
+			leds[8][shift_state] = maxi(leds[8][shift_state], 128);
 	}
 }
 
@@ -1086,11 +1092,11 @@ void plinky_frame(void) {
 		return;
 	}
 
-	if (editmode == EM_SAMPLE) {
+	if (ui_mode == UI_SAMPLE_EDIT) {
 		samplemode_ui();
 	}
 	else {
-		editmode_ui();
+		edit_mode_ui();
 	}
 	// rj: this used to be called at every oled_flip(), putting it back here
 	update_accelerometer_raw();

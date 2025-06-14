@@ -1,4 +1,6 @@
 #include "hardware/touchstrips.h"
+#include "ui/shift_states.h"
+#include "ui/ui.h"
 
 typedef struct CalibProgress {
 	float weight[8];
@@ -131,8 +133,8 @@ void OnLoop(void) {
 bool touched_main_area;
 
 bool got_ui_reset = false;
-int tapcount = 0;
-void clearlatch(void);
+int tap_count = 0;
+void clear_latch(void);
 
 void reverb_clear(void) {
 	memset(reverbbuf, 0, (RVMASK + 1) * 2);
@@ -151,7 +153,7 @@ int recpos = 0;      // this cycles around inside the delay buffer (which we use
 int recstartpos = 0; // once we start recording, we note the position in the buffer here
 int recreadpos = 0;  // ...and this is where we are up to in terms of reading that out and writing it to flash
 u8 recsliceidx = 0;
-const static bool pre_erase = true;
+const bool pre_erase = true;
 u32 record_flashaddr_base = 0;
 
 static inline SampleInfo* getrecsample(void) {
@@ -219,7 +221,7 @@ void recording_stop_really(void) {
 
 void recording_stop(void) {
 	if (enable_audio == EA_PLAY) {
-		editmode = EM_PLAY;
+		ui_mode = UI_DEFAULT;
 	}
 	else if (enable_audio == EA_RECORDING) {
 		enable_audio = EA_STOPPING1;
@@ -245,213 +247,10 @@ void recording_trigger(void) {
 	enable_audio = EA_RECORDING;
 }
 
-void on_shift_hold(int button) {
-
-	if (editmode == EM_PRESET) {
-		if (shift_down == SB_CLEAR && shift_down_time > 64 + 4) {
-			// clear it!
-			if (last_preset_selection_rotstep >= 0 && last_preset_selection_rotstep < 64)
-				copyrequest = last_preset_selection_rotstep + 128;
-		}
-	}
-
-	if (editmode == EM_SAMPLE) {
-		if (enable_audio == EA_PLAY && (shift_down == SB_RECORD || shift_down == SB_PLAY) && shift_down_time > 64) {
-			knobsmooth_reset(&recgain_smooth, audiorec_gain_target);
-			record_flashaddr_base = (edit_sample0 & 7) * (2 * MAX_SAMPLE_LEN);
-			recsliceidx = 0;
-			recstartpos = 0;
-			recreadpos = 0;
-			recpos = 0;
-			enable_audio = pre_erase ? EA_PREERASE : EA_MONITOR_LEVEL;
-		}
-	}
-}
-
 void arp_reset(void);
 void ShowMessage(Font fnt, const char* msg, const char* submsg);
 
-u8 prev_editmode;
-u8 last_edit_param = 255;
-bool param_sticky = false;
-void on_shift_down(void) {
-	prev_editmode = editmode;
-	touched_main_area = false;
-	if (editmode == EM_SAMPLE) {
-		if (shift_down == SB_PREV) {}
-		else if (shift_down == SB_RECORD || shift_down == SB_RECORD || shift_down == SB_PLAY) {
-			if (enable_audio == EA_PLAY) {
-				/* long press */
-			}
-			else if (enable_audio == EA_MONITOR_LEVEL)
-				enable_audio = EA_ARMED;
-			else if (enable_audio == EA_ARMED) {
-				recording_trigger();
-			}
-			else if (enable_audio == EA_RECORDING) {
-				recording_stop();
-			}
-		}
-		return;
-	}
-
-	switch (shift_down) {
-	case SB_PLAY: // play/pause
-		if (playmode == PLAY_WAITING_FOR_CLOCK_STOP) {
-			playmode = PLAY_STOPPED;
-			OnLoop();
-		}
-		else if (playmode == PLAY_PREVIEW) {}
-		else if (playmode == PLAY_STOPPED) {
-			playmode = PLAY_PREVIEW;
-			seq_step(1);
-		}
-		else if (playmode == PLAYING) {
-			playmode = PLAY_WAITING_FOR_CLOCK_STOP;
-		}
-		break;
-	case SB_PREV: // prev
-		editmode = EM_START;
-		if (isplaying())
-			got_ui_reset = true;
-		break;
-	case SB_NEXT: // next
-		editmode = EM_END;
-		break;
-	case SB_RECORD:
-		knobbase[0] = adc_smooth[4].y2;
-		knobbase[1] = adc_smooth[5].y2;
-		recordingknobs = 0;
-		break;
-	case SB_CLEAR: // delete/clear. TODO: hold down in preset mode to clear a pattern/sample/preset. in play mode,
-	               // supress notes.
-		clearlatch();
-		break;
-	case SB_PRESET:
-		editmode = EM_PRESET;
-		last_preset_selection_rotstep = sysparams.curpreset;
-		break;
-	case SB_PARAMSA:
-		if (edit_param >= P_LAST && last_edit_param < P_LAST)
-			edit_param = last_edit_param, param_sticky = true;
-		else
-			param_sticky = false;
-		if (edit_param < P_LAST && (edit_param % 12) >= 6)
-			edit_param -= 6;
-		editmode = EM_PARAMSA;
-		tapcount = 0;
-		break;
-	case SB_PARAMSB:
-		if (edit_param >= P_LAST && last_edit_param < P_LAST)
-			edit_param = last_edit_param, param_sticky = true;
-		else
-			param_sticky = false;
-		if (edit_param < P_LAST && (edit_param % 12) < 6)
-			edit_param += 6;
-		editmode = EM_PARAMSB;
-		break;
-	}
-}
-
-bool isshortpress(void) {
-	return (ticks() - last_time_shift_was_untouched) < 250;
-}
-
 void togglearp(void);
-
-void on_shift_up(int release_button) {
-	bool shortpress = isshortpress();
-
-	if (editmode == EM_SAMPLE) {
-		if (shortpress) {
-			if (shift_down == SB_PARAMSA) {
-				ramsample.pitched = !ramsample.pitched;
-				ramtime[GEN_SAMPLE] = millis();
-			}
-			else if (shift_down == SB_PARAMSB) {
-				ramsample.loop = (ramsample.loop + 1) & 3;
-				ramtime[GEN_SAMPLE] = millis();
-			}
-			else if (shift_down != SB_RECORD && shift_down != SB_PLAY) {
-				recording_stop();
-			}
-		}
-		return;
-	}
-	switch (shift_down) {
-	case SB_PARAMSA:
-	case SB_PARAMSB:
-		editmode = EM_PLAY;
-		last_edit_param = edit_param;
-		if (!touched_main_area && !param_sticky) {
-			edit_param = P_LAST;
-			edit_mod = 0;
-		}
-		// these arent real params, so dont stick on them.
-		if (edit_param == P_ARPONOFF || edit_param == P_LATCHONOFF) {
-			edit_param = P_LAST;
-			edit_mod = 0;
-		}
-		break;
-	case SB_PREV: // prev
-		if (!touched_main_area && shortpress) {
-			if (!isplaying())
-				set_cur_step(cur_step - 1, !isplaying());
-			editmode = EM_PLAY;
-		}
-		if (touched_main_area || prev_editmode == editmode)
-			editmode = EM_PLAY;
-		break;
-	case SB_NEXT: // next
-		if (!touched_main_area && shortpress) {
-			set_cur_step(cur_step + 1, !isplaying());
-			editmode = EM_PLAY;
-		}
-		if (touched_main_area || prev_editmode == editmode)
-			editmode = EM_PLAY;
-		break;
-	case SB_PRESET: // preset
-		if (touched_main_area || prev_editmode == editmode)
-			editmode = EM_PLAY;
-		break;
-	case SB_PLAY:
-		if (playmode == PLAY_PREVIEW)
-			playmode = shortpress ? PLAYING : PLAY_STOPPED;
-
-		break;
-	case SB_RECORD:
-		if (shortpress && recordingknobs == 0)
-			recording = !recording;
-		recordingknobs = 0;
-		break;
-	case SB_CLEAR:
-		if (!isplaying() && recording && editmode == EM_PLAY) {
-			bool dirty = false;
-			int q = (cur_step >> 4) & 3;
-			FingerRecord* fr = &rampattern[q].steps[cur_step & 15][0];
-			for (int fi = 0; fi < 8; ++fi, ++fr) {
-				for (int k = 0; k < 8; ++k) {
-					if (fr->pres[k] > 0)
-						dirty = true;
-					fr->pres[k] = 0;
-					if (fi < 2) {
-						s8* d = &rampattern[q].autoknob[(cur_step & 15) * 8 + k][fi];
-						if (*d) {
-							*d = 0;
-							dirty = true;
-						}
-					}
-				}
-			}
-			if (dirty)
-				ramtime[GEN_PAT0 + ((cur_step >> 4) & 3)] = millis();
-			set_cur_step(cur_step + 1, false);
-		}
-
-		break;
-	}
-	check_curstep();
-}
 
 int prev_prev_total_ui_pressure = 0;
 int prev_total_ui_pressure = 0;
@@ -462,7 +261,7 @@ typedef struct FingerStorage {
 	u8 avgvel;
 } FingerStorage;
 FingerStorage latch[8];
-void clearlatch(void) {
+void clear_latch(void) {
 	memset(latch, 0, sizeof(latch));
 }
 
@@ -476,7 +275,7 @@ u8 physical_touch_finger = 0;
 bool read_from_seq = false;
 
 FingerRecord* readpattern(int fi) {
-	if (rampattern_idx != cur_pattern || shift_down == SB_CLEAR)
+	if (rampattern_idx != cur_pattern || shift_state == SS_CLEAR)
 		return 0;
 	FingerRecord* fr = &rampattern[(cur_step >> 4) & 3].steps[cur_step & 15][fi];
 	// does any substep hold data?
@@ -768,11 +567,11 @@ void finger_synth_update(int fi) {
 		// We're recording into the loaded pattern
 		if (recording && rampattern_idx == cur_pattern) {
 			// holding clear sets the pressure to zero, which will effectively clear the sequencer at this point
-			int seq_pressure = shift_down == SB_CLEAR ? 0 : pres_compress(pressure);
-			int seq_position = shift_down == SB_CLEAR ? 0 : pos_compress(position);
+			int seq_pressure = shift_state == SS_CLEAR ? 0 : pres_compress(pressure);
+			int seq_position = shift_state == SS_CLEAR ? 0 : pos_compress(position);
 
 			// holding a note or clearing during playback
-			if ((seq_pressure > 0 && pressure_increasing) || shift_down == SB_CLEAR) {
+			if ((seq_pressure > 0 && pressure_increasing) || shift_state == SS_CLEAR) {
 				// live recording
 				if (isplaying()) {
 					record_to_substep = substep;
@@ -843,7 +642,7 @@ void finger_synth_update(int fi) {
 			int gatelen = param_eval_finger(P_GATE_LENGTH, fi, synth_finger) >> 8;
 			int small_substep = calcseqsubstep(0, 256);
 			if (seq_record->pres[substep] && !seq_rhythm.supress && small_substep <= gatelen
-			    && shift_down != SB_CLEAR) {
+			    && shift_state != SS_CLEAR) {
 				read_from_seq = true;
 				pressure = pres_decompress(seq_record->pres[substep]);
 				position = pos_decompress(seq_record->pos[substep / 2]);
@@ -904,66 +703,4 @@ void finger_synth_update(int fi) {
 
 	// sort fingers by pitch
 	sort8((int*)fingers_synth_sorted[fi], (int*)fingers_synth_time[fi]);
-}
-
-void finger_editing(int fi, int frame);
-
-void update_finger(u8 strip_id) {
-	Touch* uif = get_touch(strip_id);
-	Touch* prev_uif = get_touch_prev(strip_id, 1);
-
-	if (enable_audio <= EA_OFF) {
-		return;
-	}
-
-	if (strip_id == 8) {
-		Touch* oldf = get_touch_prev(strip_id, 2);
-		int button = uif->pos >> 8;
-		if (shift_down != SB_NOT_PRESSED) {
-			int oldpos = shift_down * 256 + 128;
-			if (abs(oldpos - uif->pos) < 192) // a bit of hysteresis
-				button = shift_down;
-		}
-		int midbutton = prev_uif->pos >> 8;
-		int oldbutton = oldf->pos >> 8;
-		bool valid = oldf->pres > 700 && uif->pres > 700 && abs(uif->pos - oldf->pos) < 60;
-		if (shift_down == SB_NOT_PRESSED)
-			valid &= oldbutton == midbutton && button == oldbutton;
-
-		if (valid) {
-			if (shift_down != button) {
-				// check for ghosted presses
-				Touch* f0 = get_touch(button);
-				Touch* fl = get_touch(maxi(0, button - 1));
-				Touch* fr = get_touch(mini(7, button + 1));
-				if ((f0->pres > 256 && f0->pos >= 6 * 256) || (fl->pres > 256 && fl->pos >= 7 * 256)
-				    || (fr->pres > 256 && fr->pos >= 7 * 256))
-					shift_down = SB_GHOSTED; // ghosted press! they have a finger on a nearby strip, maybe it was an
-					                         // accident.
-				else {
-					shift_down = button;
-					shift_down_time = 0;
-					on_shift_down();
-				}
-			}
-		}
-		else if (uif->pres <= 0) {
-			if (shift_down >= 0)
-				on_shift_up(button);
-			shift_down = SB_NOT_PRESSED;
-		}
-		if (shift_down >= 0) {
-			shift_down_time++;
-			on_shift_hold(button);
-		}
-		if (uif->pres <= 0)
-			last_time_shift_was_untouched = ticks();
-	}
-	else {
-		finger_editing(strip_id, touch_frame);
-	}
-}
-
-void touch_update(void) {
-	read_touchstrips();
 }

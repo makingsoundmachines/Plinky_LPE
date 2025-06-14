@@ -1,4 +1,4 @@
-
+// clang-format off
 static inline u8 lfohashi(u16 step) {
 	return rndtab[step];
 }
@@ -440,13 +440,6 @@ typedef struct PageFooter {
 	u16 crc;
 	u32 seq;
 } PageFooter;
-typedef struct SysParams {
-	u8 curpreset;
-	u8 paddy;
-	u8 systemflags;
-	s8 headphonevol;
-	u8 pad[16 - 4];
-} SysParams;
 enum {
 	SYS_DEPRACATED_ARPON=1,
 	SYS_DEPRACATED_LATCHON=2,
@@ -470,27 +463,6 @@ typedef struct Preset {
 } Preset;
 static_assert((sizeof(Preset)&15)==0,"?");
 static_assert(sizeof(Preset)+sizeof(SysParams)+sizeof(PageFooter)<=2048, "?");
-typedef struct SampleInfo {
-	u8 waveform4_b[1024]; // 4 bits x 2048 points, every 1024 samples
-	int splitpoints[8];
-	int samplelen; // must be after splitpoints, so that splitpoints[8] is always the length.
-	s8 notes[8];
-	u8 pitched; 
-	u8 loop; // bottom bit: loop; next bit: slice vs all
-	u8 paddy[2]; 
-} SampleInfo;
-static_assert(sizeof(SampleInfo) + sizeof(SysParams) + sizeof(PageFooter) <= 2048, "?");
-static_assert((sizeof(SampleInfo)&15)==0,"?");
-typedef struct FingerRecord {
-	u8 pos[4];
-	u8 pres[8];
-} FingerRecord;
-typedef struct PatternQuarter {
-	FingerRecord steps[16][8];
-	s8 autoknob[16*8][2];
-} PatternQuarter;
-static_assert(sizeof(PatternQuarter) + sizeof(SysParams) + sizeof(PageFooter) <= 2048, "?");
-static_assert((sizeof(PatternQuarter)&15)==0,"?");
 SampleInfo ramsample;
 Preset rampreset;
 PatternQuarter rampattern[4];
@@ -512,25 +484,15 @@ u8 cur_pattern; // this is the current pattern, derived from param, can modulate
 s8 cur_step = 0; // current step
 s8 step_offset = 0; // derived from param
 u8 edit_sample0 = 0; // this is the one we are editing. no modulation. sample 0-7. not 1 based!
-u8 copyrequest = 255;
+u8 copy_request = 255;
 u8 copyfrompreset = 0;
 u8 copyfrompattern = 0;
 u8 copyfromsample = 0;
-u8 recordingknobs = 0;
+u8 recording_knobs = 0;
 s8 last_preset_selection_rotstep = 0; // the thing that gets cleared when you hold down X
 
 float knobbase[2];
 
-enum {
-	GEN_PRESET,
-	GEN_PAT0,
-	GEN_PAT1,
-	GEN_PAT2,
-	GEN_PAT3,
-	GEN_SYS,
-	GEN_SAMPLE,
-	GEN_LAST
-};
 u32 flashtime[GEN_LAST]; // for each thing we care about, what have we written to?
 u32 ramtime[GEN_LAST]; //...and what has the UI set up? 
 
@@ -729,7 +691,7 @@ void InitParamsOnBoot(void) {
 	rampreset_idx = -1;
 	edit_sample0 = 0;
 	// relocate the first preset and pattern into ram
-	copyrequest = 255;
+	copy_request = 255;
 	for (int i = 0; i < GEN_LAST; ++i) {
 		ramtime[i] = 0;
 		flashtime[i] = 0;
@@ -781,7 +743,7 @@ void ProgramPage(void* datasrc, u32 datasize, u8 index) {
 	updating_bank2 = 0;
 #endif
 }
-void clearlatch(void);
+void clear_latch(void);
 
 void SetPreset(u8 preset, bool force) {
 	if (preset >= 32)
@@ -789,7 +751,7 @@ void SetPreset(u8 preset, bool force) {
 	if (preset == sysparams.curpreset && !force)
 		return;
 	sysparams.curpreset = preset;
-	clearlatch();
+	clear_latch();
 	CopyPresetToRam(force);
 	ramtime[GEN_SYS]=millis();
 }
@@ -906,16 +868,16 @@ void PumpFlashWrites(void) {
 		return;
 	u32 now = millis();
 
-	if (copyrequest != 255) {
-		// we want to copy TO copyrequest, FROM copyfrompreset
-		if (copyrequest & 128) {
+	if (copy_request != 255) {
+		// we want to copy TO copy_request, FROM copyfrompreset
+		if (copy_request & 128) {
 			// wipe!
-			copyrequest &= 63; 
-			if (copyrequest < 32) {
+			copy_request &= 63;
+			if (copy_request < 32) {
 				memcpy(&rampreset, &init_params, sizeof(rampreset));
 				ramtime[GEN_PRESET] = now;
 			}
-			else if (copyrequest < 64 - 8) {
+			else if (copy_request < 64 - 8) {
 				memset(&rampattern, 0, sizeof(rampattern));
 				ramtime[GEN_PAT0] = now;
 				ramtime[GEN_PAT1] = now;
@@ -927,12 +889,12 @@ void PumpFlashWrites(void) {
 				ramtime[GEN_SAMPLE] = now;
 			}
 		}
-		else if (copyrequest<64) {
+		else if (copy_request < 64) {
 			// copy!
-			if (copyrequest < 32) {
+			if (copy_request < 32) {
 
 #ifndef DISABLE_AUTOSAVE				
-				if (copyrequest == copyfrompreset) {
+				if (copy_request == copyfrompreset) {
 					// toggle
 					WritePreset(now + 100000); // flush any writes
 					int t = backuppagesidx[copyfrompreset];
@@ -943,15 +905,15 @@ void PumpFlashWrites(void) {
 				}
 				else {
 					// copy preset
-					ProgramPage(GetSavedPreset(copyfrompreset), sizeof(Preset), copyrequest);
+					ProgramPage(GetSavedPreset(copyfrompreset), sizeof(Preset), copy_request);
 				}
 #endif
 
-				SetPreset(copyrequest, true);
+				SetPreset(copy_request, true);
 			} 
-			else if (copyrequest < 64 - 8) {
+			else if (copy_request < 64 - 8) {
 				int srcpat = copyfrompattern;
-				int dstpat = copyrequest - 32;
+				int dstpat = copy_request - 32;
 				/*if (srcpat == dstpat) { toggle not available for patterns
 					// toggle
 					WritePattern(now + 100000); // flush any writes
@@ -974,8 +936,8 @@ void PumpFlashWrites(void) {
 				EditParamQuant(P_SEQPAT, M_BASE, dstpat);
 			}
 		}
-		copyrequest = 255;
-		editmode = EM_PLAY;
+		copy_request = 255;
+		ui_mode = UI_DEFAULT;
 	}
 	
 

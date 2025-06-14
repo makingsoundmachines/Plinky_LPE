@@ -64,6 +64,7 @@ extern UART_HandleTypeDef huart3;
 #include "low_level/dac.h"
 #include "low_level/spi.h"
 #include "testing/tick_counter.h"
+#include "ui/ui.h"
 
 const static float
 table_interp(const float* table,
@@ -82,10 +83,6 @@ static inline float lin2db(float lin) {
 static inline float db2lin(float db) {
 	return exp2f(db * (1.f / TWENTY_OVER_LOG2_10));
 }
-
-typedef struct knobsmoother {
-	float y1, y2;
-} knobsmoother;
 
 void knobsmooth_reset(knobsmoother* s, float ival) {
 	s->y1 = s->y2 = ival;
@@ -170,31 +167,19 @@ u8 prevprevsynthfingerdown_nogatelen = 0; // same as above, but without gatelen 
 u8 synthfingerdown = 0;                   // bit set when finger is down
 u8 synthfingerdown_nogatelen = 0;
 u8 synthfingertrigger = 0; // bit set on frame finger goes down
-s8 shift_down = -1;        //-1 means up; -2 means ghosted (supressed) touch; 0-7 means down
-int shift_down_time = 0;
-s8 editmode = EM_PLAY;
-int last_time_shift_was_untouched = 0;
-u32 tick = 0; // increments every 64 samples
+u32 tick = 0;              // increments every 64 samples
 
 s32 bpm10x = 120 * 10;
 
 static inline bool isgrainpreview(void) {
-	return editmode == EM_SAMPLE;
+	return ui_mode == UI_SAMPLE_EDIT;
 }
-
-enum {
-	PLAY_STOPPED,
-	PLAY_PREVIEW,
-	PLAY_WAITING_FOR_CLOCK_START,
-	PLAY_WAITING_FOR_CLOCK_STOP,
-	PLAYING,
-};
 
 u8 playmode = PLAY_STOPPED;
 bool recording = false;
 u8 pending_loopstart_step = 255; // set when we want to jump on next loop
-
-static inline bool isplaying(void) {
+extern bool isplaying(void);
+inline bool isplaying(void) {
 	return playmode == PLAYING || playmode == PLAY_WAITING_FOR_CLOCK_STOP;
 }
 
@@ -237,7 +222,6 @@ static inline int calcarpsubstep(int tick_offset, int maxsubsteps) { // where ar
 	return mini(maxsubsteps - 1, ((ticks_since_arp + tick_offset) * maxsubsteps) / last_arp_period);
 }
 
-u8 edit_mod = 0, edit_param = 0xff;
 // u8 ui_edit_param_prev[2][4] = { {P_LAST,P_LAST,P_LAST,P_LAST},{P_LAST,P_LAST,P_LAST,P_LAST} }; // push to front
 // history
 static float surf[2][8][8];
@@ -279,19 +263,6 @@ static inline u32 ticks(void) {
 	return tick;
 }
 
-enum {
-	EA_OFF = 0,
-	EA_PASSTHRU = -1,
-	EA_PLAY = 1,
-	EA_PREERASE = 2,
-	EA_MONITOR_LEVEL = 3,
-	EA_ARMED = 4,
-	EA_RECORDING = 5,
-	EA_STOPPING1 = 6, // we stop for 4 cycles to write 0s at the end
-	EA_STOPPING2 = 7,
-	EA_STOPPING3 = 8,
-	EA_STOPPING4 = 9,
-};
 s8 enable_audio = EA_OFF;
 
 // these includes are sensitive to how they are ordered
@@ -472,7 +443,7 @@ void update_params(int fingertrig, int fingerdown) {
 		float adcknob = 0.f;
 		if (i < 2) {
 			adcknob = adc_smooth[i + 4].y2;
-			if (!(recordingknobs & (1 << i)))
+			if (!(recording_knobs & (1 << i)))
 				adcknob += (autoknob1[i] + (autoknob2[i] - autoknob1[i]) * autoknobinterp) * (1.f / 127.f);
 		}
 		else
@@ -903,7 +874,7 @@ void RunVoice(Voice* v, int fingeridx, float targetvol, u32* outbuf) {
 				}
 				int ph = v->playhead8 >> 8;
 				int slicelen = ramsample.splitpoints[v->sliceidx + 1] - ramsample.splitpoints[v->sliceidx];
-				if (editmode != EM_SAMPLE) {
+				if (ui_mode != UI_SAMPLE_EDIT) {
 					ph += ((int)(v->fingerpos.y2 * slicelen)) >> (10);
 					ph += smppos; // scrub input
 				}
@@ -2417,7 +2388,7 @@ void EMSCRIPTEN_KEEPALIVE uitick(u32* dst, const u32* src, int half) {
 	//	if (half)
 	{
 		tc_start(&_tc_touch);
-		touch_update();
+		ui_frame();
 		tc_stop(&_tc_touch);
 	}
 	//	else

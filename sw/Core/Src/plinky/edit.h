@@ -1,3 +1,5 @@
+#include "ui/shift_states.h"
+#include "ui/ui.h"
 
 #ifdef EMU
 float knobhistory[512];
@@ -36,7 +38,7 @@ void init_slice_edit(SampleInfo* s, int fi) {
 }
 
 void on_longpress(int rotstep) {
-	if (editmode != EM_PRESET)
+	if (ui_mode != UI_LOAD)
 		return;
 
 	if (rotstep >= 64 - 8 && rotstep < 64) {
@@ -45,12 +47,12 @@ void on_longpress(int rotstep) {
 		memcpy(&ramsample, GetSavedSampleInfo(edit_sample0), sizeof(SampleInfo));
 		ramsample1_idx = cur_sample1 = edit_sample0 + 1;
 		edit_sample1_pending = 255;
-		editmode = EM_SAMPLE;
+		ui_mode = UI_SAMPLE_EDIT;
 		// the sample editor goes straight into editing slice pos...
 		init_slice_edit(&ramsample, 7);
 	}
 	else {
-		copyrequest = rotstep;
+		copy_request = rotstep;
 	}
 }
 
@@ -64,13 +66,13 @@ void togglearp(void) {
 	ShowMessage(F_32_BOLD, ((rampreset.flags & FLAGS_ARP)) ? "arp on" : "arp off", 0);
 	ramtime[GEN_SYS] = millis();
 }
-void clearlatch(void);
+void clear_latch(void);
 void togglelatch(void) {
 	rampreset.flags ^= FLAGS_LATCH;
 	ShowMessage(F_32_BOLD, ((rampreset.flags & FLAGS_LATCH)) ? "latch on" : "latch off", 0);
 	ramtime[GEN_SYS] = millis();
 	if (!((rampreset.flags & FLAGS_LATCH)))
-		clearlatch();
+		clear_latch();
 }
 extern int lastencodertime;
 extern float encaccel;
@@ -79,21 +81,21 @@ static u8 prevencbtn;
 static int encbtndowntime = 0;
 
 bool is_finger_an_edit_operation(int fi) { // return true if a given finger is an editing operation not a note
-	switch (editmode) {
-	case EM_SAMPLE:
+	switch (ui_mode) {
+	case UI_SAMPLE_EDIT:
 		return true;
-	case EM_PLAY:
+	case UI_DEFAULT:
 		return (fi == 0 && edit_param < P_LAST);
-	case EM_PARAMSA:
-	case EM_PARAMSB:
+	case UI_EDITING_A:
+	case UI_EDITING_B:
 #ifdef NEW_LAYOUT
 		return true;
 #else
 		return (fi == 0 || fi == 7 || fy > 0) || (fy == 0 && fi == 1) || (fy == 0 && fi == 6);
 #endif
-	case EM_PRESET:
-	case EM_START:
-	case EM_END:
+	case UI_LOAD:
+	case UI_PTN_START:
+	case UI_PTN_END:
 		return true;
 	}
 	return false;
@@ -126,7 +128,7 @@ void finger_editing(int fi, int frame) {
 			int pi = edit_param;
 			if (pi >= P_LAST)
 				pi = last_edit_param;
-			if ((pi < P_LAST) && (editmode == EM_PLAY || editmode == EM_PARAMSA || editmode == EM_PARAMSB)) {
+			if ((pi < P_LAST) && (ui_mode == UI_DEFAULT || ui_mode == UI_EDITING_A || ui_mode == UI_EDITING_B)) {
 				int cur = GetParam(pi, edit_mod);
 				int prev = cur;
 				int f = param_flags[pi];
@@ -188,7 +190,7 @@ void finger_editing(int fi, int frame) {
 					EditParamNoQuant(pi, edit_mod, (s16)cur);
 				}
 			}
-			else if (editmode == EM_SAMPLE && recsliceidx >= 0 && recsliceidx < 8) {
+			else if (ui_mode == UI_SAMPLE_EDIT && recsliceidx >= 0 && recsliceidx < 8) {
 				SampleInfo* s = getrecsample();
 				if (s->pitched) {
 					int newnote = clampi(s->notes[recsliceidx] + ev, 0, 96);
@@ -243,7 +245,7 @@ void finger_editing(int fi, int frame) {
 		// finger up!
 		if (uif->pres < 1 && (fingerstable & bit)) {
 			fingerstable &= ~bit;
-			if (editmode == EM_PRESET) {
+			if (ui_mode == UI_LOAD) {
 				int firstsection = preset_section_from_rotstep(first_finger_rotstep);
 
 				switch (firstsection) {
@@ -285,10 +287,10 @@ void finger_editing(int fi, int frame) {
 		bool inloop = ((step - loopstart_step) & 63) < rampreset.looplen_step;
 		int old = edit_param;
 
-		switch (editmode) {
-		case EM_SAMPLE: {
+		switch (ui_mode) {
+		case UI_SAMPLE_EDIT: {
 			SampleInfo* s = getrecsample();
-			if (shift_down < 0 && trig) {
+			if (shift_state < 0 && trig) {
 				if (enable_audio == EA_MONITOR_LEVEL) {
 					enable_audio = EA_ARMED;
 				}
@@ -336,9 +338,9 @@ void finger_editing(int fi, int frame) {
 			}
 			break;
 		} // sample
-		case EM_PARAMSA:
-		case EM_PARAMSB:
-		case EM_PLAY:
+		case UI_EDITING_A:
+		case UI_EDITING_B:
+		case UI_DEFAULT:
 			if (fi > 0 && fi < 7 && fyi >= 0 && fyi < 8) {
 				// Reset mod source when user selects an edit param. Otherwise, the
 				// previous mod source stays selected, and the user would then have
@@ -351,7 +353,7 @@ void finger_editing(int fi, int frame) {
 #else
 				edit_param = (fyi - 1) * 12 + (fi - 1);
 #endif
-				if (editmode == EM_PARAMSB)
+				if (ui_mode == UI_EDITING_B)
 					edit_param += 6;
 				if (trig) {
 #ifndef NEW_LAYOUT
@@ -381,21 +383,21 @@ void finger_editing(int fi, int frame) {
 				if (trig) {
 					if (edit_param == P_TEMPO) {
 						if (ticks() - lasttaptime > 1000)
-							tapcount = 0;
+							tap_count = 0;
 						lasttaptime = ticks();
-						if (!tapcount)
+						if (!tap_count)
 							firsttaptime = ticks();
-						tapcount++;
+						tap_count++;
 
-						if (tapcount > 1) { // tap tempo!
+						if (tap_count > 1) { // tap tempo!
 							float taps_per_minute =
-							    (32000.f * (tapcount - 1) * 60.f) / ((ticks() - firsttaptime) * BLOCK_SAMPLES);
+							    (32000.f * (tap_count - 1) * 60.f) / ((ticks() - firsttaptime) * BLOCK_SAMPLES);
 							bpm10x = clampi((int)(taps_per_minute * 10.f + 0.5f), 300, 2400);
 							EditParamNoQuant(P_TEMPO, 0, ((bpm10x - 1200) * FULL) / 1200);
 						}
 					}
 					else
-						tapcount = 0;
+						tap_count = 0;
 				}
 			}
 			if (edit_param < P_LAST && (edit_param != old || trig)) {
@@ -436,7 +438,7 @@ void finger_editing(int fi, int frame) {
 				EditParamNoQuant(pi, edit_mod, (s16)cur);
 			}
 			break;
-		case EM_START:
+		case UI_PTN_START:
 			// if you click inside the loop, just set pos
 			if (inloop) {
 				if (trig) { // need the trig otherwise when we move the loop, this code fires
@@ -458,7 +460,7 @@ void finger_editing(int fi, int frame) {
 					pending_loopstart_step = step;
 			}
 			break;
-		case EM_END:
+		case UI_PTN_END:
 			// set the end of the loop
 			{
 				u8 old = rampreset.looplen_step;
@@ -470,7 +472,7 @@ void finger_editing(int fi, int frame) {
 				set_cur_step(cur_step, false); // reset our cur step, based on the new loop
 			}
 			break;
-		case EM_PRESET: {
+		case UI_LOAD: {
 			int section = preset_section_from_rotstep(rotstep);
 			int firstsection = preset_section_from_rotstep(first_finger_rotstep);
 			last_preset_selection_rotstep = first_finger_rotstep; // remember what they chose

@@ -34,6 +34,8 @@ MAP = $(BUILD_DIR)/plinkyblack.map
 SRCS = \
 	../Core/Src/rebuild/hardware/leds.c \
 	../Core/Src/rebuild/hardware/touchstrips.c \
+	../Core/Src/rebuild/ui/shift_states.c \
+	../Core/Src/rebuild/ui/ui.c \
 	../Core/Src/rebuild/gfx/gfx.c \
 	../Core/Src/rebuild/gfx/oled/oled.c \
 	../Core/Src/main.c \
