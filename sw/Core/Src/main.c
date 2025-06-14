@@ -151,7 +151,7 @@ bool update_accelerometer_raw(void) {
 }
 
 int miditest(void);
-void midiinit(void);
+void usb_midi_init(void);
 
 /* USER CODE END 0 */
 
@@ -255,8 +255,6 @@ int main(void) {
 
 	/* Infinite loop */
 	/* USER CODE BEGIN WHILE */
-
-	midiinit();
 
 	while (1) {
 		/* USER CODE END WHILE */

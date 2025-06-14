@@ -34,8 +34,6 @@ extern TIM_HandleTypeDef htim3;
 extern TIM_HandleTypeDef htim4;
 extern TIM_HandleTypeDef htim5;
 
-extern UART_HandleTypeDef huart3;
-
 #endif
 
 #include <assert.h>
@@ -55,6 +53,7 @@ extern UART_HandleTypeDef huart3;
 #include "gfx/gfx.h"
 #include "hardware/adc_dac.h"
 #include "hardware/leds.h"
+#include "hardware/midi.h"
 #include "low_level/audiointrin.h"
 #include "low_level/codec.h"
 #include "low_level/spi.h"
@@ -82,47 +81,6 @@ static inline float db2lin(float db) {
 void knobsmooth_reset(ValueSmoother* s, float ival) {
 	s->y1 = s->y2 = ival;
 }
-
-typedef struct Osc {
-	u32 phase, prevsample;
-	s32 dphase;
-	s32 targetdphase;
-	int pitch;
-} Osc;
-
-typedef struct GrainPair {
-	int fpos24;
-	int pos[2];
-	int vol24;
-	int dvol24;
-	int dpos24;
-	float grate_ratio;
-	float multisample_grate;
-	int bufadjust; // for reverse grains, we adjust the dma buffer address by this many samples
-	int outflags;
-} GrainPair;
-
-typedef struct Voice {
-	float vol;
-	float y[4];
-	Osc theosc[4];
-	GrainPair thegrains[2];
-	// grain synth state
-	int playhead8;
-	u8 sliceidx;
-	int initialfingerpos;
-	ValueSmoother fingerpos;
-
-	u8 decaying;
-	int env_cur16;
-	float noise;
-	float env_level;
-#ifdef NEW_LAYOUT
-	int env_decaying;
-#else
-	uint64_t env_phase;
-#endif
-} Voice;
 
 TickCounter _tc_budget;
 TickCounter _tc_all;
@@ -1263,288 +1221,6 @@ void MONITORPEAK(float* mon, u32 stereoin) {
 #else
 #define MONITORPEAK(mon, stereoin)
 #endif
-u8 midi24ppqncounter;
-const s8 midicctable[128] = {
-    //					0			1			2			3			4			5			6			7
-    /*   0 */ -1,
-    -1,
-    P_NOISE,
-    P_SENS,
-    P_DRIVE,
-    P_GLIDE,
-    -1,
-    P_MIXSYNTH,
-    /*   8 */ P_MIXWETDRY,
-    P_PITCH,
-    -1,
-    P_GATE_LENGTH,
-    P_DLTIME,
-    P_PWM,
-    P_INTERVAL,
-    P_SMP_POS,
-    /*  16 */ P_SMP_GRAINSIZE,
-    P_SMP_RATE,
-    P_SMP_TIME,
-    P_ENV_LEVEL,
-    P_A2,
-    P_D2,
-    P_S2,
-    P_R2,
-    /*  24 */ P_AFREQ,
-    P_ADEPTH,
-    P_AOFFSET,
-    P_BFREQ,
-    P_BDEPTH,
-    P_BOFFSET,
-    -1,
-    P_MIXHPF,
-    /*  32 */ -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    /*  40 */ -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    /*  48 */ -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    /*  56 */ -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    /*  64 */ -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    P_MIXRESO,
-    /*  72 */ P_R,
-    P_A,
-    P_S,
-    P_D,
-    P_XFREQ,
-    P_XDEPTH,
-    P_XOFFSET,
-    P_YFREQ,
-    /*  80 */ P_YDEPTH,
-    P_YOFFSET,
-    P_SAMPLE,
-    P_SEQPAT,
-    -1,
-    P_SEQSTEP,
-    -1,
-    -1,
-    /*  88 */ -1,
-    P_MIXINPUT,
-    P_MIXINWETDRY,
-    P_RVSEND,
-    P_RVTIME,
-    P_RVSHIM,
-    P_DLSEND,
-    P_DLFB,
-    /*  96 */ -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    P_LATCHONOFF,
-    P_ARPONOFF,
-    P_ARPMODE,
-    /* 104 */ P_ARPDIV,
-    P_ARPPROB,
-    P_ARPLEN,
-    P_ARPOCT,
-    P_SEQMODE,
-    P_SEQDIV,
-    P_SEQPROB,
-    P_SEQLEN,
-    /* 112 */ P_DLRATIO,
-    P_DLWOB,
-    P_RVWOB,
-    -1,
-    P_JIT_POS,
-    P_JIT_GRAINSIZE,
-    P_JIT_RATE,
-    P_JIT_PULSE,
-    /* 120 */ -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-};
-
-bool midi_receive(unsigned char packet[4]); // usb midi poll
-void processmidimsg(u8 msg, u8 d1, u8 d2);
-bool processusbmidi(void) {
-	u8 midipacket[4];
-	if (!midi_receive(midipacket))
-		return false;
-	// 09 90 30 64
-	// 08 80 30 40
-	// DebugLog("got midi %02x %02x %02x %02x\r\n", midipacket[0], midipacket[1], midipacket[2], midipacket[3]);
-	u8 msg = midipacket[1];
-	u8 d1 = midipacket[2];
-	u8 d2 = midipacket[3];
-	processmidimsg(msg, d1, d2);
-	return true;
-}
-
-void midi_panic(void) {
-	midi_pressure_override = 0, midi_pitch_override = 0;
-	memset(midi_notes, 0, sizeof(midi_notes));
-	memset(midi_velocities, 0, sizeof(midi_velocities));
-	memset(midi_aftertouch, 0, sizeof(midi_aftertouch));
-	memset(midi_channels, 255, sizeof(midi_channels));
-	memset(midi_chan_aftertouch, 0, sizeof(midi_chan_aftertouch));
-	memset(midi_chan_pitchbend, 0, sizeof(midi_chan_pitchbend));
-	midi_next_finger = 0;
-}
-
-bool send_midimsg(u8 status, u8 data1, u8 data2);
-void processmidimsg(u8 msg, u8 d1, u8 d2) {
-	u8 chan = msg & 15;
-	u8 type = msg >> 4;
-
-	int midi_ch_in = clampi((mini(GetParam(P_MIDI_CH_IN, 0), FULL - 1) * 16) / FULL, 0, 15);
-
-	if ((chan != midi_ch_in) && (type != 0xF)) // allow only selected channel and MIDI sync
-		return;
-	if (type < 8)
-		return;
-
-	if (type == 9 && d2 == 0)
-		type = 8;
-
-	switch (type) {
-	case 0xc: // program change
-		if (d1 < 32)
-			SetPreset(d1, false);
-		break;
-	case 8: { // note off
-		// find string with existing midi note
-		u8 fi = find_midi_note(chan, d1);
-		if (fi < 8) {
-			midi_pressure_override &= ~(1 << fi);
-		}
-	} break;
-	case 9: { // note on
-		int note_position;
-		// find string with existing midi note
-		u8 fi = find_midi_note(chan, d1);
-		// none found - find empty string
-		if (fi == 255) {
-			fi = find_free_midi_string(d1, &note_position);
-			midi_positions[fi] = note_position;
-		}
-		// set midi values
-		if (fi < 8) {
-			midi_notes[fi] = d1;
-			midi_channels[fi] = chan;
-			midi_velocities[fi] = d2;
-			midi_aftertouch[fi] = 0;
-			midi_pressure_override |= 1 << fi;
-			midi_pitch_override |= 1 << fi;
-		}
-	} break;
-	case 0xe: // pitchbend
-		midi_chan_pitchbend[chan] = (d1 + (d2 << 7)) - 0x2000;
-		break;
-	case 0xa: { // polyphonic aftertouch
-		u8 fi = find_midi_note(chan, d1);
-		if (fi < 8) {
-			midi_aftertouch[fi] = d2;
-		}
-	} break;
-	case 0xd: { // channel aftertouch
-		midi_chan_aftertouch[chan] = d1;
-	} break;
-	case 0xb: // cc param
-	{
-		if (d1 >= 32 && d1 < 64)
-			midi_lsb[d1 - 32] = d2;
-		s8 param = (d1 < 128) ? midicctable[d1] : -1;
-		if (param >= 0 && param < P_LAST) {
-			int val;
-			if (d1 < 32)
-				val = (d2 << 7) + midi_lsb[d1];
-			else
-				val = (d2 << 7) + d2;
-			val = (val * FULL) / (127 * 128 + 127);
-			if (param_flags[param] & FLAG_SIGNED)
-				val = val * 2 - FULL;
-			EditParamNoQuant(param, M_BASE, val);
-
-			if (param == P_ARPONOFF) {
-				if (val > 64) {
-					rampreset.flags = rampreset.flags | FLAGS_ARP;
-				}
-				else {
-					rampreset.flags = rampreset.flags & ~FLAGS_ARP;
-				}
-				ShowMessage(F_32_BOLD, ((rampreset.flags & FLAGS_ARP)) ? "arp on" : "arp off", 0);
-			}
-			if (param == P_LATCHONOFF) {
-				if (val > 64) {
-					rampreset.flags = rampreset.flags | FLAGS_LATCH;
-				}
-				else {
-					rampreset.flags = rampreset.flags & ~FLAGS_LATCH;
-				}
-				ShowMessage(F_32_BOLD, ((rampreset.flags & FLAGS_LATCH)) ? "latch on" : "latch off", 0);
-			}
-		}
-		break;
-	}
-	case 0xf:              // system
-		if (msg == 0xfa) { // start
-			got_ui_reset = true;
-			midi24ppqncounter =
-			    5; // 2020-02-26: Used to be 0, changed to 5:
-			       // https://discord.com/channels/784856175937585152/784884878994702387/814951459581067264
-			playmode = PLAYING;
-		}
-		else if (msg == 0xfb) { // continue
-			playmode = PLAYING;
-		}
-		else if (msg == 0xfc) { // stop
-			midi24ppqncounter = 0;
-			playmode = PLAY_STOPPED;
-			OnLoop();
-		}
-		else if (msg == 0xf8) {
-			// midi clock! 24ppqn, we want 4, so divide by 6.
-			midi24ppqncounter++;
-			if (midi24ppqncounter == 6) {
-				gotclkin++;
-				midi24ppqncounter = 0;
-			}
-		}
-		break;
-	}
-}
 
 void DoRecordModeAudio(u32* dst, u32* audioin) {
 	// recording or level testing
@@ -1654,98 +1330,6 @@ void PreProcessAudioIn(u32* audioin) {
 }
 static s16 scopex = 0;
 
-void usb_midi_update(void);
-void serial_midi_update(void);
-
-u8 midi_last_pitch[8];
-u8 midi_first_vol[8];
-u8 midi_last_at[8];
-u8 midi_last_pos[8];
-u8 midi_last_pressure[8];
-u8 midi_send_chan;
-u8 midi_desired_note[8];
-void kick_midi_send(void);
-bool serial_midi_ready(void);
-
-void midi_send_update(void) {
-	if (!serial_midi_ready())
-		return;
-	for (int i = 0; i < 8; ++i) {
-		Touch* synthf = touch_synth_getlatest(midi_send_chan);
-		Touch* prevsynthf = touch_synth_getprev(midi_send_chan);
-
-		bool pressurestable = abs(prevsynthf->pres - synthf->pres) < 100;
-		bool posstable = abs(prevsynthf->pos - synthf->pos) < 32;
-		bool pressure_significant = synthf->pres > 200;
-
-		int desired_pitch = midi_desired_note[midi_send_chan];
-		int desired_vol = clampi((synthf->pres - 100) / 48, 0, 127);
-		// int prev_vol = clampi((prevsynthf->pres-100) / 48, 0, 127);
-		u8 desired_pos = clampi(127 - (synthf->pos / 13 - 16), 0, 127);
-		if (desired_pitch == 0)
-			desired_vol = 0;
-		if (arpmode >= 0 && !(arpbits & (1 << midi_send_chan))) {
-			desired_vol = 0;
-		}
-		if (desired_vol <= 0)
-			desired_pitch = 0;
-		bool sent = false;
-		u8 cur_pitch = midi_last_pitch[midi_send_chan];
-
-		if (desired_pitch != cur_pitch && (desired_pitch == 0 || (posstable && pressurestable))) {
-			// send note up
-			if (cur_pitch != 0) {
-				if (!send_midimsg(0x80, cur_pitch, 0))
-					break;
-				midi_last_pitch[midi_send_chan] = 0;
-				midi_last_at[midi_send_chan] = 0;
-				sent = true;
-			}
-			// send new note down
-			if (desired_pitch != 0) {
-				if (!send_midimsg(0x90, desired_pitch, desired_vol))
-					break;
-				midi_last_pitch[midi_send_chan] = desired_pitch;
-				midi_first_vol[midi_send_chan] = desired_vol;
-				midi_last_at[midi_send_chan] = 0;
-				sent = true;
-			}
-		}
-
-		u8 cur_at = midi_last_at[midi_send_chan];
-		int desired_at = desired_vol - midi_first_vol[midi_send_chan];
-		if (desired_at < 0)
-			desired_at = 0;
-		if (abs(desired_at - cur_at) > 4) {
-			if (!send_midimsg(0xa0, cur_pitch, desired_at))
-				break;
-			midi_last_at[midi_send_chan] = desired_at;
-			sent = true;
-		}
-
-		u8 cur_pos = midi_last_pos[midi_send_chan];
-		if (abs(desired_pos - cur_pos) > 1 && pressure_significant && pressurestable) {
-			if (!send_midimsg(0xb0, 32 + midi_send_chan, desired_pos))
-				break;
-			midi_last_pos[midi_send_chan] = desired_pos;
-			sent = true;
-		}
-		u8 cur_pressure = midi_last_pressure[midi_send_chan];
-		if (abs(desired_vol - cur_pressure) > 1) {
-			if (!send_midimsg(0xb0, 40 + midi_send_chan, desired_vol))
-				break;
-			midi_last_pressure[midi_send_chan] = desired_vol;
-			sent = true;
-		}
-
-		midi_send_chan = (midi_send_chan + 1) & 7;
-		if (sent) {
-			kick_midi_send();
-			break;
-		}
-	}
-}
-
 int stride(u32 scale, int stride_semitones, int fingeridx);
 
 int audiotime = 0;
@@ -1788,17 +1372,12 @@ void DoAudio(u32* dst, u32* audioin) {
 
 	CopyPresetToRam(false);
 	// a few midi messages per tick. WCGW
-	if (1) {
-		midi_send_update();
+	process_all_midi_out();
 #ifndef EMU
-		// usb_midi_update();
-		PumpWebUSB(true);
-		serial_midi_update();
+	PumpWebUSB(true);
+	process_serial_midi_in();
 #endif
-		for (int i = 0; i < 2; ++i)
-			if (!processusbmidi())
-				break;
-	}
+	process_usb_midi_in();
 	// do the clock first so we can update the sequencer step etc
 	bool gotclock = update_clock();
 	static u8 whichhalf = 0;
@@ -1892,10 +1471,10 @@ void DoAudio(u32* dst, u32* audioin) {
 			// sounding out a midi note
 			if ((midi_pitch_override & bit) && !(midi_suppress & bit)) {
 				Touch* f = fingers_synth_sorted[fi] + 2;
-				int midinote = ((midi_notes[fi] - 12 * 2) << 9) + midi_chan_pitchbend[midi_channels[fi]] / 8;
+				s32 midi_pitch = midi_note_to_pitch(midi_notes[fi], midi_channels[fi]);
 				for (int i = 0; i < 4; ++i) {
 					int pitch = pitchbase + ((i & 1) ? interval : 0) + (i - 2) * 64
-					            + midinote; //  (lookupscale(scale, ystep + root)) + +((fine * microtune) >> 14);
+					            + midi_pitch; //  (lookupscale(scale, ystep + root)) + +((fine * microtune) >> 14);
 					totpitch += pitch;
 					voices[fi].theosc[i].pitch = pitch;
 					voices[fi].theosc[i].targetdphase =
@@ -1954,7 +1533,7 @@ void DoAudio(u32* dst, u32* audioin) {
 					pitchhi = totpitch;
 					gothi = true;
 				}
-				midi_desired_note[fi] = clampi((totpitch + 1024) / 2048 + 24, 0, 127);
+				midi_goal_note[fi] = clampi((totpitch + 1024) / 2048 + 24, 0, 127);
 			}
 			maxvol = maxi(maxvol, (int)(vol * 65536.f));
 		}
@@ -2789,7 +2368,7 @@ void SetExpanderDAC(int chan, int data) {
 
 #ifdef WASM
 
-bool send_midimsg(u8 status, u8 data1, u8 data2) {
+bool send_midi_msg(u8 status, u8 data1, u8 data2) {
 	return true;
 }
 void spi_update_dac(int chan) {
@@ -2799,7 +2378,7 @@ void spi_update_dac(int chan) {
 void EmuStartSound(void) {
 }
 
-bool midi_receive(unsigned char packet[4]) {
+bool usb_midi_receive(unsigned char packet[4]) {
 	return false; // fill in packet and return true if midi found
 }
 int emutouch[9][2];
@@ -2841,159 +2420,6 @@ void EMSCRIPTEN_KEEPALIVE wasm_setcurpreset(int i) {
 }
 #endif
 
-static u8 uartbuf[16];
-void serial_midi_init(void) {
-#ifndef EMU
-	HAL_UART_Receive_DMA(&huart3, uartbuf, sizeof(uartbuf));
-#endif
-}
-void serial_midi(const u8* buf, u8 len) {
-	static u8 state = 0;
-	static u8 msg[3] = {0};
-	for (; len--;) {
-		u8 data = *buf++;
-		// status byte
-		if (data & 0x80) {
-			// real-time msg
-			if ((data & 0xF8) == 0xF8) {
-				// handle immediately
-				processmidimsg(data, 0, 0);
-			}
-			// channel mode msg
-			else if ((data & 0xF0) == 0xF0) {
-				// cancels running status, no further processing
-				msg[0] = 0;
-			}
-			// channel voice msg, start new
-			else {
-				msg[0] = data;
-				state = 1;
-			}
-		}
-		// data byte
-		else {
-			// not gathering a channel voice msg, ignore
-			if (msg[0] == 0) {
-				continue;
-			}
-			// running status
-			if (state == 3) {
-				state = 1;
-			}
-			// save data
-			msg[state++] = data;
-			// program change and channel pressure only have one data byte
-			if (state == 2 && ((msg[0] & 0xF0) == 0xC0 || (msg[0] & 0xF0) == 0xD0)) {
-				msg[state++] = 0;
-			}
-			// we received a full midi msg, process
-			if (state == 3) {
-				processmidimsg(msg[0], msg[1], msg[2]);
-			}
-		}
-	}
-}
-
-#ifndef EMU
-// from https://community.st.com/s/question/0D50X00009XkflR/haluartirqhandler-bug
-// what a trash fire
-// USART Error Handler
-void HAL_UART_ErrorCallback(UART_HandleTypeDef* huart) {
-	__HAL_UART_CLEAR_OREFLAG(huart);
-	__HAL_UART_CLEAR_NEFLAG(huart);
-	__HAL_UART_CLEAR_FEFLAG(huart);
-	/* Disable the UART Error Interrupt: (Frame error, noise error, overrun error) */
-	__HAL_UART_DISABLE_IT(huart, UART_IT_ERR);
-	// The most important thing when UART framing error occur/any error is restart the RX process
-	midi_panic();
-	HAL_UART_Receive_DMA(&huart3, uartbuf, sizeof(uartbuf));
-}
-
-typedef unsigned int uint;
-u8 midisendbuf[16 + 16];
-uint midisendhead, midisendtail;
-bool usb_midi_write(const uint8_t packet[4]);
-bool serial_midi_ready(void) {
-	return huart3.TxXferCount == 0;
-}
-void kick_midi_send(void) {
-	if (huart3.TxXferCount == 0 && midisendhead != midisendtail) {
-		uint from = midisendtail & 15;
-		uint to = midisendhead & 15;
-		if (to > from) {
-			midisendtail += (to - from);
-			HAL_UART_Transmit_DMA(&huart3, midisendbuf + from, to - from);
-		}
-		else if (to < from) {
-			// wrapped! send from->16, and 0->to
-			u8 sendlen = (16 - from) + to;
-			memcpy(midisendbuf + 16, midisendbuf,
-			       to); // copy looped part to end so we can send it all in one go! good on us.
-			midisendtail += sendlen;
-			HAL_UART_Transmit_DMA(&huart3, midisendbuf + from, sendlen);
-		}
-	}
-}
-
-bool send_midi_serial(const u8* data, int len) {
-	if (len <= 0)
-		return true;
-	if (midisendhead - midisendtail + len > 16)
-		return false; // full
-	while (len--)
-		midisendbuf[(midisendhead++) & 15] = *data++;
-	return true;
-}
-
-bool send_midimsg(u8 status, u8 data1, u8 data2) { // returns false if too full
-
-	u8 len = 3;
-
-	if (status >= 0xc0 && status < 0xe0) // Cn Program Change, Dn Mono / Channel Aftertouch
-		len = 2;
-	if (!(status & 0x80))
-		return true;
-	if (status == 0x80 && data1 == 0)
-		return true; // er, no
-
-	int midi_ch_out = clampi((mini(GetParam(P_MIDI_CH_OUT, 0), FULL - 1) * 16) / FULL, 0, 15);
-
-	if (status < 0xf0)
-		status += midi_ch_out; // sets output channel
-
-	u8 buf[4] = {status >> 4, status, data1, data2};
-	usb_midi_write(buf);
-	send_midi_serial(buf + 1, len);
-	return true;
-}
-#else
-void kick_midi_send(void) {
-}
-bool serial_midi_ready(void) {
-	return true;
-}
-#endif
-
-void serial_midi_update(void) {
-	kick_midi_send();
-	static u8 old_pos = 0;
-#ifdef EMU
-	u8 pos = 0;
-#else
-	u8 pos = 16 - __HAL_DMA_GET_COUNTER(huart3.hdmarx);
-#endif
-	if (pos != old_pos) {
-		if (pos > old_pos) {
-			serial_midi(&uartbuf[old_pos], pos - old_pos);
-		}
-		else {
-			serial_midi(&uartbuf[old_pos], 16 - old_pos);
-			serial_midi(&uartbuf[0], pos);
-		}
-	}
-	old_pos = pos;
-}
-
 void EMSCRIPTEN_KEEPALIVE plinky_init(void) {
 	denormals_init();
 	reset_touches();
@@ -3034,8 +2460,7 @@ void EMSCRIPTEN_KEEPALIVE plinky_init(void) {
 	spi_setchip(0);
 	spiid = spi_readid();
 	DebugLog("SPI flash chip 0 id %04x\r\n", spiid);
-	// kick off serial midi in!
-	serial_midi_init();
+	midi_init();
 
 #endif
 	leds_init();

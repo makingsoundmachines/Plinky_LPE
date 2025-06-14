@@ -139,15 +139,7 @@ void midiinit(void)
 	uint32_t 	uid2=HAL_GetUIDw2 ();
 	serialno = mix(uid0,uid1,uid2);
 
-  tusb_init();
-}
-
-
-bool midi_receive(unsigned char packet[4]) {
-	  return tud_midi_available() && tud_midi_packet_read(packet);
-}
-bool usb_midi_write(const uint8_t packet[4]) {
-    return tud_midi_packet_write(packet);
+  // tusb_init();
 }
 
 /*

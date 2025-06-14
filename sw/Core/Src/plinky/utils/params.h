@@ -208,10 +208,6 @@ enum {
 	SYS_DEPRACATED_ARPON=1,
 	SYS_DEPRACATED_LATCHON=2,
 };
-enum {
-	FLAGS_ARP=1,
-	FLAGS_LATCH=2,
-};
 // preset version 1: ??
 // preset version 2: add SAW lfo shape
 #define CUR_PRESET_VERSION 2

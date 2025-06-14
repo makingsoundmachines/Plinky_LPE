@@ -123,6 +123,7 @@ static inline float smooth_value(ValueSmoother* s, float new_val, float max_scal
 
 // TEMP - these will get organised into their appropriate modules
 
+#define NUM_VOICES 8
 #define FULL 1024
 #define HALF (FULL / 2)
 
@@ -201,6 +202,48 @@ typedef struct PatternQuarter { // sequecer
 } PatternQuarter;
 // static_assert(sizeof(PatternQuarter) + sizeof(SysParams) + sizeof(PageFooter) <= 2048, "?");
 // static_assert((sizeof(PatternQuarter) & 15) == 0, "?");
+
+enum {
+	FLAGS_ARP = 1,
+	FLAGS_LATCH = 2,
+};
+
+typedef struct Osc {
+	u32 phase, prevsample;
+	s32 dphase;
+	s32 targetdphase;
+	int pitch;
+} Osc;
+
+typedef struct GrainPair {
+	int fpos24;
+	int pos[2];
+	int vol24;
+	int dvol24;
+	int dpos24;
+	float grate_ratio;
+	float multisample_grate;
+	int bufadjust; // for reverse grains, we adjust the dma buffer address by this many samples
+	int outflags;
+} GrainPair;
+
+typedef struct Voice {
+	float vol;
+	float y[4];
+	Osc theosc[4];
+	GrainPair thegrains[2];
+	// grain synth state
+	int playhead8;
+	u8 sliceidx;
+	int initialfingerpos;
+	ValueSmoother fingerpos;
+
+	u8 decaying;
+	int env_cur16;
+	float noise;
+	float env_level;
+	int env_decaying;
+} Voice;
 
 #define MAX_SAMPLE_LEN (1024 * 1024 * 2) // max sample length in samples
 #define BLOCK_SAMPLES 64

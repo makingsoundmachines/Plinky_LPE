@@ -29,23 +29,23 @@ typedef struct euclid_state {
 euclid_state arp_rhythm;
 euclid_state seq_rhythm;
 
-static inline u8 touch_synth_writingframe(void) {
+u8 touch_synth_writingframe(void) {
 	return (finger_frame_synth) & 7;
 }
-static inline u8 touch_synth_frame(void) {
+u8 touch_synth_frame(void) {
 	return (finger_frame_synth - 1) & 7;
 }
-static inline u8 touch_synth_prevframe(void) {
+u8 touch_synth_prevframe(void) {
 	return (finger_frame_synth - 2) & 7;
 }
 
-static inline Touch* touch_synth_getlatest(int finger) {
+Touch* touch_synth_getlatest(int finger) {
 	return &fingers_synth_time[finger][touch_synth_frame()];
 }
-static inline Touch* touch_synth_getprev(int finger) {
+Touch* touch_synth_getprev(int finger) {
 	return &fingers_synth_time[finger][touch_synth_prevframe()];
 }
-static inline Touch* touch_synth_getwriting(int finger) {
+Touch* touch_synth_getwriting(int finger) {
 	return &fingers_synth_time[finger][touch_synth_writingframe()];
 }
 
@@ -283,34 +283,7 @@ FingerRecord* readpattern(int fi) {
 		record_pressure += fr->pres[i];
 	return record_pressure == 0 ? 0 : fr;
 }
-
-/////////////////// XXXXX MIDI HERE?
-// bitmask of 'midi pitch override' and 'midi pressure override'
-// midipitch
-// here: if real pressure, clear both
-// here: if pressure override, set it as midi channel aftertouch + midi note pressure
-// in plinky.c midi note down: inc next voice index; set both override bits; set voice midi pitch and channel and
-// velocity in plinky.c midi note up: clear pressure override bit in the synth - override pitch if bit is set
-u8 midi_pressure_override = 0; // true if midi note is pressed
-u8 midi_pitch_override = 0;    // true if midi note is sounded out, includes release phase
-u8 midi_suppress = 0;          // true if midi is suppressed by touch / latch / sequencer note
-int memory_position[8];
-u8 midi_notes[8];
-int midi_positions[8];
-u8 midi_velocities[8];
-u8 midi_aftertouch[8];
-u8 midi_channels[8] = {255, 255, 255, 255, 255, 255, 255, 255};
-u8 midi_chan_aftertouch[16];
-s16 midi_chan_pitchbend[16];
-u8 midi_next_finger;
-u8 midi_lsb[32];
-u8 find_midi_note(u8 chan, u8 note) {
-	for (int fi = 0; fi < 8; ++fi)
-		if ((midi_pitch_override & (1 << fi)) && midi_notes[fi] == note && midi_channels[fi] == chan)
-			return fi;
-	return 255;
-}
-
+u16 memory_position[8];
 int stride(u32 scale, int stride_semitones, int fingeridx);
 
 int string_pitch_at_pad(u8 fi, u8 pad) {
@@ -340,103 +313,6 @@ int string_pitch_at_pad(u8 fi, u8 pad) {
 
 int string_center_pitch(u8 fi) {
 	return (string_pitch_at_pad(fi, 0) + string_pitch_at_pad(fi, 7)) / 2;
-}
-
-// find the string whose center pitch is the closest to midi_pitch
-u8 find_string_for_midi_pitch(int midi_pitch) {
-	// pitch falls below bottom string center
-	if (midi_pitch < string_center_pitch(0))
-		return 0;
-	// pitch falls above top string center
-	if (midi_pitch >= string_center_pitch(7))
-		return 7;
-	// find the string with the closest center pitch
-	u8 desired_string = 0;
-	int min_dist = 2147483647; // int max
-	for (u8 i = 0; i < 8; i++) {
-		int pitch_dist = abs(string_center_pitch(i) - midi_pitch);
-		if (pitch_dist < min_dist) {
-			min_dist = pitch_dist;
-			desired_string = i;
-		}
-	}
-	return desired_string;
-}
-
-int find_string_position_for_midi_pitch(u8 fi, int midi_pitch) {
-	// note that string positions are ordered top-to-bottom
-	static const u16 pad_spacing = 256;
-	// return the position of the highest pad the midi pitch is higher than - or equal to
-	for (u8 pad = 7; pad > 0; pad--) {
-		if (midi_pitch >= string_pitch_at_pad(fi, pad)) {
-			return (7 - pad) * pad_spacing;
-		}
-	}
-	// if the pitch was lower than the pitch of pad 1, we return the bottom pad
-	return 7 * pad_spacing;
-}
-
-u8 find_free_midi_string(u8 midi_note_number, int* midi_note_position) {
-	Touch* synthf = touch_synth_getlatest(0);
-	int midi_pitch =
-	    // base pitch
-	    12 * ((param_eval_finger(P_OCT, 0, synthf) << 9) + (param_eval_finger(P_PITCH, 0, synthf) >> 7)) +
-	    // pitch
-	    ((midi_note_number - 24) << 9);
-
-	// find the best string for this midi note
-	u8 desired_string = find_string_for_midi_pitch(midi_pitch);
-
-	// try to find:
-	// 1. the non-sounding string closest to our desired string
-	// 2. the sounding string that is the quietest
-	int string_option[8];
-	u8 num_string_options = 0;
-	u8 min_string_dist = 255;
-	float min_vol = __FLT_MAX__;
-	u8 min_string_id = 255;
-
-	// collect non-sounding strings
-	for (u8 string_id = 0; string_id < 8; string_id++) {
-		if (voices[string_id].vol < 0.001f) {
-			string_option[num_string_options] = string_id;
-			num_string_options++;
-		}
-	}
-	// find closest
-	for (uint8_t option_id = 0; option_id < num_string_options; option_id++) {
-		if (abs(string_option[option_id] - desired_string) < min_string_dist) {
-			min_string_dist = abs(string_option[option_id] - desired_string);
-			min_string_id = string_option[option_id];
-		}
-	}
-	// return closest, if found
-	if (min_string_dist != 255) {
-		// collect the position on the string before returning
-		*midi_note_position = find_string_position_for_midi_pitch(min_string_id, midi_pitch);
-		return min_string_id;
-	}
-	// collect non-pressed strings
-	num_string_options = 0;
-	for (u8 string_id = 0; string_id < 8; string_id++) {
-		if (!(synthfingerdown_nogatelen_internal & (1 << string_id))) {
-			string_option[num_string_options] = string_id;
-			num_string_options++;
-		}
-	}
-	// find quietest
-	for (uint8_t option_id = 0; option_id < num_string_options; option_id++) {
-		if (voices[string_option[option_id]].vol < min_vol) {
-			min_vol = voices[string_option[option_id]].vol;
-			min_string_id = string_option[option_id];
-		}
-	}
-	// collect the position on the string before returning
-	if (min_string_id != 255) {
-		*midi_note_position = find_string_position_for_midi_pitch(min_string_id, midi_pitch);
-	}
-	// return quietest - this returns 255 if nothing was found
-	return min_string_id;
 }
 
 u8 pres_compress(int pressure) {
@@ -658,7 +534,7 @@ void finger_synth_update(int fi) {
 	// a midi note is playing this string
 	if ((midi_pressure_override & bit) && !(midi_suppress & bit)) {
 		// take pressure and position from midi data
-		pressure = 1 + (midi_velocities[fi] + maxi(midi_aftertouch[fi], midi_chan_aftertouch[midi_channels[fi]])) * 16;
+		pressure = 1 + (midi_velocities[fi] + maxi(midi_poly_pressure[fi], midi_chan_pressure[midi_channels[fi]])) * 16;
 		// for midi, position only defines where the leds light up on the string
 		position = midi_positions[fi];
 	}
