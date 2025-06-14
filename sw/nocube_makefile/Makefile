@@ -32,7 +32,8 @@ MAP = $(BUILD_DIR)/plinkyblack.map
 
 # Source files
 SRCS = \
-	   ../Core/Src/main.c \
+	../Core/Src/rebuild/hardware/leds.c \
+	../Core/Src/main.c \
 	../Core/Src/lis2dh12_reg.c \
 	../Core/Src/plinky/plinky.c \
 	../Core/Src/stm32l4xx_hal_msp.c \

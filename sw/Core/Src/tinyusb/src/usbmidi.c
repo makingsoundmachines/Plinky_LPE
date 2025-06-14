@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "hardware/leds.h"
 #include "tusb.h"
 #include "main.h"
 
@@ -39,9 +40,9 @@ void OTG_FS_IRQHandler(void)
 //int HAL_GetTick(void);
 #define millis HAL_GetTick
 typedef unsigned char u8;
-extern u8 led_ram[9][8];
+extern u8 leds[9][8];
 void board_led_write(bool state) {
-//	led_ram[0][0]=state?255:0;
+	//	leds[0][0]=state?255:0;
 	if (state)
 		GPIOD->BSRR=1;
 	else

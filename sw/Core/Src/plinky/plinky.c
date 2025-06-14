@@ -58,6 +58,7 @@ extern UART_HandleTypeDef huart3;
 #include "defs/enums.h"
 #include "defs/lfo.h"
 #include "defs/tables.h"
+#include "hardware/leds.h"
 #include "low_level/adc.h"
 #include "low_level/audiointrin.h"
 #include "low_level/codec.h"
@@ -65,7 +66,6 @@ extern UART_HandleTypeDef huart3;
 #include "low_level/spi.h"
 #include "testing/tick_counter.h"
 #include "utils/gfx.h"
-#include "utils/leds.h"
 #include "utils/oled.h"
 
 const static float
@@ -2407,7 +2407,7 @@ int* EMSCRIPTEN_KEEPALIVE getemubitmap(void) {
 	return (int*)emupixels;
 }
 uint8_t* EMSCRIPTEN_KEEPALIVE getemuleds() {
-	return (uint8_t*)led_ram;
+	return (uint8_t*)leds;
 }
 
 #endif
@@ -2426,7 +2426,7 @@ void EMSCRIPTEN_KEEPALIVE uitick(u32* dst, const u32* src, int half) {
 	//	else
 	{
 		tc_start(&_tc_led);
-		led_update();
+		leds_update();
 		tc_stop(&_tc_led);
 	}
 
@@ -2438,7 +2438,6 @@ void EMSCRIPTEN_KEEPALIVE uitick(u32* dst, const u32* src, int half) {
 	tc_stop(&_tc_all);
 }
 
-void bootswish(void);
 void cv_calib(void);
 
 void reflash(void) {
@@ -3134,7 +3133,7 @@ void EMSCRIPTEN_KEEPALIVE plinky_init(void) {
 	serial_midi_init();
 
 #endif
-	led_init();
+	leds_init();
 
 	int flashvalid = flash_readcalib();
 	if (!(flashvalid & 1)) { // no calib at all
@@ -3152,7 +3151,7 @@ void EMSCRIPTEN_KEEPALIVE plinky_init(void) {
 	HAL_Delay(80);
 	int knoba = GetADCSmoothedNoCalib(ADC_AKNOB);
 	int knobb = GetADCSmoothedNoCalib(ADC_BKNOB);
-	bootswish();
+	leds_bootswish();
 	knoba = abs(knoba - (int)GetADCSmoothedNoCalib(ADC_AKNOB));
 	knobb = abs(knobb - (int)GetADCSmoothedNoCalib(ADC_BKNOB));
 	DebugLog("knob turned by %d,%d during boot\r\n", knoba, knobb);

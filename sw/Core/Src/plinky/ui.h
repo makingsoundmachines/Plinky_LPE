@@ -1,26 +1,4 @@
-void bootswish(void) {
-	for (int f = 0; f < 64; ++f) {
-		HAL_Delay(20);
-		for (int y = 0; y < 9; ++y) {
-			int y1 = (y * 512) + 256;
-			int dy = (y1 - 2048);
-			dy *= dy;
-			for (int x = 0; x < 8; ++x) {
-				int x1 = (x * 512) + 256;
-				int dx = (x1 - 2048);
-				dx *= dx;
-				int dist = (int)sqrtf((float)(dx + dy));
-				dist -= f * 128;
-				int k = -dist / 8;
-				if (k > 255)
-					k = 512 - k;
-				if (k < 0)
-					k = 0;
-				led_ram[y][x] = ((k * k) >> 8);
-			}
-		}
-	}
-}
+#include "hardware/leds.h"
 
 u8 audiohistpos = 0;
 u8 audiopeakhistory[32];
@@ -357,17 +335,17 @@ void samplemode_ui(void) {
 				const static int zoom = 3;
 				u16 avgpeak = getwaveform4zoom(s, samp / 1024, zoom);
 				u8 h = avgpeak & 15;
-				led_ram[x][y] = led_gamma(h * 32);
+				leds[x][y] = led_add_gamma(h * 32);
 			}
 			if (x == recsliceidx) {
-				led_ram[x][0] = triangle(millis());
+				leds[x][0] = triangle(millis());
 			}
-			led_ram[8][x] = 0;
+			leds[8][x] = 0;
 		}
-		led_ram[8][SB_RECORD] = triangle(millis());
-		led_ram[8][SB_PLAY] = 0;
-		led_ram[8][SB_PARAMSA] = (s->pitched ? 255 : 0);
-		led_ram[8][SB_PARAMSB] = ((s->loop & 1) ? 255 : 0);
+		leds[8][SB_RECORD] = triangle(millis());
+		leds[8][SB_PLAY] = 0;
+		leds[8][SB_PARAMSA] = (s->pitched ? 255 : 0);
+		leds[8][SB_PARAMSB] = ((s->loop & 1) ? 255 : 0);
 		return;
 	}
 
@@ -428,15 +406,15 @@ void samplemode_ui(void) {
 			k += clampi(barpos1 - yy, 0, 31);
 			k += clampi(barpos2 - yy, 0, 31);
 			k += clampi(barpos3 - yy, 0, 31);
-			led_ram[x][y] = led_gamma(k * 2);
+			leds[x][y] = led_add_gamma(k * 2);
 		}
 		if (x == recsliceidx && enable_audio == EA_RECORDING) {
 			for (int y = 0; y < 8; ++y)
-				led_ram[x][y] = maxi(led_ram[x][y], (triangle(millis()) * 4) / (y + 4));
+				leds[x][y] = maxi(leds[x][y], (triangle(millis()) * 4) / (y + 4));
 		}
-		led_ram[8][x] = 0;
+		leds[8][x] = 0;
 	}
-	led_ram[8][SB_RECORD] = (enable_audio == EA_RECORDING) ? 255 : triangle(millis() / 2);
+	leds[8][SB_RECORD] = (enable_audio == EA_RECORDING) ? 255 : triangle(millis() / 2);
 }
 
 const static float life_damping = 0.91f; //  0.9f;
@@ -1086,27 +1064,25 @@ bargraph:
 				ainlvl = clampi((ainlvl * (32 - delay)) >> (6), 0, 255); // fade out
 				k = maxi(k, ainlvl);
 			}
-			led_ram[fi][y] = led_gamma(k);
+			leds[fi][y] = led_add_gamma(k);
 		}
 	}
 	{
-		led_ram[8][SB_PLAY] = playing ? led_gamma(clockglow) : 0;
-		led_ram[8][SB_PREV] = (editmode == EM_START) ? 255 : 0;
-		led_ram[8][SB_NEXT] = (editmode == EM_END) ? 255 : 0;
-		led_ram[8][SB_RECORD] = recording ? 255 : 0;
-		led_ram[8][SB_CLEAR] = 0;
-		led_ram[8][SB_PRESET] = (editmode == EM_PRESET) ? 255 : 0;
+		leds[8][SB_PLAY] = playing ? led_add_gamma(clockglow) : 0;
+		leds[8][SB_PREV] = (editmode == EM_START) ? 255 : 0;
+		leds[8][SB_NEXT] = (editmode == EM_END) ? 255 : 0;
+		leds[8][SB_RECORD] = recording ? 255 : 0;
+		leds[8][SB_CLEAR] = 0;
+		leds[8][SB_PRESET] = (editmode == EM_PRESET) ? 255 : 0;
 		;
-		led_ram[8][SB_PARAMSA] = (editmode == EM_PARAMSA) ? 255
-		                         : (editmode == EM_PLAY && ui_edit_param < P_LAST && (ui_edit_param % 12) < 6)
-		                             ? flickery
-		                             : 0;
-		led_ram[8][SB_PARAMSB] = (editmode == EM_PARAMSB) ? 255
-		                         : (editmode == EM_PLAY && ui_edit_param < P_LAST && (ui_edit_param % 12) >= 6)
-		                             ? flickery
-		                             : 0;
+		leds[8][SB_PARAMSA] = (editmode == EM_PARAMSA)                                                      ? 255
+		                      : (editmode == EM_PLAY && ui_edit_param < P_LAST && (ui_edit_param % 12) < 6) ? flickery
+		                                                                                                    : 0;
+		leds[8][SB_PARAMSB] = (editmode == EM_PARAMSB)                                                       ? 255
+		                      : (editmode == EM_PLAY && ui_edit_param < P_LAST && (ui_edit_param % 12) >= 6) ? flickery
+		                                                                                                     : 0;
 		if (shift_down >= 0 && shift_down < 8)
-			led_ram[8][shift_down] = maxi(led_ram[8][shift_down], 128);
+			leds[8][shift_down] = maxi(leds[8][shift_down], 128);
 	}
 }
 

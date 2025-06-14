@@ -185,7 +185,7 @@ void cv_calib(void) {
 		for (int fi = 0; fi < 9; ++fi) {
 			for (int y = 0; y < 8; ++y) {
 				int k = (fi < 4) ? (triangle(y * 64 - (int)cvout[fi] / 4) / 4) : 128;
-				led_ram[fi][y] = led_gamma(((fi == curx) ? 255 : 128) - k);
+				leds[fi][y] = led_add_gamma(((fi == curx) ? 255 : 128) - k);
 			}
 		}
 	}
@@ -269,7 +269,7 @@ void led_test(void) {
 	enable_audio = EA_PASSTHRU;
 	for (int y = 0; y < 9; ++y)
 		for (int x = 0; x < 8; ++x)
-			led_ram[y][x] = 255;
+			leds[y][x] = 255;
 	u16 tri = 128;
 	int encoder_down_count = -1;
 	while (1) {
@@ -448,7 +448,7 @@ again:
 					k = ready ? flash : 255 - state[fi].weight[x] * 12.f;
 				if (err)
 					k = maxi(k, flash / 2);
-				led_ram[fi][x] = led_gamma(k);
+				leds[fi][x] = led_add_gamma(k);
 			}
 		}
 	} // calibration loop
