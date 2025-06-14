@@ -327,7 +327,7 @@ void on_shift_hold(int button) {
 }
 
 void arp_reset(void);
-void ShowMessage(EFont fnt, const char* msg, const char* submsg);
+void ShowMessage(Font fnt, const char* msg, const char* submsg);
 
 u8 prev_editmode;
 u8 last_edit_param = 255;

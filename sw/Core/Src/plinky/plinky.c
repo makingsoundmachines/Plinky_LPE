@@ -58,6 +58,7 @@ extern UART_HandleTypeDef huart3;
 #include "defs/enums.h"
 #include "defs/lfo.h"
 #include "defs/tables.h"
+#include "gfx/gfx.h"
 #include "hardware/leds.h"
 #include "low_level/adc.h"
 #include "low_level/audiointrin.h"
@@ -65,8 +66,6 @@ extern UART_HandleTypeDef huart3;
 #include "low_level/dac.h"
 #include "low_level/spi.h"
 #include "testing/tick_counter.h"
-#include "utils/gfx.h"
-#include "utils/oled.h"
 
 const static float
 table_interp(const float* table,
@@ -2436,15 +2435,26 @@ void EMSCRIPTEN_KEEPALIVE uitick(u32* dst, const u32* src, int half) {
 
 	DoAudio((u32*)dst, (u32*)src);
 	tc_stop(&_tc_all);
+
+#ifdef RB_SPEEDTEST
+	// display _tc_all on oled
+	static const u16 log_cycle = 5000;
+	static u32 speed_log = 0;
+	if (do_every(log_cycle, &speed_log))
+		tc_gfx_log(&_tc_all, "all");
+	static u32 _tc_all_log = 0;
+	if (do_every(log_cycle / 2, &_tc_all_log))
+		tc_reset(&_tc_all);
+#endif
 }
 
 void cv_calib(void);
 
 void reflash(void) {
-	clear();
-	drawstr(0, 0, F_16_BOLD, "Re-flash");
-	drawstr(0, 16, F_16, "over USB DFU");
-	oled_flip(vrambuf);
+	oled_clear();
+	draw_str(0, 0, F_16_BOLD, "Re-flash");
+	draw_str(0, 16, F_16, "over USB DFU");
+	oled_flip();
 	HAL_Delay(100);
 	jumptobootloader();
 }
@@ -2495,20 +2505,20 @@ void check_bootloader_flash(void) {
 	}
 	if (checksum != GOLDEN_CHECKSUM) {
 		DebugLog("bootloader checksum failed %08x != %08x\r\n", checksum, GOLDEN_CHECKSUM);
-		clear();
-		drawstr(0, 0, F_8, "bad bootloader crc");
+		oled_clear();
+		draw_str(0, 0, F_8, "bad bootloader crc");
 		snprintf(buf, sizeof(buf), "%08x vs %08x", (unsigned int)checksum, (unsigned int)GOLDEN_CHECKSUM);
-		drawstr(0, 8, F_8, buf);
-		oled_flip(vrambuf);
+		draw_str(0, 8, F_8, buf);
+		oled_flip();
 		HAL_Delay(10000);
 		return;
 	}
-	clear();
+	oled_clear();
 	snprintf(buf, sizeof(buf), "%08x %d", (unsigned int)magic, count);
-	drawstr(0, 0, F_16, buf);
+	draw_str(0, 0, F_16, buf);
 	snprintf(buf, sizeof(buf), "%08x %08x", (unsigned int)app_base[0], (unsigned int)app_base[1]);
-	drawstr(0, 16, F_12, buf);
-	oled_flip(vrambuf);
+	draw_str(0, 16, F_12, buf);
+	oled_flip();
 
 	rb32[64]++; // clear the magic
 
@@ -2538,13 +2548,13 @@ void check_bootloader_flash(void) {
 		return;
 	}
 	DebugLog("FLASHING BOOTLOADER! DO NOT RESET\r\n");
-	clear();
-	drawstr(0, 0, F_12_BOLD, "FLASHING\nBOOTLOADER");
+	oled_clear();
+	draw_str(0, 0, F_12_BOLD, "FLASHING\nBOOTLOADER");
 	char verbuf[5] = {};
 	memcpy(verbuf, (void*)(DELAY_BUF + 65536 - 4), 4);
-	drawstr(0, 24, F_8, verbuf);
+	draw_str(0, 24, F_8, verbuf);
 
-	oled_flip(vrambuf);
+	oled_flip();
 	HAL_FLASH_Unlock();
 	FLASH_EraseInitTypeDef EraseInitStruct;
 	EraseInitStruct.TypeErase = FLASH_TYPEERASE_PAGES;
@@ -2554,9 +2564,9 @@ void check_bootloader_flash(void) {
 	uint32_t SECTORError = 0;
 	if (HAL_FLASHEx_Erase(&EraseInitStruct, &SECTORError) != HAL_OK) {
 		DebugLog("BOOTLOADER flash erase error %d\r\n", SECTORError);
-		clear();
-		drawstr(0, 0, F_16_BOLD, "BOOTLOADER\nERASE ERROR");
-		oled_flip(vrambuf);
+		oled_clear();
+		draw_str(0, 0, F_16_BOLD, "BOOTLOADER\nERASE ERROR");
+		oled_flip();
 		HAL_Delay(10000);
 		return;
 	}
@@ -2576,10 +2586,10 @@ void check_bootloader_flash(void) {
 	}
 	HAL_FLASH_Lock();
 	DebugLog("BOOTLOADER has been flashed!\r\n");
-	clear();
-	drawstr(0, 0, F_12_BOLD, "BOOTLOADER\nFLASHED OK!");
-	drawstr(0, 24, F_8, verbuf);
-	oled_flip(vrambuf);
+	oled_clear();
+	draw_str(0, 0, F_12_BOLD, "BOOTLOADER\nFLASHED OK!");
+	draw_str(0, 24, F_8, verbuf);
+	oled_flip();
 	HAL_Delay(3000);
 }
 
@@ -2590,6 +2600,7 @@ void check_bootloader_flash(void) {
 		DebugLog("\r\n" msg "\r\n", __VA_ARGS__);                                                                      \
 	} while (0)
 
+bool update_accelerometer_raw(void); // this used to be defined in oled.h
 void test_jig(void) {
 	// pogo pin layout:
 	// GND DEBUG = GND / PA8 - 67
@@ -2611,9 +2622,9 @@ void test_jig(void) {
 	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 	GPIOA->ODR &= ~GPIO_PIN_8;
 #endif
-	clear();
-	drawstr(0, 0, F_32_BOLD, "TEST JIG");
-	oled_flip(vrambuf);
+	oled_clear();
+	draw_str(0, 0, F_32_BOLD, "TEST JIG");
+	oled_flip();
 	HAL_Delay(100);
 	enable_audio = EA_PASSTHRU;
 	SetOutputCVTrigger(0);
@@ -2665,8 +2676,8 @@ void test_jig(void) {
 		gotclkin = 0;
 #ifndef EMU
 		if (!update_accelerometer_raw()) {
-			drawstr(0, 0, F_32_BOLD, "BAD ACCEL");
-			oled_flip(vrambuf);
+			draw_str(0, 0, F_32_BOLD, "BAD ACCEL");
+			oled_flip();
 			HAL_Delay(1000);
 			errorcount++;
 		}
@@ -2694,23 +2705,23 @@ void test_jig(void) {
 
 				HAL_Delay(3);
 				int tot[ADC_CHANS] = {0};
-				clear();
+				oled_clear();
 
 #define NUMITER 32
 				for (int iter = 0; iter < NUMITER; ++iter) {
 					HAL_Delay(2);
 					short* rx = getrxbuf();
 					for (int x = 0; x < 128; ++x) {
-						putpixel(x, 16 + rx[x * 2] / 1024, 1);
-						putpixel(x, 16 + rx[x * 2 + 1] / 1024, 1);
+						put_pixel(x, 16 + rx[x * 2] / 1024, 1);
+						put_pixel(x, 16 + rx[x * 2 + 1] / 1024, 1);
 					}
 					for (int j = 0; j < ADC_SAMPLES; ++j)
 						for (int ch = 0; ch < ADC_CHANS; ++ch)
 							tot[ch] += adcbuf[j * ADC_CHANS + ch];
 				}
 				if (lohi)
-					invertrectangle(0, 0, 128, 32);
-				oled_flip(vrambuf);
+					inverted_rectangle(0, 0, 128, 32);
+				oled_flip();
 				for (int ch = 0; ch < ADC_CHANS; ++ch) {
 					tot[ch] /= ADC_SAMPLES * NUMITER;
 				}
@@ -2781,12 +2792,12 @@ void test_jig(void) {
 			DebugLog("%6d%c   ", gndcalib[ch] - refcalib[ch], (rangeok & (1 << ch)) ? ' ' : '*');
 		DebugLog("\r\n%d errors\r\n\r\n", errorcount);
 		set_test_rgb(errorcount ? 4 : 2);
-		clear();
+		oled_clear();
 		if (errorcount == 0)
-			drawstr(0, 0, F_32_BOLD, "GOOD!");
+			draw_str(0, 0, F_32_BOLD, "GOOD!");
 		else
-			fdrawstr(0, 0, F_32_BOLD, "%d ERRORS", errorcount);
-		oled_flip(vrambuf);
+			fdraw_str(0, 0, F_32_BOLD, "%d ERRORS", errorcount);
+		oled_flip();
 		for (int ch = 0; ch < 8; ++ch) {
 			int zero = gndcalib[ch];
 			int range = gndcalib[ch] - refcalib[ch];
@@ -3095,7 +3106,7 @@ void EMSCRIPTEN_KEEPALIVE plinky_init(void) {
 #endif
 	dac_init();
 	HAL_Delay(100); // stablise power before bringing oled up
-	oled_init();
+	gfx_init();     // also initializes oled
 	check_bootloader_flash();
 	reverb_clear(); // ram2 is not cleared by startup.s as written.
 	delay_clear();

@@ -1,4 +1,5 @@
 #pragma once
+#include "gfx/gfx.h"
 #ifdef DEBUG
 // #define DEBUG_WU
 #endif
@@ -116,10 +117,10 @@ extern u8 erasepos;
 
 void flip(void);
 void draw_webusb_ui(int o) {
-  clear();
-  fdrawstr(0, 0, F_20, "writing %d...",o);
-  invertrectangle(0, 0, (erasepos * 2) & 127, 32);
-  flip();
+	oled_clear();
+	fdraw_str(0, 0, F_20, "writing %d...", o);
+	inverted_rectangle(0, 0, (erasepos * 2) & 127, 32);
+	flip();
 }
 void tud_task(void);
 void draw_webusb_ui2() {

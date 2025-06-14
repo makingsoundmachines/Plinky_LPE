@@ -39,3 +39,9 @@ static inline void tc_log(TickCounter* r, const char* nm) {
 	tc_reset(r);
 	DebugLog("%s - %d mx:%d %d / ", nm, tc.total / tc.n, tc.max, tc.n);
 }
+
+static inline void tc_gfx_log(TickCounter* r, const char* nm) {
+	u32 avg = r->total / r->n;
+	gfx_debug(0, "%s avg %i.%ik", nm, avg / 1000, (avg % 1000) / 10);
+	gfx_debug(1, "%s max %i.%ik", nm, r->max / 1000, (r->max % 1000) / 10);
+}

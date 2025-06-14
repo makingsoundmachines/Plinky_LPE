@@ -1,3 +1,4 @@
+#include "gfx/gfx.h"
 #ifdef HALF_FLASH
 const static int calib_sector = -1;
 #else
@@ -96,7 +97,7 @@ void cv_calib(void) {
 	return;
 #endif
 	enable_audio = EA_OFF;
-	clear();
+	oled_clear();
 	int topscroll = 128;
 	const char* topline =
 	    "unplug all inputs"
@@ -104,7 +105,7 @@ void cv_calib(void) {
 	    " except plug gate out to gate in"
 #endif
 	    ". use left 4 columns to adjust pitch cv outputs. plug pitch lo output to pitch input when done.";
-	int toplinew = strwidth(F_16, topline);
+	int toplinew = str_width(F_16, topline);
 	const char* const botlines[5] = {"plug gate out->in", "Pitch lo=0v/C0", "Pitch lo=2v/C2", "Pitch hi=0v/C0",
 	                                 "Pitch hi=2v/C2"};
 	u8 ff = finger_frame_ui;
@@ -126,16 +127,16 @@ void cv_calib(void) {
 	bool prevprevpitchsense = true;
 	bool prevpitchsense = true;
 	while (1) {
-		clear();
+		oled_clear();
 		drawstr_noright(topscroll, 0, F_16, topline);
 		bool gateok = getgatesense();
 #ifdef NEW_LAYOUT
 		gateok = !gateok; // in new layout, theres a bleed resistor so no need for gate - in fact, we dont want it
 #endif
-		drawstr(0, 18, F_12_BOLD, (curx < 0 && gateok) ? "pitch out>in when done" : botlines[curx + 1]);
+		draw_str(0, 18, F_12_BOLD, (curx < 0 && gateok) ? "pitch out>in when done" : botlines[curx + 1]);
 		if (curx >= 0)
-			fdrawstr(-128, 24, F_8, "(%d)", (int)cvout[curx]);
-		oled_flip(vrambuf);
+			fdraw_str(-128, 24, F_8, "(%d)", (int)cvout[curx]);
+		oled_flip();
 		topscroll -= 2;
 		if (topscroll < -toplinew)
 			topscroll = 128;
@@ -212,9 +213,9 @@ void cv_calib(void) {
 
 	// use it to calibrate
 
-	clear();
-	drawstr(0, 4, F_12, "waiting for pitch\nloopback cable");
-	oled_flip(vrambuf);
+	oled_clear();
+	draw_str(0, 4, F_12, "waiting for pitch\nloopback cable");
+	oled_flip();
 	HAL_Delay(1000);
 	// wait for them to plug the other end in
 	while (1) {
@@ -232,9 +233,9 @@ void cv_calib(void) {
 		if (abs(tots[0] - tots[1]) > 5000)
 			break;
 	}
-	clear();
-	drawstr(0, 4, F_24_BOLD, "just a mo...");
-	oled_flip(vrambuf);
+	oled_clear();
+	draw_str(0, 4, F_24_BOLD, "just a mo...");
+	oled_flip();
 	HAL_Delay(1000);
 	for (int hilo = 0; hilo < 2; ++hilo) {
 		SetOutputCVPitchLo((int)cvout[hilo], false);
@@ -253,10 +254,10 @@ void cv_calib(void) {
 		else
 			cvcalib[ADC_PITCH].scale = 2.f / (minf(-0.00001f, tot - cvcalib[ADC_PITCH].bias));
 	}
-	clear();
-	drawstr(0, 0, F_16_BOLD, "Done!");
-	drawstr(0, 16, F_12_BOLD, "Unplug pitch cable!");
-	oled_flip(vrambuf);
+	oled_clear();
+	draw_str(0, 0, F_16_BOLD, "Done!");
+	draw_str(0, 16, F_12_BOLD, "Unplug pitch cable!");
+	oled_flip();
 	while (getpitchsense()) {
 		HAL_Delay(1);
 	}
@@ -273,7 +274,7 @@ void led_test(void) {
 	u16 tri = 128;
 	int encoder_down_count = -1;
 	while (1) {
-		clear();
+		oled_clear();
 		if (encbtn) {
 			if (encoder_down_count >= 0)
 				encoder_down_count++;
@@ -287,11 +288,11 @@ void led_test(void) {
 		}
 		if (encoder_down_count > 100)
 			reflash();
-		fdrawstr(0, 2, F_12, "TEST %d %d %d %d %02x", adcbuf[0] / 256, adcbuf[1] / 256, adcbuf[2] / 256,
-		         adcbuf[3] / 256, gotclkin);
-		fdrawstr(0, 18, F_12, "%d %d %d %d %d %d", adcbuf[4] / 256, adcbuf[5] / 256, adcbuf[6] / 256, adcbuf[7] / 256,
-		         encval >> 2, encbtn);
-		oled_flip(vrambuf);
+		fdraw_str(0, 2, F_12, "TEST %d %d %d %d %02x", adcbuf[0] / 256, adcbuf[1] / 256, adcbuf[2] / 256,
+		          adcbuf[3] / 256, gotclkin);
+		fdraw_str(0, 18, F_12, "%d %d %d %d %d %d", adcbuf[4] / 256, adcbuf[5] / 256, adcbuf[6] / 256, adcbuf[7] / 256,
+		          encval >> 2, encbtn);
+		oled_flip();
 		HAL_Delay(20);
 		for (int srcidx = 0; srcidx < 9; ++srcidx) {
 			int a = finger_cap(srcidx * 2);
@@ -340,12 +341,12 @@ again:
 		if (!refreshscreen) {
 			refreshscreen = 16;
 			blink = !blink;
-			clear();
-			fdrawstr(0, 0, F_16, "Calibration%c", blink ? '!' : ' ');
-			drawstr(0, 16, F_8, helptext);
+			oled_clear();
+			fdraw_str(0, 0, F_16, "Calibration%c", blink ? '!' : ' ');
+			draw_str(0, 16, F_8, helptext);
 			if (errors)
-				invertrectangle(0, 0, 128, 32);
-			oled_flip(vrambuf);
+				inverted_rectangle(0, 0, 128, 32);
+			oled_flip();
 		}
 		else {
 			refreshscreen--;

@@ -1,3 +1,4 @@
+#include "gfx/gfx.h"
 #include "hardware/leds.h"
 
 u8 audiohistpos = 0;
@@ -7,7 +8,7 @@ u8 messagefnt;
 const char* message = 0;
 const char* submessage = 0;
 u32 messagetime = 0;
-void ShowMessage(EFont fnt, const char* msg, const char* submsg) {
+void ShowMessage(Font fnt, const char* msg, const char* submsg) {
 	message = msg;
 	submessage = submsg;
 	messagefnt = fnt;
@@ -24,82 +25,57 @@ void flip(void) {
 	if (millis() > messagetime)
 		message = 0;
 	else if (message) {
-		clear();
+		oled_clear();
 		int y = 0;
 		if (submessage)
-			drawstr(0, 0, F_12, submessage), y += 12;
-		drawstr(0, y, messagefnt, message);
+			draw_str(0, 0, F_12, submessage), y += 12;
+		draw_str(0, y, messagefnt, message);
 	}
 	static u8 frame = 3;
 	if (frame < 255) {
+		// draw version
 		int y = frame - 255 + 32;
 		if (y < 32 - 12)
 			y = 32 - 12;
-		textcol = 3;
-		fdrawstr(32, y, F_12,
-		         VERSION2
+		gfx_text_color = 3;
+		fdraw_str(32, y, F_12,
+		          VERSION2
 #ifdef DEBUG
-		         " DBG"
+		          " DBG"
 #endif
 #ifndef NEW_LAYOUT
-		         " OL"
+		          " OL"
 #endif
-		         ,
-		         version_tail // version tail is passed to printf, so the linker cant remove it, haha, but we dont
-		                      // actually use the pointer
+		          ,
+		          version_tail // version tail is passed to printf, so the linker cant remove it, haha, but we dont
+		                       // actually use the pointer
 		);
-		u8* v = getvram() - 1;
-		const u8* l = getlogo() - 1;
-		// u8* r = rndtab;
-		int k = frame / 2;
-		const static u8 dither[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
-		for (int i = 0; i < 32 * 128 / 8; ++i) {
-			u8 mask = 0;
-#define RND(y) dither[(i & 3) + ((i / 128 + y) & 3) * 4]
-			if (RND(0) < k)
-				mask |= 1;
-			if (RND(1) < k)
-				mask |= 2;
-			if (RND(2) < k)
-				mask |= 4;
-			if (RND(3) < k)
-				mask |= 8;
-			if (RND(4) < k)
-				mask |= 16;
-			if (RND(5) < k)
-				mask |= 32;
-			if (RND(6) < k)
-				mask |= 64;
-			if (RND(7) < k)
-				mask |= 128;
-			*v = (*v & mask) | (*l & ~mask);
-			v++;
-			l++;
-		}
+		if (frame < 36)
+			gfx_dither_logo(frame);
 		frame += 4;
 	}
-	textcol = 1;
-	oled_flip(vrambuf);
+	gfx_text_color = 1;
+	oled_flip();
 }
 
 void draw_recording_ui(void) {
-	clear();
+	oled_clear();
 	SampleInfo* s = getrecsample();
 
 	int peak = maxi(0, audioin_peak / 128);
 	int hold = maxi(0, audioin_hold / 128);
 	if (enable_audio == EA_PREERASE) {
-		drawstr(0, 0, F_32, "erasing...");
-		invertrectangle(0, 0, erasepos * 2, 32);
+		draw_str(0, 0, F_32, "erasing...");
+		inverted_rectangle(0, 0, erasepos * 2, 32);
 		flip();
 		return;
 	}
 	else {
-		drawstr(-128, 0, F_12,
-		        (enable_audio == EA_ARMED)       ? "armed!"
-		        : (enable_audio == EA_RECORDING) ? "recording"
-		                                         : "rec level" I_A);
-		fdrawstr(-128, 32 - 12, F_12, (hold >= 254) ? "CLIP! %dms" : "%dms", s->samplelen / 32);
+		draw_str(-128, 0, F_12,
+		         (enable_audio == EA_ARMED)       ? "armed!"
+		         : (enable_audio == EA_RECORDING) ? "recording"
+		                                          : "rec level" I_A);
+		fdraw_str(-128, 32 - 12, F_12, (hold >= 254) ? "CLIP! %dms" : "%dms", s->samplelen / 32);
 	}
 	int full = s->samplelen / (MAX_SAMPLE_LEN / 128);
 	if (enable_audio != EA_RECORDING)
@@ -123,9 +99,9 @@ void draw_recording_ui(void) {
 		}
 		vline(i, 15 + pmn / 1024, 16 + pmx / 1024, 2);
 	}
-	fillrectangle(hold - 1, 29, hold + 1, 32);
-	halfrectangle(peak, 29, hold, 32);
-	fillrectangle(0, 29, peak, 32);
+	fill_rectangle(hold - 1, 29, hold + 1, 32);
+	half_rectangle(peak, 29, hold, 32);
+	fill_rectangle(0, 29, peak, 32);
 	flip();
 }
 
@@ -169,7 +145,7 @@ void DrawSample(SampleInfo* s, int sliceidx) {
 	sliceidx &= 7;
 	int ofs = s->splitpoints[sliceidx] / 1024;
 	int maxx = s->samplelen / 1024;
-	textcol = 3;
+	gfx_text_color = 3;
 	for (int i = 0; i < 128; ++i) {
 		int x = i - 64 + ofs;
 		u8 h = getwaveform4(s, x);
@@ -180,7 +156,7 @@ void DrawSample(SampleInfo* s, int sliceidx) {
 			vline(i, 18 + h, 32, 1);
 		}
 	}
-	fdrawstr(64 + 2, 0, F_12, "%d", sliceidx + 1);
+	fdraw_str(64 + 2, 0, F_12, "%d", sliceidx + 1);
 	// draw other slices
 	for (int si = 0; si < 8; ++si)
 		if (si != sliceidx) {
@@ -199,7 +175,7 @@ void DrawSamplePlayback(SampleInfo* s) {
 	static int curofscenter = 0;
 	static bool jumpable = false;
 	int ofs = curofscenter / 1024;
-	textcol = 3;
+	gfx_text_color = 3;
 	for (int i = 32; i < 128 - 16; ++i) {
 		int x = i - 32 + ofs;
 		u8 h = getwaveform4(s, x);
@@ -262,7 +238,7 @@ void DrawSamplePlayback(SampleInfo* s) {
 	for (int i = 0; i < numtodraw; ++i) {
 		int x = gx[i], y = gy[i];
 		vline(x, y - 1, y + 1, 1);
-		putpixel(x + gd[i], y, 1);
+		put_pixel(x + gd[i], y, 1);
 	}
 	if (minpos >= maxpos)
 		jumpable = true;
@@ -303,28 +279,28 @@ void samplemode_ui(void) {
 	}
 	if (enable_audio == EA_PLAY) {
 		if (shift_down_time > 4 && (shift_down == SB_RECORD) && enable_audio == EA_PLAY) {
-			clear();
-			drawstr(0, 0, F_32, "record?");
-			invertrectangle(0, 0, shift_down_time * 2, 32);
-			oled_flip(vrambuf);
+			oled_clear();
+			draw_str(0, 0, F_32, "record?");
+			inverted_rectangle(0, 0, shift_down_time * 2, 32);
+			oled_flip();
 			return;
 		}
 		// just show the waveform of the current slice
-		clear();
+		oled_clear();
 		if (!s->samplelen) {
-			drawstr(0, 0, F_16, "<empty sample>");
-			drawstr(0, 16, F_16, "hold " I_RECORD " to record");
+			draw_str(0, 0, F_16, "<empty sample>");
+			draw_str(0, 16, F_16, "hold " I_RECORD " to record");
 		}
 		else {
 			DrawSample(s, recsliceidx);
-			textcol = 2;
-			drawstr(-128 + 16, 32 - 12, F_12, (s->loop & 2) ? "all" : "slc");
-			drawicon(128 - 16, 32 - 14, ((s->loop & 1) ? I_FEEDBACK[0] : I_RIGHT[0]) - 0x80, textcol);
+			gfx_text_color = 2;
+			draw_str(-128 + 16, 32 - 12, F_12, (s->loop & 2) ? "all" : "slc");
+			draw_icon(128 - 16, 32 - 14, ((s->loop & 1) ? I_FEEDBACK[0] : I_RIGHT[0]) - 0x80, gfx_text_color);
 			if (s->pitched)
-				drawstr(0, 32 - 12, F_12, notename(s->notes[recsliceidx & 7]));
+				draw_str(0, 32 - 12, F_12, notename(s->notes[recsliceidx & 7]));
 			else
-				drawstr(0, 32 - 12, F_12, "tape");
-			textcol = 1;
+				draw_str(0, 32 - 12, F_12, "tape");
+			gfx_text_color = 1;
 		}
 		flip();
 		for (int x = 0; x < 8; ++x) {
@@ -424,7 +400,7 @@ const static float life_input_power = 6.f;
 static int frame = 0;
 
 void DrawLFOs(void) {
-	u8* vr = getvram();
+	u8* vr = oled_buffer();
 	vr += 128 - 16;
 	u8 lfohp = ((lfo_history_pos >> 4) + 1) & 15;
 	for (int x = 0; x < 16; ++x) {
@@ -483,26 +459,26 @@ void DrawVoices(void) {
 			}
 		}
 		// draw bars
-		u8 x = i * (W - leftOffset - rightOffset) / 8 + leftOffset;
+		u8 x = i * (OLED_WIDTH - leftOffset - rightOffset) / 8 + leftOffset;
 		if (touchLineHeight[i] > 0) {
 			for (uint8_t dx = 0; dx < barWidth; dx++)
-				vline(x - barWidth / 2 + dx, H - 1 - touchLineHeight[i], H - 1, 2);
+				vline(x - barWidth / 2 + dx, OLED_HEIGHT - 1 - touchLineHeight[i], OLED_HEIGHT - 1, 2);
 		}
-		hline(x - barWidth / 2, H - 1 - volLineHeight[i], x - barWidth / 2 + barWidth, 1);
+		hline(x - barWidth / 2, OLED_HEIGHT - 1 - volLineHeight[i], x - barWidth / 2 + barWidth, 1);
 	}
 }
 
 void DrawFlags() {
-	textcol = 0;
+	gfx_text_color = 0;
 	if ((rampreset.flags & FLAGS_ARP)) {
-		fillrectangle(128 - 32, 0, 128 - 17, 8);
-		drawstr(-(128 - 17), -1, F_8, "arp");
+		fill_rectangle(128 - 32, 0, 128 - 17, 8);
+		draw_str(-(128 - 17), -1, F_8, "arp");
 	}
 	if ((rampreset.flags & FLAGS_LATCH)) {
-		fillrectangle(128 - 38, 32 - 8, 128 - 17, 32);
-		drawstr(-(128 - 17), 32 - 7, F_8, "latch");
+		fill_rectangle(128 - 38, 32 - 8, 128 - 17, 32);
+		draw_str(-(128 - 17), 32 - 7, F_8, "latch");
 	}
-	textcol = 1;
+	gfx_text_color = 1;
 	vline(126, 32 - (maxpressure_out / 8), 32, 1);
 	vline(127, 32 - (maxpressure_out / 8), 32, 1);
 }
@@ -623,7 +599,7 @@ const char* getparamstr(int p, int mod, int v, char* valbuf, char* decbuf) {
 
 void editmode_ui(void) {
 
-	clear();
+	oled_clear();
 
 	float damping = life_damping; // / 65536.f * adcbuf[ADC_POT1];
 	float force = life_force;     // / 65536.f * adcbuf[ADC_POT2];
@@ -673,7 +649,7 @@ void editmode_ui(void) {
 	memcpy(presetname, rampreset.name, 8);
 	presetname[8] = 0;
 
-	u8* vr = getvram();
+	u8* vr = oled_buffer();
 	static u8 ui_edit_param = P_LAST;
 	u8 ep = edit_param;
 	if (ui_edit_param != ep) {
@@ -685,23 +661,23 @@ void editmode_ui(void) {
 	const char* pagename = 0;
 	if (shift_down == SB_RECORD) {
 		if (isshortpress())
-			drawstr(0, 4, F_20_BOLD, recording ? I_RECORD "record >off" : I_RECORD "record >on");
+			draw_str(0, 4, F_20_BOLD, recording ? I_RECORD "record >off" : I_RECORD "record >on");
 		else if (recording) {
 			if (recordingknobs == 0)
-				drawstr(0, 4, F_20_BOLD, "record " I_A I_B "?");
+				draw_str(0, 4, F_20_BOLD, "record " I_A I_B "?");
 			else if (recordingknobs == 1)
-				drawstr(0, 4, F_20_BOLD, "recording " I_A);
+				draw_str(0, 4, F_20_BOLD, "recording " I_A);
 			else if (recordingknobs == 2)
-				drawstr(0, 4, F_20_BOLD, "recording " I_B);
+				draw_str(0, 4, F_20_BOLD, "recording " I_B);
 			else if (recordingknobs == 3)
-				drawstr(0, 4, F_20_BOLD, "recording " I_A I_B);
+				draw_str(0, 4, F_20_BOLD, "recording " I_A I_B);
 		}
 	}
 	else if (shift_down == SB_PLAY) {
-		drawstr(0, 0, F_32_BOLD, I_PLAY "play");
+		draw_str(0, 0, F_32_BOLD, I_PLAY "play");
 	}
 	else if (shift_down == SB_CLEAR && editmode != EM_PRESET) {
-		drawstr(0, 0, F_32_BOLD, I_CROSS "clear");
+		draw_str(0, 0, F_32_BOLD, I_CROSS "clear");
 	}
 	else
 		switch (editmode) {
@@ -721,7 +697,7 @@ void editmode_ui(void) {
 			}
 			DrawLFOs();
 			DrawVoices();
-			textcol = 2;
+			gfx_text_color = 2;
 			if (ui_edit_param < P_LAST)
 				goto draw_parameter;
 
@@ -734,26 +710,26 @@ void editmode_ui(void) {
 			char preseticon = I_PRESET[0];
 			int xtab = 0;
 			if (edit_preset_pending != 255 && edit_preset_pending != sysparams.curpreset)
-				xtab =
-				    fdrawstr(0, 0, F_20_BOLD, "%c%d->%d", preseticon, sysparams.curpreset + 1, edit_preset_pending + 1);
+				xtab = fdraw_str(0, 0, F_20_BOLD, "%c%d->%d", preseticon, sysparams.curpreset + 1,
+				                 edit_preset_pending + 1);
 			else if (maxpressure_out > 1 && !(ramsample.samplelen && !ramsample.pitched)) {
-				xtab = fdrawstr(0, 0, F_20_BOLD, "%s", notename((pitchhi_out + 1024) / 2048));
+				xtab = fdraw_str(0, 0, F_20_BOLD, "%s", notename((pitchhi_out + 1024) / 2048));
 			}
 			else
-				xtab = fdrawstr(0, 0, F_20_BOLD, "%c%d", preseticon, sysparams.curpreset + 1);
-			drawstr(xtab + 2, 0, F_8_BOLD, presetname);
+				xtab = fdraw_str(0, 0, F_20_BOLD, "%c%d", preseticon, sysparams.curpreset + 1);
+			draw_str(xtab + 2, 0, F_8_BOLD, presetname);
 			if (rampreset.category > 0 && rampreset.category < CAT_LAST)
-				drawstr(xtab + 2, 8, F_8, kpresetcats[rampreset.category]);
+				draw_str(xtab + 2, 8, F_8, kpresetcats[rampreset.category]);
 			if (edit_pattern_pending != 255 && edit_pattern_pending != cur_pattern)
-				fdrawstr(0, 16, F_20_BOLD, "%c%d->%d", seqicon, cur_pattern + 1, edit_pattern_pending + 1);
+				fdraw_str(0, 16, F_20_BOLD, "%c%d->%d", seqicon, cur_pattern + 1, edit_pattern_pending + 1);
 			else
-				fdrawstr(0, 16, F_20_BOLD, "%c%d", seqicon, cur_pattern + 1);
+				fdraw_str(0, 16, F_20_BOLD, "%c%d", seqicon, cur_pattern + 1);
 			break;
 		case EM_PARAMSA:
 		case EM_PARAMSB:
 			if (ui_edit_param >= P_LAST) {
-				drawstr(0, 0, F_20_BOLD, modnames[ui_edit_mod]);
-				drawstr(0, 16, F_16, "select parameter");
+				draw_str(0, 0, F_20_BOLD, modnames[ui_edit_mod]);
+				draw_str(0, 16, F_16, "select parameter");
 				break;
 			}
 			else {
@@ -786,13 +762,13 @@ draw_parameter:
 					pagename = "system";
 					break;
 				}
-				drawstr(0, 0, F_12, (ui_edit_mod == 0) ? pagename : modnames[ui_edit_mod]);
+				draw_str(0, 0, F_12, (ui_edit_mod == 0) ? pagename : modnames[ui_edit_mod]);
 				const char* pn = paramnames[pi];
-				int pw = strwidth(F_16_BOLD, pn);
+				int pw = str_width(F_16_BOLD, pn);
 				if (pw > 64)
-					drawstr(0, 20, F_12_BOLD, pn);
+					draw_str(0, 20, F_12_BOLD, pn);
 				else
-					drawstr(0, 16, F_16_BOLD, pn);
+					draw_str(0, 16, F_16_BOLD, pn);
 				char valbuf[32];
 				char decbuf[16];
 				int w = 0;
@@ -803,75 +779,75 @@ draw_parameter:
 					if (v != vbase) {
 						// if there is modulation going on, show the base value below
 						const char* val = getparamstr(pi, ui_edit_mod, vbase, valbuf, NULL);
-						w = strwidth(F_8, val);
-						drawstr(128 - 16 - w, 32 - 8, F_8, val);
+						w = str_width(F_8, val);
+						draw_str(128 - 16 - w, 32 - 8, F_8, val);
 					}
 				}
 				const char* val = getparamstr(pi, ui_edit_mod, v, valbuf, decbuf);
 				int x = 128 - 15;
 				if (*decbuf)
-					x -= strwidth(F_8, decbuf);
+					x -= str_width(F_8, decbuf);
 				int font = F_24_BOLD;
 				while (1) {
-					w = strwidth(font, val);
+					w = str_width(font, val);
 					if (w < 64 || font <= F_12_BOLD)
 						break;
 					font--;
 				}
-				drawstr(x - w, 0, font, val);
+				draw_str(x - w, 0, font, val);
 				if (*decbuf)
-					drawstr(x, 0, F_8, decbuf);
+					draw_str(x, 0, F_8, decbuf);
 			}
 			break;
 		case EM_START:
-			fdrawstr(0, 0, F_20_BOLD, I_PREV "Start %d", loopstart_step + 1);
-			fdrawstr(0, 16, F_20_BOLD, I_PLAY "Current %d", cur_step + 1);
+			fdraw_str(0, 0, F_20_BOLD, I_PREV "Start %d", loopstart_step + 1);
+			fdraw_str(0, 16, F_20_BOLD, I_PLAY "Current %d", cur_step + 1);
 			break;
 		case EM_END:
-			fdrawstr(0, 0, F_20_BOLD, I_NEXT "End %d", ((rampreset.looplen_step + loopstart_step) & 63) + 1);
-			fdrawstr(0, 16, F_20_BOLD, I_INTERVAL "Length %d", rampreset.looplen_step);
+			fdraw_str(0, 0, F_20_BOLD, I_NEXT "End %d", ((rampreset.looplen_step + loopstart_step) & 63) + 1);
+			fdraw_str(0, 16, F_20_BOLD, I_INTERVAL "Length %d", rampreset.looplen_step);
 			break;
 		case EM_PRESET:
 			if (shift_down_time > 4 && shift_down == SB_CLEAR) {
 				bool done = (shift_down_time - 4) > 64;
 				if (last_preset_selection_rotstep < 32)
-					fdrawstr(0, 0, F_16_BOLD,
-					         done ? "cleared\n" I_PRESET "Preset %d" : "initialize\n" I_PRESET "Preset %d?",
-					         last_preset_selection_rotstep + 1);
+					fdraw_str(0, 0, F_16_BOLD,
+					          done ? "cleared\n" I_PRESET "Preset %d" : "initialize\n" I_PRESET "Preset %d?",
+					          last_preset_selection_rotstep + 1);
 				else if (last_preset_selection_rotstep < 64 - 8)
-					fdrawstr(0, 0, F_16_BOLD, done ? "cleared\n" I_SEQ "Pattern %d." : "Clear\n" I_SEQ "Pattern %d?",
-					         last_preset_selection_rotstep - 32 + 1);
+					fdraw_str(0, 0, F_16_BOLD, done ? "cleared\n" I_SEQ "Pattern %d." : "Clear\n" I_SEQ "Pattern %d?",
+					          last_preset_selection_rotstep - 32 + 1);
 				else if (last_preset_selection_rotstep < 64 && last_preset_selection_rotstep > 0)
-					fdrawstr(0, 0, F_16_BOLD, done ? "cleared\n" I_WAVE "Sample %d." : "Clear\n" I_WAVE "Sample %d?",
-					         last_preset_selection_rotstep - (64 - 8) + 1);
-				invertrectangle(0, 0, shift_down_time * 2 - 4, 32);
+					fdraw_str(0, 0, F_16_BOLD, done ? "cleared\n" I_WAVE "Sample %d." : "Clear\n" I_WAVE "Sample %d?",
+					          last_preset_selection_rotstep - (64 - 8) + 1);
+				inverted_rectangle(0, 0, shift_down_time * 2 - 4, 32);
 			}
 			else if (longpress >= 32) {
 				bool done = (longpress - 32) > 128;
 				if (first_finger_rotstep >= 56)
-					fdrawstr(0, 0, F_16_BOLD, done ? "ok!" : "Edit\n" I_WAVE "Sample %d?",
-					         first_finger_rotstep - 56 + 1);
+					fdraw_str(0, 0, F_16_BOLD, done ? "ok!" : "Edit\n" I_WAVE "Sample %d?",
+					          first_finger_rotstep - 56 + 1);
 				else if (first_finger_rotstep == copyfrompreset)
-					fdrawstr(0, 0, F_16_BOLD,
-					         done ? "toggled\n" I_PRESET "Preset %d" : "toggle\n" I_PRESET "Preset %d?",
-					         copyfrompreset + 1);
+					fdraw_str(0, 0, F_16_BOLD,
+					          done ? "toggled\n" I_PRESET "Preset %d" : "toggle\n" I_PRESET "Preset %d?",
+					          copyfrompreset + 1);
 				else if (first_finger_rotstep < 32)
-					fdrawstr(0, 0, F_16_BOLD, done ? "copied to " I_PRESET "%d" : "copy over\n" I_PRESET "Preset %d?",
-					         first_finger_rotstep + 1);
+					fdraw_str(0, 0, F_16_BOLD, done ? "copied to " I_PRESET "%d" : "copy over\n" I_PRESET "Preset %d?",
+					          first_finger_rotstep + 1);
 				else
-					fdrawstr(0, 0, F_16_BOLD, done ? "copied to " I_SEQ "%d" : "copy over\n" I_SEQ "Pat %d?",
-					         first_finger_rotstep - 32 + 1);
+					fdraw_str(0, 0, F_16_BOLD, done ? "copied to " I_SEQ "%d" : "copy over\n" I_SEQ "Pat %d?",
+					          first_finger_rotstep - 32 + 1);
 
-				invertrectangle(0, 0, longpress - 32, 32);
+				inverted_rectangle(0, 0, longpress - 32, 32);
 			}
 			else {
-				int xtab = fdrawstr(0, 0, F_20_BOLD, I_PRESET "%d", sysparams.curpreset + 1);
-				drawstr(xtab + 2, 0, F_8_BOLD, presetname);
+				int xtab = fdraw_str(0, 0, F_20_BOLD, I_PRESET "%d", sysparams.curpreset + 1);
+				draw_str(xtab + 2, 0, F_8_BOLD, presetname);
 				if (rampreset.category > 0 && rampreset.category < CAT_LAST)
-					drawstr(xtab + 2, 8, F_8, kpresetcats[rampreset.category]);
+					draw_str(xtab + 2, 8, F_8, kpresetcats[rampreset.category]);
 
-				fdrawstr(0, 16, F_20_BOLD, I_SEQ "Pat %d ", cur_pattern + 1);
-				fdrawstr(-128, 16, F_20_BOLD, cur_sample1 ? I_WAVE "%d" : I_WAVE "Off", cur_sample1);
+				fdraw_str(0, 16, F_20_BOLD, I_SEQ "Pat %d ", cur_pattern + 1);
+				fdraw_str(-128, 16, F_20_BOLD, cur_sample1 ? I_WAVE "%d" : I_WAVE "Off", cur_sample1);
 			}
 			break;
 		}
@@ -1116,6 +1092,8 @@ void plinky_frame(void) {
 	else {
 		editmode_ui();
 	}
+	// rj: this used to be called at every oled_flip(), putting it back here
+	update_accelerometer_raw();
 	audiohistpos = (audiohistpos + 1) & 31;
 	PumpFlashWrites();
 }
