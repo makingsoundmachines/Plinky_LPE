@@ -1,3 +1,5 @@
+#include "synth/params.h"
+
 // clang-format off
 static inline u8 lfohashi(u16 step) {
 	return rndtab[step];
@@ -77,241 +79,8 @@ float lfo_eval(u32 ti, float warp, unsigned int shape) {
 	return (*lfofuncs[shape])(t, step);
 }
 
-
-
-
-const char * const paramnames[P_LAST]={
-#ifdef NEW_LAYOUT
-	[P_A2] = I_ADSR_A "Attack2",
-	[P_D2] = I_ADSR_D "Decay2",
-	[P_S2] = I_ADSR_S "Sustain2",
-	[P_R2] = I_ADSR_R "Release2",
-	[P_SWING] = I_TEMPO "Swing",
-#else
-	[P_ENV_RATE] = I_PERIOD "Env Rate",
-	[P_ENV_WARP] = I_WARP "Env Warp",
-	[P_ENV_REPEAT] = I_FEEDBACK "Env Repeat",
-#endif
-
-	[P_SENS]=I_TOUCH "Sensitivity",
-	[P_DRIVE]=I_DISTORT "Distort",
-	[P_A]=I_ADSR_A "Attack",
-	[P_D]=I_ADSR_D "Decay",
-	[P_S]=I_ADSR_S "Sustain",
-	[P_R]=I_ADSR_R "Release",
-
-
-	[P_MIXSYNTH] = I_WAVE "Synth Lvl",
-	[P_MIXINPUT] = I_JACK "Input Lvl",
-	[P_MIXINWETDRY] = I_JACK "In Wet/Dry",
-	[P_MIXWETDRY] = I_REVERB "Main Wet/Dry",
-	[P_MIXHPF] = I_HPF "High Pass",
-	[P_MIXRESO] = I_DISTORT "Resonance",
-
-	[P_OCT]=I_OCTAVE "Octave",
-	[P_PITCH]=I_PIANO "Pitch",
-	[P_GLIDE]=I_GLIDE "Glide",
-	[P_INTERVAL]=I_INTERVAL "Interval",
-	[P_GATE_LENGTH] = I_INTERVAL "Gate Len",
-	[P_ENV_LEVEL] = I_AMPLITUDE "Env Level",
-	
-
-	
-	[P_PWM] = "Shape",
-	[P_RVUNUSED] = "<unused>",
-
-	[P_SCALE]=I_PIANO "Scale",
-	[P_ROTATE]=I_FEEDBACK "Degree",
-	[P_MICROTUNE]=I_MICRO "Microtone",
-	[P_STRIDE]=I_INTERVAL "Stride",
-
-	[P_ARPONOFF] = I_NOTES "Arp On/Off",
-	[P_LATCHONOFF] = "Latch On/Off",
-
-	[P_ARPMODE]=I_ORDER "Arp",
-	[P_ARPDIV]=I_DIVIDE "Divide",
-	[P_ARPPROB]=I_PERCENT "Prob %",
-	[P_ARPLEN]=I_LENGTH "Euclid Len",
-	[P_ARPOCT]=I_OCTAVE "Octaves",
-	[P_TEMPO]= "BPM",
-
-	[P_SEQMODE]=I_ORDER "Seq",
-	[P_SEQDIV]=I_DIVIDE "Divide",
-	[P_SEQPROB]=I_PERCENT "Prob %",
-	[P_SEQLEN]=I_LENGTH "Euclid Len",
-	[P_SEQSTEP]=I_SEQ "Step Ofs",
-	[P_SEQPAT]=I_PRESET "Pattern",
-
-	[P_DLSEND]=I_SEND "Send",
-	[P_DLTIME]=I_TIME "Time",
-	[P_DLFB]=I_FEEDBACK "Feedback",
-	//[P_DLCOLOR]=I_COLOR "Colour",
-	[P_DLWOB]=I_AMPLITUDE "Wobble",
-	[P_DLRATIO]=I_DIVIDE "2nd Tap",
-
-	[P_RVSEND]=I_SEND "Send",
-	[P_RVTIME]=I_TIME "Time",
-	[P_RVSHIM]=I_FEEDBACK "Shimmer",
-	//[P_RVCOLOR]=I_COLOR "Colour",
-	[P_RVWOB]=I_AMPLITUDE "Wobble",
-	//[P_RVUNUSED]=" ",
-
-	[P_SAMPLE] = I_WAVE "Sample",
-	[P_SMP_POS] = "Scrub",
-	[P_SMP_RATE] = I_NOTES "Rate",
-	[P_SMP_GRAINSIZE] = I_PERIOD "Grain Sz",
-	[P_SMP_TIME] = I_TIME "Timestretch",
-	[P_CV_QUANT] = I_JACK "CV Quantise",
-
-	[P_ACCEL_SENS] = I_AMPLITUDE "Accel Sens",
-	[P_MIX_WIDTH] = I_AMPLITUDE "Stereo Width",
-	[P_NOISE] = I_WAVE "Noise",
-	[P_JIT_POS] = "Scrub",
-	[P_JIT_RATE] = I_NOTES "Rate",
-	[P_JIT_GRAINSIZE] = I_PERIOD "Grain Sz",
-	[P_JIT_PULSE] = I_ENV "<unused>",
-	[P_HEADPHONE] = "'Phones Vol",
-
-	[P_AOFFSET]=I_OFFSET "CV Offset",
-	[P_ASCALE]= I_TIMES "CV Scale",
-	[P_ADEPTH]=I_AMPLITUDE "LFO Depth",
-	[P_AFREQ]= I_PERIOD "LFO Rate",
-	[P_ASHAPE]=I_SHAPE "LFO Shape",
-	[P_AWARP]= I_WARP "LFO Warp",
-
-	[P_BOFFSET]=I_OFFSET "CV Offset",
-	[P_BSCALE]=I_TIMES "CV Scale",
-	[P_BDEPTH]=I_AMPLITUDE "LFO Depth",
-	[P_BFREQ]=I_PERIOD "LFO Rate",
-	[P_BSHAPE]=I_SHAPE "LFO Shape",
-	[P_BWARP]=I_WARP "LFO Warp",
-
-	[P_XOFFSET]=I_OFFSET "CV Offset",
-	[P_XSCALE]=I_TIMES "CV Scale",
-	[P_XDEPTH]=I_AMPLITUDE "LFO Depth",
-	[P_XFREQ]=I_PERIOD "LFO Rate",
-	[P_XSHAPE]=I_SHAPE "LFO Shape",
-	[P_XWARP]=I_WARP "LFO Warp",
-
-	[P_YOFFSET]=I_OFFSET "CV Offset",
-	[P_YSCALE]=I_TIMES "CV Scale",
-	[P_YDEPTH]=I_AMPLITUDE "LFO Depth",
-	[P_YFREQ]=I_PERIOD "LFO Rate",
-	[P_YSHAPE]=I_SHAPE "LFO Shape",
-	[P_YWARP]=I_WARP "LFO Warp",
-
-	[P_MIDI_CH_IN]=I_PIANO "MIDI In Ch",
-	[P_MIDI_CH_OUT]=I_PIANO "MIDI Out Ch",
-
-
-};
-
-#define FLAG_SIGNED 128
 #define FLAG_MASK 127
 
-
-const static u8 param_flags[P_LAST] = {
-	[P_PWM]=FLAG_SIGNED,
-	[P_ARPMODE] = ARP_LAST,
-	[P_ARPDIV] = FLAG_SIGNED,
-	[P_ARPPROB] =0, // FLAG_SIGNED, - used to have this signed, but its nice to slam it into 0
-	[P_ARPLEN] = 17 + FLAG_SIGNED,
-	[P_ARPOCT] = 4,
-	[P_TEMPO] = FLAG_SIGNED,
-
-#ifdef NEW_LAYOUT
-	[P_A2] = 0,
-	[P_D2] = 0,
-	[P_S2] = 0,
-	[P_R2] = 0,
-	[P_SWING] = FLAG_SIGNED,
-
-	[P_ACCEL_SENS] = FLAG_SIGNED,
-	[P_MIX_WIDTH] = FLAG_SIGNED,
-#else
-	[P_ENV_WARP] = FLAG_SIGNED,
-	[P_ENV_RATE] = FLAG_SIGNED,
-	[P_ENV_REPEAT] = FLAG_SIGNED,
-#endif
-	[P_MIXWETDRY] = FLAG_SIGNED,
-	[P_MIXINWETDRY] = FLAG_SIGNED,
-
-	[P_SEQMODE] = SEQ_LAST,
-	[P_SEQDIV] = DIVISIONS_MAX+1,
-	[P_SEQPROB] =FLAG_SIGNED,
-	[P_SEQLEN] = 17 + FLAG_SIGNED,
-	[P_SEQPAT]=24,
-	[P_SEQSTEP] = FLAG_SIGNED + 64,
-
-	[P_DLSEND]=0,
-	[P_DLTIME]=FLAG_SIGNED,
-	[P_DLFB]=0,
-	//[P_DLCOLOR]=0,
-	[P_DLWOB]=0,
-	[P_DLRATIO]=0,
-
-	[P_RVSEND]=0,
-	[P_RVTIME]=0,
-	[P_RVSHIM]=0,
-	//[P_RVCOLOR]=0,
-	[P_RVWOB]=0,
-	//[P_RVUNUSED]=0,
-
-	[P_SENS]=0,
-	[P_DRIVE]=FLAG_SIGNED,
-	[P_A]=0,
-	[P_D]=0,
-	[P_S]=0,
-	[P_R]=0,
-
-
-	[P_OCT]=4+FLAG_SIGNED,
-	[P_PITCH]=FLAG_SIGNED,
-	[P_GLIDE]=0,
-	[P_INTERVAL]=FLAG_SIGNED,
-	
-	[P_SCALE]=S_LAST,
-	[P_ROTATE]=FLAG_SIGNED+24,
-	[P_MICROTUNE]=0,
-	[P_STRIDE]=13,
-	
-	[P_ASCALE ]=FLAG_SIGNED,
-	[P_AOFFSET]=FLAG_SIGNED,
-	[P_ADEPTH ]=FLAG_SIGNED,
-	[P_AFREQ  ]=FLAG_SIGNED,
-	[P_ASHAPE ]=LFO_LAST,
-	[P_AWARP  ]=FLAG_SIGNED,
-
-	[P_BSCALE ]=FLAG_SIGNED,
-	[P_BOFFSET]=FLAG_SIGNED,
-	[P_BDEPTH ]=FLAG_SIGNED,
-	[P_BFREQ  ]=FLAG_SIGNED,
-	[P_BSHAPE ]=LFO_LAST,
-	[P_BWARP  ]=FLAG_SIGNED,
-
-	[P_XSCALE ]=FLAG_SIGNED,
-	[P_XOFFSET]=FLAG_SIGNED,
-	[P_XDEPTH ]=FLAG_SIGNED,
-	[P_XFREQ  ]=FLAG_SIGNED,
-	[P_XSHAPE ]=LFO_LAST,
-	[P_XWARP  ]=FLAG_SIGNED,
-
-	[P_YSCALE ]=FLAG_SIGNED,
-	[P_YOFFSET]=FLAG_SIGNED,
-	[P_YDEPTH ]=FLAG_SIGNED,
-	[P_YFREQ  ]=FLAG_SIGNED,
-	[P_YSHAPE ]=LFO_LAST,
-	[P_YWARP  ]=FLAG_SIGNED,
-
-	[P_SAMPLE] = 9,
-	[P_SMP_RATE] = FLAG_SIGNED,
-	[P_SMP_TIME] = FLAG_SIGNED,
-	[P_CV_QUANT] = CVQ_LAST,
-	[P_JIT_PULSE] = FLAG_SIGNED,
-
-	[P_MIDI_CH_IN] = 16,
-	[P_MIDI_CH_OUT] = 16
-};
 
 #define C  ( 0*512)
 #define Cs ( 1*512)
@@ -420,8 +189,6 @@ static inline int lookupscale(int scale, int step) {
 
 int params_premod[P_LAST]; // parameters with the lfos/inputs pre-mixed in
 #define FULLBITS 10
-#define FULL 1024
-#define HALF (FULL/2)
 #define QUARTER (FULL/4)
 #define EIGHTH (FULL/8)
 #define QUANT(v,maxi) ( ((v)*FULL+FULL/2)/(maxi) )
@@ -451,18 +218,6 @@ enum {
 // preset version 1: ??
 // preset version 2: add SAW lfo shape
 #define CUR_PRESET_VERSION 2
-typedef struct Preset {
-	s16 params[96][8];
-	u8 flags;
-	s8 loopstart_step_no_offset;
-	s8 looplen_step;
-	u8 paddy[3];
-	u8 version;
-	u8 category;
-	u8 name[8];
-} Preset;
-static_assert((sizeof(Preset)&15)==0,"?");
-static_assert(sizeof(Preset)+sizeof(SysParams)+sizeof(PageFooter)<=2048, "?");
 SampleInfo ramsample;
 Preset rampreset;
 PatternQuarter rampattern[4];
@@ -471,13 +226,13 @@ u8 ramsample1_idx=255;
 u8 rampreset_idx=255;
 u8 rampattern_idx=255;
 u8 updating_bank2 = 0;
-u8 edit_preset_pending = 255;
-u8 edit_pattern_pending = 255;
-u8 edit_sample1_pending = 255;
+u8 pending_preset = 255;
+u8 pending_pattern = 255;
+u8 pending_sample1 = 255;
 
-u8 prev_preset_pending = 255;
-u8 prev_pattern_pending = 255;
-u8 prev_sample1_pending = 255;
+u8 prev_pending_preset = 255;
+u8 prev_pending_pattern = 255;
+u8 prev_pending_sample1 = 255;
 
 u8 cur_sample1; // this is the one we are playing, derived from param, can modulate. 0 means off, 1-8 is sample
 u8 cur_pattern; // this is the current pattern, derived from param, can modulate.
@@ -485,11 +240,11 @@ s8 cur_step = 0; // current step
 s8 step_offset = 0; // derived from param
 u8 edit_sample0 = 0; // this is the one we are editing. no modulation. sample 0-7. not 1 based!
 u8 copy_request = 255;
-u8 copyfrompreset = 0;
-u8 copyfrompattern = 0;
-u8 copyfromsample = 0;
+u8 preset_copy_source = 0;
+u8 pattern_copy_source = 0;
+u8 sample_copy_source = 0;
 u8 recording_knobs = 0;
-s8 last_preset_selection_rotstep = 0; // the thing that gets cleared when you hold down X
+s8 selected_preset_global; // the thing that gets cleared when you hold down X
 
 float knobbase[2];
 
@@ -558,7 +313,7 @@ static inline PatternQuarter* GetSavedPatternQuarter(u8 patternq) {
 		return (PatternQuarter*)zero;
 	return (PatternQuarter*)fp;
 }
-static inline SampleInfo* GetSavedSampleInfo(u8 sample0) {
+SampleInfo* GetSavedSampleInfo(u8 sample0) {
 #ifdef HALF_FLASH
 	return (SampleInfo*)zero;
 #endif
@@ -683,9 +438,9 @@ void InitParamsOnBoot(void) {
 	memcpy(backuppagesidx, latestpagesidx, sizeof(backuppagesidx));
 	
 	// clear remaining state
-	edit_preset_pending = -1;
-	edit_pattern_pending = -1;
-	edit_sample1_pending = -1;
+	pending_preset = -1;
+	pending_pattern = -1;
+	pending_sample1 = -1;
 	rampattern_idx = -1;
 	ramsample1_idx = -1;
 	rampreset_idx = -1;
@@ -697,7 +452,7 @@ void InitParamsOnBoot(void) {
 		flashtime[i] = 0;
 	}
 	codec_setheadphonevol(sysparams.headphonevol + 45);
-	last_preset_selection_rotstep = sysparams.curpreset;
+	selected_preset_global = sysparams.curpreset;
 }
 
 int getheadphonevol(void) { // for emu really
@@ -869,7 +624,7 @@ void PumpFlashWrites(void) {
 	u32 now = millis();
 
 	if (copy_request != 255) {
-		// we want to copy TO copy_request, FROM copyfrompreset
+		// we want to copy TO copy_request, FROM preset_copy_source
 		if (copy_request & 128) {
 			// wipe!
 			copy_request &= 63;
@@ -894,25 +649,25 @@ void PumpFlashWrites(void) {
 			if (copy_request < 32) {
 
 #ifndef DISABLE_AUTOSAVE				
-				if (copy_request == copyfrompreset) {
+				if (copy_request == preset_copy_source) {
 					// toggle
 					WritePreset(now + 100000); // flush any writes
-					int t = backuppagesidx[copyfrompreset];
-					backuppagesidx[copyfrompreset] = latestpagesidx[copyfrompreset];
-					latestpagesidx[copyfrompreset] = t;
+					int t = backuppagesidx[preset_copy_source];
+					backuppagesidx[preset_copy_source] = latestpagesidx[preset_copy_source];
+					latestpagesidx[preset_copy_source] = t;
 					memcpy(&rampreset, GetSavedPreset(sysparams.curpreset), sizeof(rampreset));
 
 				}
 				else {
 					// copy preset
-					ProgramPage(GetSavedPreset(copyfrompreset), sizeof(Preset), copy_request);
+					ProgramPage(GetSavedPreset(preset_copy_source), sizeof(Preset), copy_request);
 				}
 #endif
 
 				SetPreset(copy_request, true);
 			} 
 			else if (copy_request < 64 - 8) {
-				int srcpat = copyfrompattern;
+				int srcpat = pattern_copy_source;
 				int dstpat = copy_request - 32;
 				/*if (srcpat == dstpat) { toggle not available for patterns
 					// toggle

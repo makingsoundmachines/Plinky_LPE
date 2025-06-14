@@ -1,6 +1,8 @@
 #include "gfx/gfx.h"
 #include "ui/shift_states.h"
 #include "ui/ui.h"
+#include "gfx/data/names.h"
+#include "ui/pad_actions.h"
 
 u8 audiohistpos = 0;
 u8 audiopeakhistory[32];
@@ -652,11 +654,11 @@ void edit_mode_ui(void) {
 
 	u8* vr = oled_buffer();
 	static u8 ui_edit_param = P_LAST;
-	u8 ep = edit_param;
+	u8 ep = selected_param;
 	if (ui_edit_param != ep) {
 		ui_edit_param = ep; // as it may change in the background
 	}
-	u8 ui_edit_mod = edit_mod;
+	u8 ui_edit_mod = selected_mod_src;
 	u8 loopstart_step = (rampreset.loopstart_step_no_offset + step_offset) & 63;
 
 	const char* pagename = 0;
@@ -704,15 +706,14 @@ void edit_mode_ui(void) {
 
 			extern int lastencodertime;
 
-			if (last_edit_param < P_LAST && lastencodertime && lastencodertime > millis() - 2000)
+			if (last_selected_param < P_LAST && lastencodertime && lastencodertime > millis() - 2000)
 				goto draw_parameter;
 			DrawFlags();
 			char seqicon = (rampreset.flags & FLAGS_ARP) ? I_NOTES[0] : I_SEQ[0];
 			char preseticon = I_PRESET[0];
 			int xtab = 0;
-			if (edit_preset_pending != 255 && edit_preset_pending != sysparams.curpreset)
-				xtab = fdraw_str(0, 0, F_20_BOLD, "%c%d->%d", preseticon, sysparams.curpreset + 1,
-				                 edit_preset_pending + 1);
+			if (pending_preset != 255 && pending_preset != sysparams.curpreset)
+				xtab = fdraw_str(0, 0, F_20_BOLD, "%c%d->%d", preseticon, sysparams.curpreset + 1, pending_preset + 1);
 			else if (maxpressure_out > 1 && !(ramsample.samplelen && !ramsample.pitched)) {
 				xtab = fdraw_str(0, 0, F_20_BOLD, "%s", notename((pitchhi_out + 1024) / 2048));
 			}
@@ -721,8 +722,8 @@ void edit_mode_ui(void) {
 			draw_str(xtab + 2, 0, F_8_BOLD, presetname);
 			if (rampreset.category > 0 && rampreset.category < CAT_LAST)
 				draw_str(xtab + 2, 8, F_8, kpresetcats[rampreset.category]);
-			if (edit_pattern_pending != 255 && edit_pattern_pending != cur_pattern)
-				fdraw_str(0, 16, F_20_BOLD, "%c%d->%d", seqicon, cur_pattern + 1, edit_pattern_pending + 1);
+			if (pending_pattern != 255 && pending_pattern != cur_pattern)
+				fdraw_str(0, 16, F_20_BOLD, "%c%d->%d", seqicon, cur_pattern + 1, pending_pattern + 1);
 			else
 				fdraw_str(0, 16, F_20_BOLD, "%c%d", seqicon, cur_pattern + 1);
 			break;
@@ -739,7 +740,7 @@ void edit_mode_ui(void) {
 draw_parameter:
 				pi = ui_edit_param;
 				if (pi >= P_LAST)
-					pi = last_edit_param;
+					pi = last_selected_param;
 				if (pi >= P_LAST)
 					pi = 0;
 				pagename = pagenames[pi / 6];
@@ -811,35 +812,34 @@ draw_parameter:
 		case UI_LOAD:
 			if (shift_state_frames > 4 && shift_state == SS_CLEAR) {
 				bool done = (shift_state_frames - 4) > 64;
-				if (last_preset_selection_rotstep < 32)
+				if (selected_preset_global < 32)
 					fdraw_str(0, 0, F_16_BOLD,
 					          done ? "cleared\n" I_PRESET "Preset %d" : "initialize\n" I_PRESET "Preset %d?",
-					          last_preset_selection_rotstep + 1);
-				else if (last_preset_selection_rotstep < 64 - 8)
+					          selected_preset_global + 1);
+				else if (selected_preset_global < 64 - 8)
 					fdraw_str(0, 0, F_16_BOLD, done ? "cleared\n" I_SEQ "Pattern %d." : "Clear\n" I_SEQ "Pattern %d?",
-					          last_preset_selection_rotstep - 32 + 1);
-				else if (last_preset_selection_rotstep < 64 && last_preset_selection_rotstep > 0)
+					          selected_preset_global - 32 + 1);
+				else if (selected_preset_global < 64 && selected_preset_global > 0)
 					fdraw_str(0, 0, F_16_BOLD, done ? "cleared\n" I_WAVE "Sample %d." : "Clear\n" I_WAVE "Sample %d?",
-					          last_preset_selection_rotstep - (64 - 8) + 1);
+					          selected_preset_global - (64 - 8) + 1);
 				inverted_rectangle(0, 0, shift_state_frames * 2 - 4, 32);
 			}
-			else if (longpress >= 32) {
-				bool done = (longpress - 32) > 128;
-				if (first_finger_rotstep >= 56)
-					fdraw_str(0, 0, F_16_BOLD, done ? "ok!" : "Edit\n" I_WAVE "Sample %d?",
-					          first_finger_rotstep - 56 + 1);
-				else if (first_finger_rotstep == copyfrompreset)
+			else if (long_press_frames >= 32) {
+				bool done = (long_press_frames - 32) > 128;
+				if (long_press_pad >= 56)
+					fdraw_str(0, 0, F_16_BOLD, done ? "ok!" : "Edit\n" I_WAVE "Sample %d?", long_press_pad - 56 + 1);
+				else if (long_press_pad == preset_copy_source)
 					fdraw_str(0, 0, F_16_BOLD,
 					          done ? "toggled\n" I_PRESET "Preset %d" : "toggle\n" I_PRESET "Preset %d?",
-					          copyfrompreset + 1);
-				else if (first_finger_rotstep < 32)
+					          preset_copy_source + 1);
+				else if (long_press_pad < 32)
 					fdraw_str(0, 0, F_16_BOLD, done ? "copied to " I_PRESET "%d" : "copy over\n" I_PRESET "Preset %d?",
-					          first_finger_rotstep + 1);
+					          long_press_pad + 1);
 				else
 					fdraw_str(0, 0, F_16_BOLD, done ? "copied to " I_SEQ "%d" : "copy over\n" I_SEQ "Pat %d?",
-					          first_finger_rotstep - 32 + 1);
+					          long_press_pad - 32 + 1);
 
-				inverted_rectangle(0, 0, longpress - 32, 32);
+				inverted_rectangle(0, 0, long_press_frames - 32, 32);
 			}
 			else {
 				int xtab = fdraw_str(0, 0, F_20_BOLD, I_PRESET "%d", sysparams.curpreset + 1);
@@ -931,7 +931,7 @@ bargraph:
 					k = 0;
 					int v = GetParam(ui_edit_param, ui_edit_mod);
 					bool issigned = param_flags[ui_edit_param] & FLAG_SIGNED;
-					issigned |= (edit_mod != M_BASE);
+					issigned |= (selected_mod_src != M_BASE);
 					int kontrast = 16;
 
 					if (issigned) {
@@ -955,7 +955,7 @@ bargraph:
 				}
 				if (fi > 0 && fi < 7) {
 					k = 0;
-					if ((fingerediting & 128) && (fingerstable & 128) && ui_edit_mod > 0) {
+					if ((strip_holds_valid_action & 128) && (strip_is_action_pressed & 128) && ui_edit_mod > 0) {
 						// finger down over right side! show all params with a non zero mod amount
 						if (GetParam(pAorB, ui_edit_mod))
 							k = 255;
@@ -1019,15 +1019,15 @@ bargraph:
 				break;
 			case UI_LOAD:
 				k = (fi >= 4 && fi < 7) ? 64 : 0;
-				if (rotstep == edit_preset_pending)
+				if (rotstep == pending_preset)
 					k = flickeryfast;
 				if (rotstep == sysparams.curpreset)
 					k = 255;
-				if (rotstep == edit_pattern_pending + 32)
+				if (rotstep == pending_pattern + 32)
 					k = flickeryfast;
 				if (rotstep == cur_pattern + 32)
 					k = 255;
-				if (edit_sample1_pending && rotstep == (edit_sample1_pending - 1) + 32 + 24)
+				if (pending_sample1 && rotstep == (pending_sample1 - 1) + 32 + 24)
 					k = flickeryfast;
 				if (cur_sample1 && rotstep == (cur_sample1 - 1) + 32 + 24)
 					k = 255;

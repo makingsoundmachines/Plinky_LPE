@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gfx/data/icons.h"
+#include "synth/params.h"
 // clang-format off
 #include "wtenum.h"
 
@@ -31,52 +32,6 @@ const char* const kpresetcats[CAT_LAST] = {
 "Weird",
 };
 
-#ifdef NEW_LAYOUT
-const char* const pagenames[PG_LAST] = {
-								[PG_SOUND1] = I_SLIDERS "Sound",[PG_SOUND2] = I_PIANO "Sound",[PG_ENV1] = I_ADSR_A "Env1",[PG_ENV2] = I_ADSR_A "Env2",
-								[PG_ARP] = I_NOTES "Arp",[PG_SEQ] = I_NOTES "Seq",[PG_DELAY] = I_DELAY "Delay",[PG_REVERB] = I_REVERB "Reverb",
-								[PG_A] = I_A ,[PG_B] = I_B ,[PG_X] = I_X ,[PG_Y] = I_Y ,[PG_SAMPLER] = I_WAVE "Sampler",[PG_JITTER] = I_RANDOM "Jitter" };
-
-enum EModSources {
-	M_BASE,
-	M_ENV, // used to be M_TILT 
-	M_PRESSURE,
-	M_A,
-	M_B,
-	M_X,
-	M_Y,
-	M_RND,
-	M_LAST,
-};
-#else
-enum EPages {
-	PG_A, PG_B,
-	PG_X, PG_Y,
-	PG_DELAY, PG_REVERB,
-	PG_PITCH, PG_SCALE,
-	PG_VOL, PG_MIX,
-	PG_ARP, PG_SEQ,
-	PG_SAMPLER, PG_JITTER,
-	PG_LAST,
-};
-
-const char* const pagenames[PG_LAST] = {
-								[PG_VOL] = I_SLIDERS "VCA",[PG_MIX] = I_SLIDERS "Mix",[PG_PITCH] = I_PIANO "Pitch",[PG_SCALE] = I_PIANO "Scale",
-								[PG_ARP] = I_NOTES "Arp",[PG_SEQ] = I_NOTES "Seq",[PG_DELAY] = I_DELAY "Delay",[PG_REVERB] = I_REVERB "Reverb",
-								[PG_A] = I_A ,[PG_B] = I_B ,[PG_X] = I_X ,[PG_Y] = I_Y ,[PG_SAMPLER] = I_WAVE "Sampler",[PG_JITTER] = I_RANDOM "Jitter" };
-
-enum EModSources {
-	M_BASE,
-	M_RND,
-	M_PRESSURE, 
-	M_ENV, // used to be M_TILT 
-	M_A,
-	M_B,
-	M_X, 
-	M_Y,
-	M_LAST,
-};
-#endif
 
 enum ECVQuant { CVQ_OFF, CVQ_ON, CVQ_SCALE, CVQ_LAST };
 
@@ -113,11 +68,6 @@ enum ESeqModes {
 	SEQ_LAST,
 };
 
-#ifdef NEW_LAYOUT
-#include "params_new.h"
-#else
-#include "params_old.h"
-#endif
 enum Scales {
 S_MAJOR,			
 S_MINOR,			
@@ -234,12 +184,8 @@ const char* const arpmodenames[ARP_LAST] = {
 		[ARP_RANDOM28] = "2xRnd\n8 Steps",
 };
 
-const char* const modnames[M_LAST] = { [M_BASE] = I_SLIDERS "Base",[M_RND] = I_RANDOM "Random",[M_ENV] = I_ENV "Env",[M_PRESSURE] = I_TOUCH "Pressure",
-							  [M_A] = I_A "Knob/LFO",[M_B] = I_B "Knob/LFO",[M_X] = I_X "CV/LFO",[M_Y] = I_Y "CV/LFO",
-							  };
 
 
-#define DIVISIONS_MAX 22
 u16 const divisions[DIVISIONS_MAX] = { 1,2, 3,4,5, 6,8,10, 12,16,20, 24,32,40, 48,64,80, 96,128,160, 192, 256 };
 //static const char* const divisornames[6] = { "32nd","16th","8th", "quarter", "half","whole" };
 

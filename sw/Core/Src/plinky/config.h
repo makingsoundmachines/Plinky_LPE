@@ -60,7 +60,7 @@
 // 0.A8 - Midi fixes from RJ-Eckie. Many thanks!
 // 0.A9 - Sequencer fixes, or more of a rewrite, from RJ-Eckie. absolutely incredible work. thankyou.
 // 0.B0 - MORE RJ MAGIC - https://github.com/plinkysynth/plinky_public/pull/40 - what a beast he is.
-#define VERSION2			  "v0.B0"
+#define VERSION2 "rb0.01"
 
 // 0.X0 - experimental build (SSD1305)
 //#define SSD1305

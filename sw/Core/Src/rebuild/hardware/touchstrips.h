@@ -24,12 +24,11 @@ void MX_TSC_Init(void);
 // get touch info
 
 bool touch_read_this_frame(u8 strip_id);
-Touch* get_touch(u8 touch_id);
 Touch* get_touch_prev(u8 touch_id, u8 frames_back);
 
 // main
 
-void read_touchstrips(void);
+u8 read_touchstrips(void);
 void reset_touches(void);
 
 // only global for calib.h

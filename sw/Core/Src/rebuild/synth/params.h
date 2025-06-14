@@ -1,0 +1,250 @@
+#pragma once
+#include "utils.h"
+
+#define FLAG_SIGNED 128
+#define DIVISIONS_MAX 22
+
+enum EPages {
+	PG_SOUND1,
+	PG_SOUND2,
+	PG_ENV1,
+	PG_ENV2,
+	PG_DELAY,
+	PG_REVERB,
+	PG_ARP,
+	PG_SEQ,
+	PG_SAMPLER,
+	PG_JITTER,
+	PG_A,
+	PG_B,
+	PG_X,
+	PG_Y,
+	PG_MIX1,
+	PG_MIX2,
+	PG_LAST,
+};
+
+enum EParams {
+
+	P_PWM = PG_SOUND1 * 6,
+	P_DRIVE,
+	P_PITCH,
+	P_OCT,
+	P_GLIDE,
+	P_INTERVAL,
+
+	P_NOISE = PG_SOUND2 * 6,
+	P_MIXRESO,
+	P_ROTATE,
+	P_SCALE,
+	P_MICROTUNE,
+	P_STRIDE,
+
+	P_SENS = PG_ENV1 * 6,
+	P_A,
+	P_D,
+	P_S,
+	P_R,
+	P_ENV1_UNUSED,
+
+	P_ENV_LEVEL = PG_ENV2 * 6,
+	P_A2,
+	P_D2,
+	P_S2,
+	P_R2,
+	P_ENV2_UNUSED,
+
+	P_DLSEND = PG_DELAY * 6,
+	P_DLTIME,
+	P_DLRATIO,
+	P_DLWOB,
+	P_DLFB,
+	P_TEMPO,
+
+	P_RVSEND = PG_REVERB * 6,
+	P_RVTIME,
+	P_RVSHIM,
+	P_RVWOB,
+	P_RVUNUSED,
+	P_SWING,
+
+	P_ARPONOFF = PG_ARP * 6,
+	P_ARPMODE,
+	P_ARPDIV,
+	P_ARPPROB,
+	P_ARPLEN,
+	P_ARPOCT,
+
+	P_LATCHONOFF = PG_SEQ * 6,
+	P_SEQMODE,
+	P_SEQDIV,
+	P_SEQPROB,
+	P_SEQLEN,
+	P_GATE_LENGTH,
+
+	P_SMP_POS = PG_SAMPLER * 6,
+	P_SMP_GRAINSIZE,
+	P_SMP_RATE,
+	P_SMP_TIME,
+	P_SAMPLE,
+	P_SEQPAT,
+
+	P_JIT_POS = PG_JITTER * 6,
+	P_JIT_GRAINSIZE,
+	P_JIT_RATE,
+	P_JIT_PULSE, // TODO
+	P_JIT_UNUSED,
+	P_SEQSTEP,
+
+	P_ASCALE = PG_A * 6,
+	P_AOFFSET,
+	P_ADEPTH,
+	P_AFREQ,
+	P_ASHAPE,
+	P_AWARP,
+
+	P_BSCALE = PG_B * 6,
+	P_BOFFSET,
+	P_BDEPTH,
+	P_BFREQ,
+	P_BSHAPE,
+	P_BWARP,
+
+	P_XSCALE = PG_X * 6,
+	P_XOFFSET,
+	P_XDEPTH,
+	P_XFREQ,
+	P_XSHAPE,
+	P_XWARP,
+
+	P_YSCALE = PG_Y * 6,
+	P_YOFFSET,
+	P_YDEPTH,
+	P_YFREQ,
+	P_YSHAPE,
+	P_YWARP,
+
+	P_MIXSYNTH = PG_MIX1 * 6,
+	P_MIXWETDRY,
+	P_MIXHPF,
+	P_MIDI_CH_IN,
+	P_CV_QUANT,
+	P_HEADPHONE,
+
+	P_MIXINPUT = PG_MIX2 * 6,
+	P_MIXINWETDRY,
+	P_SYS_UNUSED1,
+	P_MIDI_CH_OUT,
+	P_ACCEL_SENS,
+	P_MIX_WIDTH,
+
+	P_LAST = PG_LAST * 6,
+};
+
+const static u8 param_flags[P_LAST] = {
+
+    [P_PWM] = FLAG_SIGNED,
+    [P_ARPMODE] = 15, // ARP_LAST,
+    [P_ARPDIV] = FLAG_SIGNED,
+    [P_ARPPROB] = 0,
+    [P_ARPLEN] = 17 + FLAG_SIGNED,
+    [P_ARPOCT] = 4,
+    [P_TEMPO] = FLAG_SIGNED,
+
+    [P_A2] = 0,
+    [P_D2] = 0,
+    [P_S2] = 0,
+    [P_R2] = 0,
+    [P_SWING] = FLAG_SIGNED,
+
+    [P_ACCEL_SENS] = FLAG_SIGNED,
+    [P_MIX_WIDTH] = FLAG_SIGNED,
+    [P_MIXWETDRY] = FLAG_SIGNED,
+    [P_MIXINWETDRY] = FLAG_SIGNED,
+
+    [P_SEQMODE] = 6, // SEQ_LAST,
+    [P_SEQDIV] = DIVISIONS_MAX + 1,
+    [P_SEQPROB] = FLAG_SIGNED,
+    [P_SEQLEN] = 17 + FLAG_SIGNED,
+    [P_SEQPAT] = 24,
+    [P_SEQSTEP] = FLAG_SIGNED + 64,
+
+    [P_DLSEND] = 0,
+    [P_DLTIME] = FLAG_SIGNED,
+    [P_DLFB] = 0,
+    //[P_DLCOLOR]=0,
+    [P_DLWOB] = 0,
+    [P_DLRATIO] = 0,
+
+    [P_RVSEND] = 0,
+    [P_RVTIME] = 0,
+    [P_RVSHIM] = 0,
+    //[P_RVCOLOR]=0,
+    [P_RVWOB] = 0,
+    //[P_RVUNUSED]=0,
+
+    [P_SENS] = 0,
+    [P_DRIVE] = FLAG_SIGNED,
+    [P_A] = 0,
+    [P_D] = 0,
+    [P_S] = 0,
+    [P_R] = 0,
+
+    [P_OCT] = 4 + FLAG_SIGNED,
+    [P_PITCH] = FLAG_SIGNED,
+    [P_GLIDE] = 0,
+    [P_INTERVAL] = FLAG_SIGNED,
+
+    [P_SCALE] = 27, // S_LAST,
+    [P_ROTATE] = FLAG_SIGNED + 24,
+    [P_MICROTUNE] = 0,
+    [P_STRIDE] = 13,
+
+    [P_ASCALE] = FLAG_SIGNED,
+    [P_AOFFSET] = FLAG_SIGNED,
+    [P_ADEPTH] = FLAG_SIGNED,
+    [P_AFREQ] = FLAG_SIGNED,
+    [P_ASHAPE] = 11, // LFO_LAST,
+    [P_AWARP] = FLAG_SIGNED,
+
+    [P_BSCALE] = FLAG_SIGNED,
+    [P_BOFFSET] = FLAG_SIGNED,
+    [P_BDEPTH] = FLAG_SIGNED,
+    [P_BFREQ] = FLAG_SIGNED,
+    [P_BSHAPE] = 11, // LFO_LAST,
+    [P_BWARP] = FLAG_SIGNED,
+
+    [P_XSCALE] = FLAG_SIGNED,
+    [P_XOFFSET] = FLAG_SIGNED,
+    [P_XDEPTH] = FLAG_SIGNED,
+    [P_XFREQ] = FLAG_SIGNED,
+    [P_XSHAPE] = 11, // LFO_LAST,
+    [P_XWARP] = FLAG_SIGNED,
+
+    [P_YSCALE] = FLAG_SIGNED,
+    [P_YOFFSET] = FLAG_SIGNED,
+    [P_YDEPTH] = FLAG_SIGNED,
+    [P_YFREQ] = FLAG_SIGNED,
+    [P_YSHAPE] = 11, // LFO_LAST,
+    [P_YWARP] = FLAG_SIGNED,
+
+    [P_SAMPLE] = 9,
+    [P_SMP_RATE] = FLAG_SIGNED,
+    [P_SMP_TIME] = FLAG_SIGNED,
+    [P_CV_QUANT] = 3, // CVQ_LAST,
+    [P_JIT_PULSE] = FLAG_SIGNED,
+
+    [P_MIDI_CH_IN] = 16,
+    [P_MIDI_CH_OUT] = 16};
+
+enum EModSources {
+	M_BASE,
+	M_ENV,
+	M_PRESSURE,
+	M_A,
+	M_B,
+	M_X,
+	M_Y,
+	M_RND,
+	M_LAST,
+};

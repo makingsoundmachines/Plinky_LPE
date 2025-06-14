@@ -14,10 +14,3 @@ typedef enum UIMode {
 extern UIMode ui_mode;
 
 void ui_frame(void);
-
-// need cleaning up
-extern u8 edit_param;
-extern u8 last_edit_param;
-extern u8 edit_mod;
-extern s8 last_preset_selection_rotstep;
-extern bool touched_main_area;

@@ -46,7 +46,6 @@ extern UART_HandleTypeDef huart3;
 #include <stdlib.h>
 #include <string.h>
 #define IMPL
-#define BLOCK_SAMPLES 64
 #ifdef WASM
 #define ASSERT(...)
 #else

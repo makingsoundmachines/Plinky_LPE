@@ -1,13 +1,14 @@
 #include "touchstrips.h"
 #include "sensor_defs.h"
+#include "ui/pad_actions.h"
 #include "ui/shift_states.h"
+#include "ui/ui.h"
 
 #define TOUCH_THRESHOLD 1000
 
 // cleanup
 extern CalibResult calibresults[18];
 extern u32 tick;
-void finger_editing(int touch_id, int frame);
 // -- cleanup
 
 // stm setup
@@ -76,7 +77,7 @@ bool touch_read_this_frame(u8 strip_id) {
 	return read_this_frame & (1 << strip_id);
 }
 
-Touch* get_touch(u8 touch_id) {
+static Touch* get_touch(u8 touch_id) {
 	return &touches[touch_id][touch_frame];
 }
 
@@ -212,15 +213,14 @@ static void process_reading(u8 reading_id) {
 		if (shift_state != SS_NONE)
 			shift_hold_state();
 	}
-	// vertical columns
+	// main grid
 	else {
 		// sensor values have been read
 		read_this_frame |= 1 << touch_id;
 
 		// at this point the touchstrip has fully been processed to be used by the synth, which runs on its own time
-		// next, the touchstrip gets handled in context of parameter presses
-
-		finger_editing(touch_id, touch_frame);
+		// next, the touchstrip gets handled in the context of parameters and other actions
+		handle_pad_actions(touch_id, get_touch(touch_id));
 	}
 }
 
@@ -229,7 +229,8 @@ static void process_reading(u8 reading_id) {
 // 3. Read and store the value, keep track of lifetime min/max values
 // 4. Reading and updating is done by read phase, see below
 
-void read_touchstrips(void) {
+// returns the current read phase
+u8 read_touchstrips(void) {
 	static u8 reading_id = 0;
 	static u8 group_id = 0;
 	static u8 sensor_id = 0;
@@ -240,14 +241,14 @@ void read_touchstrips(void) {
 	if (!tsc_started) {
 		HAL_TSC_Start(&htsc);
 		tsc_started = true;
-		return; // give TSC a tick to catch up
+		return 255; // give TSC a tick to catch up
 	}
 
 	// loop to read all sensor values for this phase
 	do {
 		// check whether current group is ready for reading
 		if (HAL_TSC_GroupGetStatus(&htsc, group_id) != TSC_GROUP_COMPLETED)
-			return;
+			return 255; // give TSC a tick to catch up
 		// if so, save sensor value (resulting range 0 - 65027)
 		u16 value = sensor_val[sensor_id] = (1 << 23) / maxi(129, HAL_TSC_GroupGetValue(&htsc, group_id));
 		// keep track of lifetime min/max values
@@ -400,6 +401,8 @@ void read_touchstrips(void) {
 	HAL_TSC_IOConfig(&htsc, &config);
 	HAL_TSC_IODischarge(&htsc, ENABLE);
 	tsc_started = false;
+
+	return read_phase;
 }
 
 void reset_touches(void) {

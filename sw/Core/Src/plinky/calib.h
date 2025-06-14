@@ -65,16 +65,6 @@ bool flash_writecalib(int which) {
 
 extern s8 enable_audio;
 
-static inline float deadzone(float f, float zone) {
-	if (f < zone && f > -zone)
-		return 0.f;
-	if (f > 0.f)
-		f -= zone;
-	else
-		f += zone;
-	return f; // *f* (1.f / 2048.f);
-}
-
 #ifdef EMU
 static inline int getgatesense(void) {
 	return emugatesense;

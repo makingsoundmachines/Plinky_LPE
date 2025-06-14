@@ -1,5 +1,7 @@
 #include "shift_states.h"
 #include "hardware/touchstrips.h"
+#include "pad_actions.h"
+#include "synth/params.h"
 #include "ui.h"
 
 // all of these need cleaning up
@@ -7,11 +9,11 @@ extern SysParams sysparams;          // system
 extern u32 ramtime[GEN_LAST];        // system
 extern u8 copy_request;              // system
 extern u32 record_flashaddr_base;    // system
+extern s8 selected_preset_global;    // system
 extern knobsmoother adc_smooth[8];   // ADC
 extern float knobbase[2];            // potentiometers
 extern bool got_ui_reset;            // timing
 extern u32 tick;                     // timing
-extern int tap_count;                // timing
 extern s8 enable_audio;              // audio
 extern u8 playmode;                  // sequencer
 extern u8 recording_knobs;           // sequencer
@@ -43,6 +45,7 @@ extern void knobsmooth_reset(knobsmoother* s, float ival);
 #define SHORT_PRESS_TIME 250 // ms
 
 ShiftState shift_state = SS_NONE;
+bool action_pressed_during_shift = false;
 
 static u8 prev_ui_mode = UI_DEFAULT;
 static u32 shift_last_press_time = 0;
@@ -102,39 +105,38 @@ void shift_set_state(ShiftState new_state) {
 
 	// all other modes
 	prev_ui_mode = ui_mode;
-	touched_main_area = false;
+	action_pressed_during_shift = false;
 	switch (shift_state) {
 	case SS_SHIFT_A:
 		// remember parameter
-		if (edit_param >= P_LAST && last_edit_param < P_LAST) {
-			edit_param = last_edit_param;
+		if (!VALID_PARAM_SELECTED && last_selected_param < P_LAST) {
+			selected_param = last_selected_param;
 			param_from_mem = true;
 		}
 		else
 			param_from_mem = false;
 		// make sure our parameter is an A parameter
-		if (edit_param < P_LAST && (edit_param % 12) >= 6)
-			edit_param -= 6;
+		if (VALID_PARAM_SELECTED && (selected_param % 12) >= 6)
+			selected_param -= 6;
 		// activate A edit mode
 		ui_mode = UI_EDITING_A;
-		tap_count = 0; // move to time module (tap tempo)
 		break;
 	case SS_SHIFT_B:
-		// identical to SS_SHIFT_A (no tap tempo)
-		if (edit_param >= P_LAST && last_edit_param < P_LAST) {
-			edit_param = last_edit_param;
+		// identical to SS_SHIFT_A
+		if (!VALID_PARAM_SELECTED && last_selected_param < P_LAST) {
+			selected_param = last_selected_param;
 			param_from_mem = true;
 		}
 		else
 			param_from_mem = false;
-		if (edit_param < P_LAST && (edit_param % 12) < 6)
-			edit_param += 6;
+		if (VALID_PARAM_SELECTED && (selected_param % 12) < 6)
+			selected_param += 6;
 		ui_mode = UI_EDITING_B;
 		break;
 	case SS_LOAD:
 		// activate preset load screen
 		ui_mode = UI_LOAD;
-		last_preset_selection_rotstep = sysparams.curpreset;
+		selected_preset_global = sysparams.curpreset;
 		break;
 	case SS_LEFT:
 		// activate set pattern start screen
@@ -208,44 +210,45 @@ void shift_release_state(void) {
 	case SS_SHIFT_B:
 		// return to default mode
 		ui_mode = UI_DEFAULT;
-		last_edit_param = edit_param; // save param
-		if (!touched_main_area && !param_from_mem) {
-			edit_param = P_LAST;
-			edit_mod = 0;
+		last_selected_param = selected_param; // save param
+		if (!action_pressed_during_shift && !param_from_mem) {
+			selected_param = P_LAST;
+			selected_mod_src = 0;
 		}
 		// these arent real params, so don't remember them
-		if (edit_param == P_ARPONOFF || edit_param == P_LATCHONOFF) {
-			edit_param = P_LAST;
-			edit_mod = 0;
+		if (selected_param == P_ARPONOFF || selected_param == P_LATCHONOFF) {
+			selected_param = P_LAST;
+			selected_mod_src = 0;
 		}
 		break;
 	case SS_LOAD:
-		if (touched_main_area || prev_ui_mode == ui_mode)
+		if (action_pressed_during_shift || prev_ui_mode == ui_mode)
 			ui_mode = UI_DEFAULT;
 		break;
 	case SS_LEFT:
-		if (!touched_main_area && short_press) {
+		if (!action_pressed_during_shift && short_press) {
 			// this belongs in sequencer
 			if (!isplaying())
 				set_cur_step(cur_step - 1, !isplaying()); // short left press moves one step back
 			// return to default mode
 			ui_mode = UI_DEFAULT;
 		}
-		if (touched_main_area || prev_ui_mode == ui_mode)
+		if (action_pressed_during_shift || prev_ui_mode == ui_mode)
 			ui_mode = UI_DEFAULT;
 		break;
 	case SS_RIGHT:
-		if (!touched_main_area && short_press) {
+		if (!action_pressed_during_shift && short_press) {
 			// this belongs in sequencer
 			set_cur_step(cur_step + 1, !isplaying()); // short right press moves one step forward
 			// return to default mode
 			ui_mode = UI_DEFAULT;
 		}
-		if (touched_main_area || prev_ui_mode == ui_mode)
+		if (action_pressed_during_shift || prev_ui_mode == ui_mode)
 			ui_mode = UI_DEFAULT;
 		break;
-	case SS_CLEAR:
-		if (!isplaying() && recording && ui_mode == UI_DEFAULT) { // clear step record mode seq step
+	case SS_CLEAR: // belongs in sequencer
+		if (!isplaying() && recording && ui_mode == UI_DEFAULT) {
+			// pressing clear in step-record mode clears sequencer step
 			bool dirty = false;
 			int q = (cur_step >> 4) & 3;
 			FingerRecord* strip_right = &rampattern[q].steps[cur_step & 15][0];
@@ -263,7 +266,7 @@ void shift_release_state(void) {
 					}
 				}
 			}
-			if (dirty)
+			if (dirty) // save
 				ramtime[GEN_PAT0 + ((cur_step >> 4) & 3)] = millis();
 			set_cur_step(cur_step + 1, false); // and move next step
 		}
@@ -307,9 +310,9 @@ void shift_hold_state(void) {
 		break;
 	case UI_LOAD:
 		// after a delay, initalize preset
-		if ((shift_state == SS_CLEAR) && (shift_state_frames > 64 + 4) && (last_preset_selection_rotstep >= 0)
-		    && (last_preset_selection_rotstep < 64))
-			copy_request = last_preset_selection_rotstep + 128;
+		if ((shift_state == SS_CLEAR) && (shift_state_frames > 64 + 4) && (selected_preset_global >= 0)
+		    && (selected_preset_global < 64))
+			copy_request = selected_preset_global + 128;
 		break;
 	default:
 		break;

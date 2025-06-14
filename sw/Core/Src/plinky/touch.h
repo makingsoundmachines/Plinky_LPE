@@ -1,4 +1,5 @@
 #include "hardware/touchstrips.h"
+#include "ui/pad_actions.h"
 #include "ui/shift_states.h"
 #include "ui/ui.h"
 
@@ -16,7 +17,6 @@ CalibResult calibresults[18];
 Touch fingers_synth_time[8][8]; // 8 frames for 8 fingers
 Touch fingers_synth_sorted[8][8];
 volatile u8 finger_frame_synth;
-u8 fingerediting = 0; // finger is over some kind of non-musical edit control
 
 typedef struct euclid_state {
 	int trigcount;
@@ -106,13 +106,13 @@ void set_cur_step(u8 newcurstep, bool triggerit) {
 }
 
 void OnLoop(void) {
-	if (edit_preset_pending != 255) {
-		SetPreset(edit_preset_pending, false);
-		edit_preset_pending = 255;
+	if (pending_preset != 255) {
+		SetPreset(pending_preset, false);
+		pending_preset = 255;
 	}
-	if (edit_pattern_pending != 255) {
-		EditParamQuant(P_SEQPAT, M_BASE, edit_pattern_pending);
-		edit_pattern_pending = 255;
+	if (pending_pattern != 255) {
+		EditParamQuant(P_SEQPAT, M_BASE, pending_pattern);
+		pending_pattern = 255;
 	}
 	if (pending_loopstart_step != 255) {
 		u8 loopstart_step = (rampreset.loopstart_step_no_offset + step_offset) & 63;
@@ -123,14 +123,12 @@ void OnLoop(void) {
 		set_cur_step(loopstart_step, seq_rhythm.did_a_retrig);
 		pending_loopstart_step = 255;
 	}
-	if (edit_sample1_pending != cur_sample1 && edit_sample1_pending != 255) {
-		EditParamQuant(P_SAMPLE, 0, edit_sample1_pending);
-		edit_sample1_pending = 255;
+	if (pending_sample1 != cur_sample1 && pending_sample1 != 255) {
+		EditParamQuant(P_SAMPLE, 0, pending_sample1);
+		pending_sample1 = 255;
 	}
 	check_curstep();
 }
-
-bool touched_main_area;
 
 bool got_ui_reset = false;
 int tap_count = 0;
@@ -156,7 +154,7 @@ u8 recsliceidx = 0;
 const bool pre_erase = true;
 u32 record_flashaddr_base = 0;
 
-static inline SampleInfo* getrecsample(void) {
+SampleInfo* getrecsample(void) {
 	return &ramsample;
 }
 static inline u8 getwaveform4(SampleInfo* s, int x) { // x is 0-2047
@@ -250,7 +248,7 @@ void recording_trigger(void) {
 void arp_reset(void);
 void ShowMessage(Font fnt, const char* msg, const char* submsg);
 
-void togglearp(void);
+void toggle_arp(void);
 
 int prev_prev_total_ui_pressure = 0;
 int prev_total_ui_pressure = 0;
@@ -440,8 +438,6 @@ u8 find_free_midi_string(u8 midi_note_number, int* midi_note_position) {
 	return min_string_id;
 }
 
-bool is_finger_an_edit_operation(int fi);
-
 u8 pres_compress(int pressure) {
 	return clampi((pressure + 12) / 24, 0, 255);
 }
@@ -477,7 +473,7 @@ void finger_synth_update(int fi) {
 
 	// === TOUCH INPUT === //
 
-	if (!is_finger_an_edit_operation(fi)) {
+	if (strip_available_for_synth(fi)) {
 		// read touch values from ui
 		pressure = ui_finger->pres;
 		position = ui_finger->pos;
