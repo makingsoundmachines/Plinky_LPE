@@ -28,7 +28,7 @@
             ],
             "group": {
                 "kind": "build",
-                "isDefault": false
+                "isDefault": true
             }
         },
         {
@@ -76,8 +76,42 @@
             ],
             "group": {
                 "kind": "build",
-                "isDefault": true
+                "isDefault": false
             }
-        }
-    ]
+        },
+        {
+            "label": "Git: Stage, Amend, Force Push",
+            "type": "shell",
+            "command": "git add . && git commit --amend --no-edit && git push --force",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        },
+        {
+            "label": "Check All Commits Build Successfully",
+            "type": "shell",
+            "command": "bash",
+            "args": [
+                "-c",
+                "check_commits() { COMMIT_COUNT=${input:commitCount} && CURRENT_BRANCH=$(git branch --show-current) && echo \"Checking last $COMMIT_COUNT commits...\" && COUNTER=$COMMIT_COUNT; for commit in $(git rev-list --reverse HEAD~$COMMIT_COUNT..HEAD); do COMMIT_MSG=$(git log --format=\"%s\" -n 1 $commit) && echo \"--- Testing HEAD~$COUNTER: $COMMIT_MSG ---\"; git checkout $commit --quiet && make clean > /dev/null 2>&1; if BUILD_OUTPUT=$(make -j BUILD_TYPE=RELEASE 2>&1); then echo \"PASS\"; else echo \"FAIL\"; echo \"Build error output:\"; echo \"$BUILD_OUTPUT\"; echo \"\"; echo \"Currently at commit HEAD~$COUNTER ($commit)\"; echo \"You can now fix the error and amend the commit.\"; echo \"Type 'exit' when done to return to original branch.\"; bash; git checkout $CURRENT_BRANCH --quiet; return; fi; COUNTER=$((COUNTER-1)); done; git checkout $CURRENT_BRANCH --quiet && echo \"All commits build successfully!\"; }; check_commits"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/sw/nocube_makefile"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": "test",
+        },
+    ],
+    "inputs": [
+        {
+            "id": "commitCount",
+            "description": "Number of commits to check back",
+            "default": "5",
+            "type": "promptString"
+        },
+    ],
 }

@@ -1,5 +1,22 @@
 BasedOnStyle: LLVM
-ColumnLimit: 132
-BreakBeforeBraces: Attach
-SortIncludes: Never
-
+IndentWidth: 4
+TabWidth: 4
+UseTab: ForIndentation
+BreakBeforeBraces: Custom
+BraceWrapping:
+  BeforeElse: True
+ColumnLimit: 120
+ReflowComments: true
+AllowShortBlocksOnASingleLine: Empty
+AllowShortFunctionsOnASingleLine: InlineOnly
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortEnumsOnASingleLine: True
+IndentGotoLabels: False
+PointerAlignment: Left
+BreakBeforeBinaryOperators: NonAssignment
+BreakBeforeTernaryOperators: True
+AccessModifierOffset: -4
+AlwaysBreakTemplateDeclarations: Yes
+IndentRequiresClause: False
+RequiresClausePosition: OwnLine
+SortIncludes: CaseSensitive

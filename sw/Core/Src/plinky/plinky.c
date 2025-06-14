@@ -1,5 +1,5 @@
 #if defined(_WIN32) || defined(__APPLE__)
-#define EMU
+// #define EMU
 #pragma warning(disable : 4244)
 #endif
 
@@ -63,6 +63,7 @@ extern UART_HandleTypeDef huart3;
 #include "low_level/codec.h"
 #include "low_level/dac.h"
 #include "low_level/spi.h"
+#include "testing/tick_counter.h"
 #include "utils/gfx.h"
 #include "utils/leds.h"
 #include "utils/oled.h"
