@@ -32,6 +32,7 @@ MAP = $(BUILD_DIR)/plinkyblack.map
 
 # Source files
 SRCS = \
+	../Core/Src/rebuild/hardware/encoder.c \
 	../Core/Src/rebuild/hardware/leds.c \
 	../Core/Src/rebuild/hardware/touchstrips.c \
 	../Core/Src/rebuild/ui/pad_actions.c \

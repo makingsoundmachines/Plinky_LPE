@@ -1,8 +1,9 @@
+#include "gfx/data/names.h"
 #include "gfx/gfx.h"
+#include "hardware/encoder.h"
+#include "ui/pad_actions.h"
 #include "ui/shift_states.h"
 #include "ui/ui.h"
-#include "gfx/data/names.h"
-#include "ui/pad_actions.h"
 
 u8 audiohistpos = 0;
 u8 audiopeakhistory[32];
@@ -704,9 +705,7 @@ void edit_mode_ui(void) {
 			if (ui_edit_param < P_LAST)
 				goto draw_parameter;
 
-			extern int lastencodertime;
-
-			if (last_selected_param < P_LAST && lastencodertime && lastencodertime > millis() - 2000)
+			if (last_selected_param < P_LAST && enc_recently_used())
 				goto draw_parameter;
 			DrawFlags();
 			char seqicon = (rampreset.flags & FLAGS_ARP) ? I_NOTES[0] : I_SEQ[0];

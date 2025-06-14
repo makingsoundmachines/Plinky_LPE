@@ -157,9 +157,6 @@ TickCounter _tc_osc;
 TickCounter _tc_filter;
 
 knobsmoother adc_smooth[8];
-volatile int encval = 0;
-volatile u8 encbtn = 0;
-float encaccel;
 u8 prevsynthfingerdown = 0;
 u8 prevsynthfingerdown_nogatelen = 0;     // same as above, but without gatelen applied
 u8 prevprevsynthfingerdown_nogatelen = 0; // same as above, but without gatelen applied

@@ -1,4 +1,5 @@
 #include "gfx/gfx.h"
+#include "hardware/encoder.h"
 #ifdef HALF_FLASH
 const static int calib_sector = -1;
 #else
@@ -264,7 +265,7 @@ void led_test(void) {
 	int encoder_down_count = -1;
 	while (1) {
 		oled_clear();
-		if (encbtn) {
+		if (encoder_pressed) {
 			if (encoder_down_count >= 0)
 				encoder_down_count++;
 		}
@@ -280,7 +281,7 @@ void led_test(void) {
 		fdraw_str(0, 2, F_12, "TEST %d %d %d %d %02x", adcbuf[0] / 256, adcbuf[1] / 256, adcbuf[2] / 256,
 		          adcbuf[3] / 256, gotclkin);
 		fdraw_str(0, 18, F_12, "%d %d %d %d %d %d", adcbuf[4] / 256, adcbuf[5] / 256, adcbuf[6] / 256, adcbuf[7] / 256,
-		          encval >> 2, encbtn);
+		          encoder_value >> 2, encoder_pressed);
 		oled_flip();
 		HAL_Delay(20);
 		for (int srcidx = 0; srcidx < NUM_TOUCHES; ++srcidx) {
@@ -336,7 +337,7 @@ again:
 			refreshscreen--;
 		}
 
-		if (encbtn) {
+		if (encoder_pressed) {
 			led_test();
 			goto again;
 		}

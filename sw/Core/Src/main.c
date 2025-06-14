@@ -26,6 +26,7 @@
 #define FLASH_LATENCY_5 FLASH_LATENCY_4 // WOOHAHAHAHAH
 #include "hardware/touchstrips.h"
 #include "plinky/core.h"
+#include "rebuild/hardware/encoder.h"
 #include <stdlib.h>
 #include <string.h>
 /* USER CODE END Includes */
@@ -125,27 +126,6 @@ extern volatile u8 gotclkin;
 // void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 //	gotclkin++;
 // }
-u8 lastencstate = 0;
-extern volatile int encval;
-extern volatile u8 encbtn;
-const static s8 encdeltas[16] = {0, 1, -1, 0, -1, 0, 0, 1, 1, 0, 0, -1, 0, -1, 1, 0};
-static inline u8 ReadEncState(void) {
-	return (GPIOC->IDR >> 14) & 3;
-}
-extern float encaccel;
-void EncoderTick(void) {
-	encbtn = !((GPIOC->IDR >> 13) & 1);
-	u8 newstate = ReadEncState();
-	int st = lastencstate + (newstate << 2);
-	int oldencval = encval;
-	if (newstate == 3)                     // if (st==15)
-		encval = ((encval >> 2) << 2) + 2; // snap to the middle of a sector when the switch is idle for 2ms
-	else
-		encval -= encdeltas[st];
-	encaccel *= 0.998f;
-	encaccel += abs(oldencval - encval) * 0.125f;
-	lastencstate = newstate;
-}
 
 void ClockIRQ(void) {
 	gotclkin++;
@@ -270,8 +250,7 @@ int main(void) {
 	void plinky_init(void);
 	plinky_init();
 	gotclkin = 0;
-	lastencstate = ReadEncState();
-	encval = 2;
+	encoder_init();
 	/* USER CODE END 2 */
 
 	/* Infinite loop */

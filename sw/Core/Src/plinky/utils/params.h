@@ -79,9 +79,6 @@ float lfo_eval(u32 ti, float warp, unsigned int shape) {
 	return (*lfofuncs[shape])(t, step);
 }
 
-#define FLAG_MASK 127
-
-
 #define C  ( 0*512)
 #define Cs ( 1*512)
 #define D  ( 2*512)
@@ -268,7 +265,7 @@ u8 backuppagesidx[LAST_PRESET_IDX];
 SysParams sysparams;
 static inline FlashPage* GetFlashPagePtr(u8 page) { return (FlashPage*)(FLASH_ADDR_256 + page * 2048); }
 
-static Preset const init_params;
+Preset const init_params;
 int mod_cur[8]; // 16 bit fp
 
 
@@ -702,7 +699,7 @@ void PumpFlashWrites(void) {
 	
 }
 
-static Preset const init_params = {
+Preset const init_params = {
 	.looplen_step=8,
 	.version=CUR_PRESET_VERSION,
 	.params=

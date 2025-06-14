@@ -187,3 +187,4 @@ typedef struct PatternQuarter { // sequecer
 
 #define MAX_SAMPLE_LEN (1024 * 1024 * 2) // max sample length in samples
 #define BLOCK_SAMPLES 64
+#define FLAG_MASK 127
