@@ -1,4 +1,5 @@
 #include "hardware/touchstrips.h"
+#include "hardware/adc_dac.h"
 #include "ui/pad_actions.h"
 #include "ui/shift_states.h"
 #include "ui/ui.h"
@@ -144,7 +145,7 @@ void delay_clear(void) {
 u16 audioin_holdtime = 0;
 s16 audioin_peak = 0;
 s16 audioin_hold = 0;
-knobsmoother recgain_smooth;
+ValueSmoother recgain_smooth;
 int audiorec_gain_target = 1 << 15;
 
 int recpos = 0;      // this cycles around inside the delay buffer (which we use for a recording buffer) while armed...
@@ -670,7 +671,7 @@ void finger_synth_update(int fi) {
 	// === CV GATE === //
 
 	// scale pressure with cv gate input
-	pressure = (int)((pressure + 256) * adc_smooth[7].y2) - 256;
+	pressure = (int)((pressure + 256) * adc_get_smooth(ADC_S_GATE)) - 256;
 
 	// save input results to global variables to be used by other code
 	synth_finger->pres = pressure;

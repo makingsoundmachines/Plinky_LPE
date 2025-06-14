@@ -12,8 +12,8 @@ extern Preset rampreset;
 extern u32 tick;
 extern SysParams sysparams;
 extern s8 selected_preset_global; // system
-void knobsmooth_reset(knobsmoother* s, float ival);
-float knobsmooth_update_knob(knobsmoother* s, float newval, float max_scale);
+void knobsmooth_reset(ValueSmoother* s, float ival);
+float smooth_value(ValueSmoother* s, float newval, float max_scale);
 void SetPreset(u8 preset, bool force);
 // gfx
 #include "gfx/gfx.h"
@@ -74,7 +74,7 @@ u8 long_press_pad = 0;
 
 static float strip_start_pos[8];
 static int saved_param_value[8];
-static knobsmoother param_value_smoother[8];
+static ValueSmoother param_value_smoother[8];
 
 static u8 get_load_section(u8 pad_id) {
 	return pad_id < 32   ? 0  // presets
@@ -236,7 +236,7 @@ void handle_pad_actions(u8 strip_id, Touch* strip_cur) {
 				if (is_signed)
 					press_value = press_value * 2 - FULL;
 				// smooth the pressed value
-				float smoothed_value = knobsmooth_update_knob(&param_value_smoother[strip_id], press_value, FULL);
+				float smoothed_value = smooth_value(&param_value_smoother[strip_id], press_value, FULL);
 				smoothed_value = clampf(smoothed_value, (is_signed) ? -FULL - 0.1f : 0.f, FULL + 0.1f);
 				// value stops exactly at zero when crossing it
 				if (smoothed_value < 0.f && saved_param_value[strip_id] > 0)
@@ -294,7 +294,7 @@ void handle_pad_actions(u8 strip_id, Touch* strip_cur) {
 				float pos_offset = (strip_cur->pos - strip_start_pos[strip_id]);
 				pos_offset = deadzone(pos_offset, 32.f);
 				float press_value = saved_param_value[strip_id] - pos_offset * (32000.f / 2048.f);
-				float smoothed_value = knobsmooth_update_knob(&param_value_smoother[strip_id], press_value, 32000.f);
+				float smoothed_value = smooth_value(&param_value_smoother[strip_id], press_value, 32000.f);
 				float smin = strip_id ? s->splitpoints[strip_id - 1] + 1024.f : 0.f;
 				float smax = (strip_id < 7) ? s->splitpoints[strip_id + 1] - 1024.f : s->samplelen;
 				if (smin < 0.f)

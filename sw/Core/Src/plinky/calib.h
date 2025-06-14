@@ -1,4 +1,5 @@
 #include "gfx/gfx.h"
+#include "hardware/cv.h"
 #include "hardware/encoder.h"
 #ifdef HALF_FLASH
 const static int calib_sector = -1;
@@ -39,9 +40,9 @@ int flash_readcalib(void) {
 	s += sizeof(calibresults) / 8;
 	if (*s != ~(uint64_t)(0)) {
 		ok |= 2;
-		memcpy(cvcalib, (int64_t*)s, sizeof(cvcalib));
+		memcpy(adc_dac_calib, (int64_t*)s, sizeof(adc_dac_calib));
 	}
-	s += sizeof(cvcalib) / 8;
+	s += sizeof(adc_dac_calib) / 8;
 	return ok;
 }
 
@@ -56,8 +57,8 @@ bool flash_writecalib(int which) {
 			flash_program_block(d, calibresults, sizeof(calibresults));
 		d += (sizeof(calibresults) + 7) / 8;
 		if (which & 2)
-			flash_program_block(d, cvcalib, sizeof(cvcalib));
-		d += (sizeof(cvcalib) + 7) / 8;
+			flash_program_block(d, adc_dac_calib, sizeof(adc_dac_calib));
+		d += (sizeof(adc_dac_calib) + 7) / 8;
 		HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, (uint32_t)(size_t)(flash + 255), ~MAGIC);
 	}
 	HAL_FLASH_Lock();
@@ -65,193 +66,6 @@ bool flash_writecalib(int which) {
 }
 
 extern s8 enable_audio;
-
-#ifdef EMU
-static inline int getgatesense(void) {
-	return emugatesense;
-}
-static inline int getpitchsense(void) {
-	return emupitchsense;
-}
-#else
-static inline int getgatesense(void) {
-	return HAL_GPIO_ReadPin(SENSE1_GPIO_Port, SENSE1_Pin) == GPIO_PIN_RESET;
-}
-static inline int getpitchsense(void) {
-	return HAL_GPIO_ReadPin(SENSE2_GPIO_Port, SENSE2_Pin) == GPIO_PIN_RESET;
-}
-#endif
-
-void cv_calib(void) {
-#ifdef WASM
-	return;
-#endif
-	enable_audio = EA_OFF;
-	oled_clear();
-	int topscroll = 128;
-	const char* topline =
-	    "unplug all inputs"
-#ifndef NEW_LAYOUT
-	    " except plug gate out to gate in"
-#endif
-	    ". use left 4 columns to adjust pitch cv outputs. plug pitch lo output to pitch input when done.";
-	int toplinew = str_width(F_16, topline);
-	const char* const botlines[5] = {"plug gate out->in", "Pitch lo=0v/C0", "Pitch lo=2v/C2", "Pitch hi=0v/C0",
-	                                 "Pitch hi=2v/C2"};
-	u8 ff = touch_frame;
-	float adcavgs[6][2];
-	for (int i = 0; i < 6; ++i)
-		adcavgs[i][0] = -1.f;
-	int curx = -1;
-	float downpos[4] = {}, downval[4] = {};
-	float cvout[4] = {
-	    cvcalib[8].bias,
-	    cvcalib[8].bias + cvcalib[8].scale * 2048.f * 24.f,
-	    cvcalib[9].bias,
-	    cvcalib[9].bias + cvcalib[9].scale * 2048.f * 24.f,
-	};
-	SetOutputCVPitchLo((int)cvout[0], false);
-	SetOutputCVPitchHi((int)cvout[2], false);
-	u8 curlo = 0;
-	u8 curhi = 2;
-	bool prevprevpitchsense = true;
-	bool prevpitchsense = true;
-	while (1) {
-		oled_clear();
-		drawstr_noright(topscroll, 0, F_16, topline);
-		bool gateok = getgatesense();
-#ifdef NEW_LAYOUT
-		gateok = !gateok; // in new layout, theres a bleed resistor so no need for gate - in fact, we dont want it
-#endif
-		draw_str(0, 18, F_12_BOLD, (curx < 0 && gateok) ? "pitch out>in when done" : botlines[curx + 1]);
-		if (curx >= 0)
-			fdraw_str(-128, 24, F_8, "(%d)", (int)cvout[curx]);
-		oled_flip();
-		topscroll -= 2;
-		if (topscroll < -toplinew)
-			topscroll = 128;
-		while (touch_frame == ff)
-			; // wait for new touch data
-		ff = touch_frame;
-		int pitchsense = getpitchsense();
-		if (pitchsense && !prevprevpitchsense && gateok)
-			break;
-		prevprevpitchsense = prevpitchsense;
-		prevpitchsense = pitchsense;
-
-		// calibrate the 0 point for the inputs
-		for (int i = 0; i < 6; ++i) {
-			int tot = 0;
-			for (int j = 0; j < ADC_SAMPLES; ++j)
-				tot += adcbuf[j * ADC_CHANS + i];
-			tot /= ADC_SAMPLES;
-			if (adcavgs[i][0] < 0)
-				adcavgs[i][0] = adcavgs[i][1] = tot;
-			adcavgs[i][0] += (tot - adcavgs[i][0]) * 0.05f;
-			adcavgs[i][1] += (adcavgs[i][0] - adcavgs[i][1]) * 0.05f;
-		}
-		for (int x = 0; x < 4; ++x) {
-			Touch* f = get_touch_prev(x, 1);
-			Touch* pf = get_touch_prev(x, 2);
-			if (f->pres >= 500) {
-				if (pf->pres < 500) {
-					downpos[x] = f->pos;
-					downval[x] = cvout[x];
-					curx = x;
-				}
-				float delta = deadzone(f->pos - downpos[x], 64.f);
-				//				delta=(delta*delta)>>12;
-				cvout[x] += (clampf(downval[x] + delta * 0.25f, 0.f, 65535.f) - cvout[x]) * 0.1f;
-				if (x < 2)
-					curlo = x;
-				else
-					curhi = x;
-			}
-		}
-		SetOutputCVPitchLo((int)cvout[curlo], false);
-		SetOutputCVPitchHi((int)cvout[curhi], false);
-		AdvanceCVOut();
-
-		// update the leds, innit
-		for (int fi = 0; fi < 9; ++fi) {
-			for (int y = 0; y < 8; ++y) {
-				int k = (fi < 4) ? (triangle(y * 64 - (int)cvout[fi] / 4) / 4) : 128;
-				leds[fi][y] = led_add_gamma(((fi == curx) ? 255 : 128) - k);
-			}
-		}
-	}
-	// zero is now nicely set
-	for (int i = 0; i < 6; ++i) {
-		cvcalib[i].bias = adcavgs[i][1];
-		cvcalib[i].scale = 0.2f / -6548.1f;
-		DebugLog("adc zero point %d - %d\r\n", i, (int)adcavgs[i][1]);
-	}
-	cvcalib[6].bias = 32000.f; // hw seems to skew towards 0 slightly...
-	cvcalib[6].scale = 1.05f / -32768.f;
-	cvcalib[7].bias = 32000.f;
-	cvcalib[7].scale = 1.05f / -32768.f;
-
-	// output calib is now nicely set
-	cvcalib[8].bias = cvout[0];
-	cvcalib[8].scale = (cvout[1] - cvout[0]) * 1.f / (2048.f * 24.f);
-	cvcalib[9].bias = cvout[2];
-	cvcalib[9].scale = (cvout[3] - cvout[2]) * 1.f / (2048.f * 24.f);
-	for (int i = 0; i < 4; ++i)
-		DebugLog("selected dac value %d - %d\r\n", i, (int)cvout[i]);
-	DebugLog("dac pitch lo zero point %d, step*1000 %d\r\n", (int)cvcalib[8].bias, (int)(cvcalib[8].scale * 1000.f));
-	DebugLog("dac pitch hi zero point %d, step*1000 %d\r\n", (int)cvcalib[9].bias, (int)(cvcalib[9].scale * 1000.f));
-
-	// use it to calibrate
-
-	oled_clear();
-	draw_str(0, 4, F_12, "waiting for pitch\nloopback cable");
-	oled_flip();
-	HAL_Delay(1000);
-	// wait for them to plug the other end in
-	while (1) {
-		int tots[2] = {0};
-		for (int hilo = 0; hilo < 2; ++hilo) {
-			SetOutputCVPitchLo((int)cvout[hilo], false);
-			SetOutputCVPitchHi((int)cvout[hilo + 2], false);
-			HAL_Delay(50);
-			int tot = 0;
-			for (int j = 0; j < ADC_SAMPLES; ++j)
-				tot += adcbuf[j * ADC_CHANS + ADC_PITCH];
-			tot /= ADC_SAMPLES;
-			tots[hilo] = tot;
-		}
-		if (abs(tots[0] - tots[1]) > 5000)
-			break;
-	}
-	oled_clear();
-	draw_str(0, 4, F_24_BOLD, "just a mo...");
-	oled_flip();
-	HAL_Delay(1000);
-	for (int hilo = 0; hilo < 2; ++hilo) {
-		SetOutputCVPitchLo((int)cvout[hilo], false);
-		SetOutputCVPitchHi((int)cvout[hilo + 2], false);
-		HAL_Delay(50);
-		int tot = 0;
-		for (int iter = 0; iter < 256; ++iter) {
-			HAL_Delay(2);
-			for (int j = 0; j < ADC_SAMPLES; ++j)
-				tot += adcbuf[j * ADC_CHANS + ADC_PITCH];
-		}
-		tot /= ADC_SAMPLES * 256;
-		DebugLog("pitch adc for hilo=%d is %d\r\n", hilo, tot);
-		if (hilo == 0)
-			cvcalib[ADC_PITCH].bias = tot;
-		else
-			cvcalib[ADC_PITCH].scale = 2.f / (minf(-0.00001f, tot - cvcalib[ADC_PITCH].bias));
-	}
-	oled_clear();
-	draw_str(0, 0, F_16_BOLD, "Done!");
-	draw_str(0, 16, F_12_BOLD, "Unplug pitch cable!");
-	oled_flip();
-	while (getpitchsense()) {
-		HAL_Delay(1);
-	}
-}
 
 void reflash(void);
 extern volatile u8 gotclkin;
@@ -278,10 +92,10 @@ void led_test(void) {
 		}
 		if (encoder_down_count > 100)
 			reflash();
-		fdraw_str(0, 2, F_12, "TEST %d %d %d %d %02x", adcbuf[0] / 256, adcbuf[1] / 256, adcbuf[2] / 256,
-		          adcbuf[3] / 256, gotclkin);
-		fdraw_str(0, 18, F_12, "%d %d %d %d %d %d", adcbuf[4] / 256, adcbuf[5] / 256, adcbuf[6] / 256, adcbuf[7] / 256,
-		          encoder_value >> 2, encoder_pressed);
+		fdraw_str(0, 2, F_12, "TEST %d %d %d %d %02x", adc_buffer[ADC_PITCH] / 256, adc_buffer[ADC_GATE] / 256,
+		          adc_buffer[ADC_X_CV] / 256, adc_buffer[ADC_Y_CV] / 256, gotclkin);
+		fdraw_str(0, 18, F_12, "%d %d %d %d %d %d", adc_buffer[ADC_A_CV] / 256, adc_buffer[ADC_B_CV] / 256,
+		          adc_buffer[ADC_A_KNOB] / 256, adc_buffer[ADC_B_KNOB] / 256, encoder_value >> 2, encoder_pressed);
 		oled_flip();
 		HAL_Delay(20);
 		for (int srcidx = 0; srcidx < NUM_TOUCHES; ++srcidx) {
@@ -292,12 +106,12 @@ void led_test(void) {
 			}
 		}
 		tri += 256;
-		SetOutputCVTrigger((tri < 16384) ? 65535 : 0);
-		SetOutputCVClk((tri < (16384 + 32768)) ? 65535 : 0);
-		SetOutputCVPressure(tri);
-		SetOutputCVGate((tri * 2) & 65535);
-		SetOutputCVPitchLo(tri, false);
-		SetOutputCVPitchHi((tri * 2) & 65535, false);
+		send_cv_trigger((tri < 16384) ? true : false);
+		send_cv_clock((tri < (16384 + 32768)) ? true : false);
+		send_cv_pressure(tri);
+		send_cv_gate((tri * 2) & 65535);
+		send_cv_pitch_lo(tri, false);
+		send_cv_pitch_hi((tri * 2) & 65535, false);
 	}
 }
 

@@ -1,5 +1,11 @@
 #pragma once
 
+// this makes sure the editor correctly recognizes
+// which parts of the STM libraries we have access to
+#ifndef STM32L476xx
+#define STM32L476xx
+#endif
+
 // core libraries
 #include <math.h>
 #include <stdarg.h>
@@ -37,9 +43,9 @@ typedef struct CalibResult {
 	s16 pos[8];
 } CalibResult;
 
-typedef struct knobsmoother {
+typedef struct ValueSmoother {
 	float y1, y2;
-} knobsmoother;
+} ValueSmoother;
 
 // time
 #define RDTSC() (DWT->CYCCNT)
@@ -92,6 +98,7 @@ static inline bool ispow2(s16 x) {
 
 // debug
 void gfx_debug(u8 row, const char* fmt, ...);
+void DebugLog(const char* fmt, ...);
 
 // plinky utils
 static inline float deadzone(float f, float zone) {
@@ -102,6 +109,16 @@ static inline float deadzone(float f, float zone) {
 	else
 		f += zone;
 	return f;
+}
+
+static inline float smooth_value(ValueSmoother* s, float new_val, float max_scale) {
+	// inspired by  https ://cytomic.com/files/dsp/DynamicSmoothing.pdf
+	float band = fabsf(s->y2 - s->y1);
+	float sens = 8.f / max_scale;
+	float g = minf(1.f, 0.05f + band * sens);
+	s->y1 += (new_val - s->y1) * g;
+	s->y2 += (s->y1 - s->y2) * g;
+	return s->y2;
 }
 
 // TEMP - these will get organised into their appropriate modules

@@ -12,10 +12,8 @@
 #ifndef EMU
 #include <main.h>
 
-extern ADC_HandleTypeDef hadc1;
 extern DMA_HandleTypeDef hdma_adc1;
 
-extern DAC_HandleTypeDef hdac1;
 extern DMA_HandleTypeDef hdma_dac_ch1;
 extern DMA_HandleTypeDef hdma_dac_ch2;
 
@@ -35,7 +33,6 @@ extern TIM_HandleTypeDef htim2;
 extern TIM_HandleTypeDef htim3;
 extern TIM_HandleTypeDef htim4;
 extern TIM_HandleTypeDef htim5;
-extern TIM_HandleTypeDef htim6;
 
 extern UART_HandleTypeDef huart3;
 
@@ -56,11 +53,10 @@ extern UART_HandleTypeDef huart3;
 #include "defs/lfo.h"
 #include "defs/tables.h"
 #include "gfx/gfx.h"
+#include "hardware/adc_dac.h"
 #include "hardware/leds.h"
-#include "low_level/adc.h"
 #include "low_level/audiointrin.h"
 #include "low_level/codec.h"
-#include "low_level/dac.h"
 #include "low_level/spi.h"
 #include "testing/tick_counter.h"
 #include "ui/ui.h"
@@ -83,27 +79,8 @@ static inline float db2lin(float db) {
 	return exp2f(db * (1.f / TWENTY_OVER_LOG2_10));
 }
 
-void knobsmooth_reset(knobsmoother* s, float ival) {
+void knobsmooth_reset(ValueSmoother* s, float ival) {
 	s->y1 = s->y2 = ival;
-}
-
-float knobsmooth_update_knob(knobsmoother* s, float newval, float max_scale) {
-	// inspired by  https ://cytomic.com/files/dsp/DynamicSmoothing.pdf
-	float band = fabsf(s->y2 - s->y1);
-	float sens = 8.f / max_scale;
-	float g = minf(1.f, 0.05f + band * sens);
-	s->y1 += (newval - s->y1) * g;
-	s->y2 += (s->y1 - s->y2) * g;
-	return s->y2;
-}
-float knobsmooth_update_cv(knobsmoother* s, float newval) { // same as update but with faster constants
-	// inspired by  https ://cytomic.com/files/dsp/DynamicSmoothing.pdf
-	float band = fabsf(s->y2 - s->y1);
-	const static float sens = 10.f;
-	float g = minf(1.f, 0.1f + band * sens);
-	s->y1 += (newval - s->y1) * g;
-	s->y2 += (s->y1 - s->y2) * g;
-	return s->y2;
 }
 
 typedef struct Osc {
@@ -134,7 +111,7 @@ typedef struct Voice {
 	int playhead8;
 	u8 sliceidx;
 	int initialfingerpos;
-	knobsmoother fingerpos;
+	ValueSmoother fingerpos;
 
 	u8 decaying;
 	int env_cur16;
@@ -156,7 +133,6 @@ TickCounter _tc_led;
 TickCounter _tc_osc;
 TickCounter _tc_filter;
 
-knobsmoother adc_smooth[8];
 u8 prevsynthfingerdown = 0;
 u8 prevsynthfingerdown_nogatelen = 0;     // same as above, but without gatelen applied
 u8 prevprevsynthfingerdown_nogatelen = 0; // same as above, but without gatelen applied
@@ -277,8 +253,6 @@ s8 enable_audio = EA_OFF;
 
 // clang-format on
 
-bool gatecv_trig = false;
-
 static inline float lpf_k(int x) {
 	return table_interp(lpf_ks, x);
 }
@@ -371,14 +345,6 @@ void update_params(int fingertrig, int fingerdown) {
 	tilt16 = tottilt / totw;
 	env16 = maxenv;
 	pressure16 = maxp * (65536 / 2048);
-	// update lfos on modulation sources
-
-	float aknob = clampf(GetADCSmoothed(ADC_AKNOB), -1.f, 1.f);
-	float bknob = clampf(GetADCSmoothed(ADC_BKNOB), -1.f, 1.f);
-	float acv = clampf(GetADCSmoothed(ADC_ACV) * IN_CV_SCALE, -1.f, 1.f);
-	float bcv = clampf(GetADCSmoothed(ADC_BCV) * IN_CV_SCALE, -1.f, 1.f);
-	float xcv = clampf(GetADCSmoothed(ADC_XCV) * IN_CV_SCALE, -1.f, 1.f);
-	float ycv = clampf(GetADCSmoothed(ADC_YCV) * IN_CV_SCALE, -1.f, 1.f);
 
 	//	accelerometer
 	static int accel_counter;
@@ -400,18 +366,8 @@ void update_params(int fingertrig, int fingerdown) {
 			accel_lpf[j] = accel_smooth[j] = f;
 	}
 
-	int gatesense = getgatesense();
-	int pitchsense = getpitchsense();
-	float pitchcv = pitchsense ? GetADCSmoothed(ADC_PITCH) : 0.f;
-	float gatecv = gatesense ? clampf(GetADCSmoothed(ADC_GATE) * 1.15f - 0.05f, 0.f, 1.f) : 1.f;
-	knobsmooth_update_cv(adc_smooth + 0, acv);
-	knobsmooth_update_cv(adc_smooth + 1, bcv);
-	knobsmooth_update_cv(adc_smooth + 2, xcv);
-	knobsmooth_update_cv(adc_smooth + 3, ycv);
-	knobsmooth_update_knob(adc_smooth + 4, aknob, 1.f);
-	knobsmooth_update_knob(adc_smooth + 5, bknob, 1.f);
-	knobsmooth_update_cv(adc_smooth + 6, pitchcv);
-	knobsmooth_update_cv(adc_smooth + 7, gatecv);
+	adc_smooth_values();
+
 	u8 prevlfohp = (lfo_history_pos >> 4) & 15;
 	lfo_history_pos++;
 	u8 lfohp = (lfo_history_pos >> 4) & 15;
@@ -434,20 +390,22 @@ void update_params(int fingertrig, int fingerdown) {
 	s8* autoknob1 = rampattern[q1].autoknob[(cur_step & 15) * 8 + (phase0 >> 13)];
 	s8* autoknob2 = rampattern[q2].autoknob[(nextstep & 15) * 8 + (phase1 >> 13)];
 	float autoknobinterp = (phase0 & (65536 / 8 - 1)) * (1.f / (65536 / 8));
-	for (int i = 0; i < 4; ++i) {
-		float adc = adc_smooth[i].y2;
+
+	// ABXY mod source stuff
+	for (int i = 0; i < 4; ++i) {      // four mod sources
+		float adc = adc_get_smooth(i); // CV A, B, X, Y
 		float adcknob = 0.f;
-		if (i < 2) {
-			adcknob = adc_smooth[i + 4].y2;
-			if (!(recording_knobs & (1 << i)))
+		if (i < 2) { // knob A and B
+			adcknob = adc_get_smooth(ADC_S_A_KNOB + i);
+			if (!(recording_knobs & (1 << i))) // recording knob stuff (not implemented)
 				adcknob += (autoknob1[i] + (autoknob2[i] - autoknob1[i]) * autoknobinterp) * (1.f / 127.f);
 		}
-		else
+		else // accel values
 			adcknob = accel_smooth[i - 2] - accel_lpf[i - 2];
 
-		int i6 = i * 6;
+		int i6 = i * 6;                            // page offset
 		mod_cur[M_A + i] = (int)((adc) * 65536.f); // modulate yourself with the raw input!
-		param_eval_premod(P_AFREQ + i6);
+		param_eval_premod(P_AFREQ + i6);           // apply A / B / X / Y modulation to mod params
 		param_eval_premod(P_AWARP + i6);
 		param_eval_premod(P_ASHAPE + i6);
 		param_eval_premod(P_ADEPTH + i6);
@@ -465,11 +423,13 @@ void update_params(int fingertrig, int fingerdown) {
 		int cvval = param_eval_int(P_AOFFSET + i6, any_rnd, env16, pressure16);
 		cvval += (int)(adc * (param_eval_int(P_ASCALE + i6, any_rnd, env16, pressure16) << 1));
 		cvval += (int)(adcknob * 65536.f); // knob is not scaled by the cv bias/scale parameters. I think thats useful.
-		mod_cur[M_A + i] = ((int)(lfoval * 65536.f)) + cvval;
+		mod_cur[M_A + i] = ((int)(lfoval * 65536.f)) + cvval; // the four mod source values
 
+		// map for expander
 		float expander_val = mod_cur[M_A + i] * (EXPANDER_GAIN * EXPANDER_RANGE / 65536.f);
 		expander_out[i] = clampi(EXPANDER_ZERO - (int)(expander_val), 0, EXPANDER_MAX);
 
+		// save for displaying on oled
 		int scopey = (-(mod_cur[M_A + i] * 7 + (1 << 16)) >> 17) + 4;
 		if (scopey >= 0 && scopey < 8)
 			lfo_history[lfohp][i] |= 1 << scopey;
@@ -746,7 +706,7 @@ void RunVoice(Voice* v, int fingeridx, float targetvol, u32* outbuf) {
 			float fpos = deadzone(f->pos - v->initialfingerpos, gdeadzone * 32.f);
 			if (gp)
 				fpos = 0.f;
-			knobsmooth_update_knob(&v->fingerpos, fpos, 2048.f);
+			smooth_value(&v->fingerpos, fpos, 2048.f);
 		}
 	} // sampler prep
 
@@ -1588,10 +1548,10 @@ void processmidimsg(u8 msg, u8 d1, u8 d2) {
 
 void DoRecordModeAudio(u32* dst, u32* audioin) {
 	// recording or level testing
-	int newaudiorec_gain = 65535 - GetADCSmoothedNoCalib(ADC_AKNOB);
+	int newaudiorec_gain = 65535 - adc_get_raw(ADC_A_KNOB);
 	if (abs(newaudiorec_gain - audiorec_gain_target) > 256) // hysteresis
 		audiorec_gain_target = newaudiorec_gain;
-	knobsmooth_update_knob(&recgain_smooth, audiorec_gain_target, 65536.f);
+	smooth_value(&recgain_smooth, audiorec_gain_target, 65536.f);
 	int audiorec_gain = (int)(recgain_smooth.y2) / 2;
 
 	cur_sample1 = edit_sample0 + 1;
@@ -1821,7 +1781,7 @@ void DoAudio(u32* dst, u32* audioin) {
 	int ainlvl = param_eval_int(P_MIXINPUT, any_rnd, env16, pressure16);
 	int audiorec_gain_target =
 	    ainlvl; // we want to update recgain_smooth as it is used to maintain the pretty audio gain history
-	knobsmooth_update_knob(&recgain_smooth, audiorec_gain_target, 65536.f);
+	smooth_value(&recgain_smooth, audiorec_gain_target, 65536.f);
 
 	//////////////////////////////////////////////////////////
 	// PLAYMODE
@@ -1909,11 +1869,7 @@ void DoAudio(u32* dst, u32* audioin) {
 	bool gotlow = false, gothi = false;
 	trigout = false;
 
-	int cvpitch = (int)(adc_smooth[6].y2 * (512.f * 12.f)); // pitch cv input
-	int cvquant = param_eval_int(P_CV_QUANT, any_rnd, env16, pressure16);
-	if (cvquant) {
-		cvpitch = (cvpitch + 256) & (~511);
-	}
+	int cvpitch = adc_get_smooth(ADC_S_PITCH);
 	for (int fi = 0; fi < 8; ++fi) {
 		u8 bit = 1 << fi;
 		Touch* synthf = touch_synth_getlatest(fi);
@@ -1957,6 +1913,7 @@ void DoAudio(u32* dst, u32* audioin) {
 				u32 scale = param_eval_finger(P_SCALE, fi, synthf);
 				if (scale >= S_LAST)
 					scale = 0;
+				int cvquant = param_eval_int(P_CV_QUANT, any_rnd, env16, pressure16);
 				if (cvquant != CVQ_SCALE)
 					pitchbase += cvpitch;
 				else {
@@ -1990,7 +1947,7 @@ void DoAudio(u32* dst, u32* audioin) {
 				RunVoice(&voices[fi], fi, vol, dst);
 			if (vol > 0.001f) {
 				if (!gotlow) {
-					SetOutputCVPitchLo(totpitch, true);
+					send_cv_pitch_lo(totpitch, true);
 					gotlow = true;
 				}
 				if (arpmode < 0 || (arpbits & (1 << fi))) {
@@ -2004,12 +1961,11 @@ void DoAudio(u32* dst, u32* audioin) {
 		if (synthf->pres > maxpressure)
 			maxpressure = synthf->pres;
 	}
-	SetOutputCVPressure(maxpressure * 8);
-	SetOutputCVTrigger(trigout ? 65535 : 0);
+	send_cv_pressure(mini(maxpressure * 8, 65535));
+	send_cv_trigger(trigout ? true : false);
 	if (gothi)
-		SetOutputCVPitchHi(pitchhi, true);
-	SetOutputCVGate(maxvol);
-	AdvanceCVOut();
+		send_cv_pitch_hi(pitchhi, true);
+	send_cv_gate(maxvol);
 	tc_stop(&_tc_audio);
 
 	if (ramsample.samplelen > 0) {
@@ -2413,8 +2369,6 @@ void EMSCRIPTEN_KEEPALIVE uitick(u32* dst, const u32* src, int half) {
 #endif
 }
 
-void cv_calib(void);
-
 void reflash(void) {
 	oled_clear();
 	draw_str(0, 0, F_16_BOLD, "Re-flash");
@@ -2592,10 +2546,10 @@ void test_jig(void) {
 	oled_flip();
 	HAL_Delay(100);
 	enable_audio = EA_PASSTHRU;
-	SetOutputCVTrigger(0);
-	SetOutputCVClk(0);
-	SetOutputCVGate(0);
-	SetOutputCVPressure(0);
+	send_cv_trigger(false);
+	send_cv_clock(false);
+	send_cv_gate(0);
+	send_cv_pressure(0);
 	int gndcalib[ADC_CHANS] = {0};
 	int refcalib[ADC_CHANS] = {0};
 	float pdac[2][2] = {0};
@@ -2648,9 +2602,9 @@ void test_jig(void) {
 		}
 #endif
 		for (int iter = 0; iter < 4; ++iter) {
-			SetOutputCVClk(0);
+			send_cv_clock(false);
 			HAL_Delay(3);
-			SetOutputCVClk(65535);
+			send_cv_clock(true);
 			HAL_Delay(3);
 		}
 		if (gotclkin != 4)
@@ -2661,12 +2615,12 @@ void test_jig(void) {
 			for (int lohi = 0; lohi < numlohi; ++lohi) {
 				int data = lohi ? 49152 : 0;
 				int pitch = lohi ? PITCH_4V_OUT : PITCH_1V_OUT;
-				SetOutputCVTrigger(data);
-				SetOutputCVClk(data);
-				SetOutputCVGate(data);
-				SetOutputCVPressure(data);
-				SetOutputCVPitchLo(pitch, 0);
-				SetOutputCVPitchHi(pitch, 0);
+				send_cv_trigger(data > 0 ? true : false);
+				send_cv_clock(data > 0 ? true : false);
+				send_cv_gate(data);
+				send_cv_pressure(data);
+				send_cv_pitch_lo(pitch, 0);
+				send_cv_pitch_hi(pitch, 0);
 
 				HAL_Delay(3);
 				int tot[ADC_CHANS] = {0};
@@ -2682,7 +2636,7 @@ void test_jig(void) {
 					}
 					for (int j = 0; j < ADC_SAMPLES; ++j)
 						for (int ch = 0; ch < ADC_CHANS; ++ch)
-							tot[ch] += adcbuf[j * ADC_CHANS + ch];
+							tot[ch] += adc_buffer[j * ADC_CHANS + ch];
 				}
 				if (lohi)
 					inverted_rectangle(0, 0, 128, 32);
@@ -2768,14 +2722,14 @@ void test_jig(void) {
 			int range = gndcalib[ch] - refcalib[ch];
 			if (range == 0)
 				range = 1;
-			cvcalib[ch].bias = zero;
+			adc_dac_calib[ch].bias = zero;
 			if (ch >= 6)
-				cvcalib[ch].scale = -1.01f / (zero + 1);
+				adc_dac_calib[ch].scale = -1.01f / (zero + 1);
 			else if (ch == 0)
-				cvcalib[ch].scale =
+				adc_dac_calib[ch].scale =
 				    -2.5f / range; // range is measured off 2.5; so this scales it so that we get true volts out
 			else
-				cvcalib[ch].scale =
+				adc_dac_calib[ch].scale =
 				    (-2.5f / 5.f)
 				    / range; // range is measured off 2.5; so this scales it so that we get 1 out for 5v in
 		}
@@ -2793,8 +2747,8 @@ void test_jig(void) {
 			float zero = PITCH_1V_OUT - scale_per_volt * pdac[dacch][0];
 			DebugLog("dac channel %d has zero at %d and %d steps per volt, should be around 42500 and -8000 ish\r\n",
 			         dacch, (int)zero, (int)scale_per_volt);
-			cvcalib[dacch + 8].bias = zero;
-			cvcalib[dacch + 8].scale = scale_per_volt * (1.f / (2048.f * 12.f)); // 2048 per semitone
+			adc_dac_calib[dacch + 8].bias = zero;
+			adc_dac_calib[dacch + 8].scale = scale_per_volt * (1.f / (2048.f * 12.f)); // 2048 per semitone
 		}
 
 		flash_writecalib(2);
@@ -2804,26 +2758,6 @@ void test_jig(void) {
 }
 
 void plinky_frame(void);
-
-void EMSCRIPTEN_KEEPALIVE emu_setadc(float araw, float braw, float pitchcv, float gatecv, float xcv, float ycv,
-                                     float acv, float bcv, int gateforce, int pitchsense, int gatesense) {
-#ifdef EMU
-	emupitchsense = pitchsense;
-	emugatesense = gatesense;
-#endif
-	u16* a = adcbuf;
-	for (int i = 0; i < ADC_SAMPLES; ++i) {
-		a[0] = clampi((int)(52100 - 9334.83f * pitchcv * 1.f / 12.f), 0, 65535);
-		a[1] = gateforce ? 0 : clampi((int)(31716 - 6548.11f * gatecv), 0, 65535);
-		a[2] = clampi((int)(31665 - 6548.11f * xcv), 0, 65535);
-		a[3] = clampi((int)(31666 - 6548.11f * ycv), 0, 65535);
-		a[4] = clampi((int)(31041 - 6548.11f * acv), 0, 65535);
-		a[5] = clampi((int)(31712 - 6548.11f * bcv), 0, 65535);
-		a[ADC_AKNOB] = (u16)((1.f - araw) * 65535);
-		a[ADC_BKNOB] = (u16)((1.f - braw) * 65535);
-		a += ADC_CHANS;
-	}
-}
 
 // #define BITBANG
 void SetExpanderDAC(int chan, int data) {
@@ -3065,18 +2999,13 @@ void EMSCRIPTEN_KEEPALIVE plinky_init(void) {
 	reset_touches();
 	tc_init();
 
-	adc_init();
-#ifdef EMU
-	emu_setadc(0.5f, 0.5f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, false, false, false);
-#endif
-	dac_init();
 	HAL_Delay(100); // stablise power before bringing oled up
 	gfx_init();     // also initializes oled
 	check_bootloader_flash();
 	reverb_clear(); // ram2 is not cleared by startup.s as written.
 	delay_clear();
 	codec_init();
-	adc_start(); // also dac_start effectively
+	adc_dac_init();
 
 #ifdef EMU
 	void EmuStartSound(void);
@@ -3125,11 +3054,11 @@ void EMSCRIPTEN_KEEPALIVE plinky_init(void) {
 		flash_writecalib(3);
 	}
 	HAL_Delay(80);
-	int knoba = GetADCSmoothedNoCalib(ADC_AKNOB);
-	int knobb = GetADCSmoothedNoCalib(ADC_BKNOB);
+	int knoba = adc_get_raw(ADC_A_KNOB);
+	int knobb = adc_get_raw(ADC_B_KNOB);
 	leds_bootswish();
-	knoba = abs(knoba - (int)GetADCSmoothedNoCalib(ADC_AKNOB));
-	knobb = abs(knobb - (int)GetADCSmoothedNoCalib(ADC_BKNOB));
+	knoba = abs(knoba - (int)adc_get_raw(ADC_A_KNOB));
+	knobb = abs(knobb - (int)adc_get_raw(ADC_B_KNOB));
 	DebugLog("knob turned by %d,%d during boot\r\n", knoba, knobb);
 	//  turn knobs during boot to force calibration
 #ifndef WASM

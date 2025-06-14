@@ -1,4 +1,5 @@
 #include "shift_states.h"
+#include "hardware/adc_dac.h"
 #include "hardware/touchstrips.h"
 #include "pad_actions.h"
 #include "synth/params.h"
@@ -10,18 +11,17 @@ extern u32 ramtime[GEN_LAST];        // system
 extern u8 copy_request;              // system
 extern u32 record_flashaddr_base;    // system
 extern s8 selected_preset_global;    // system
-extern knobsmoother adc_smooth[8];   // ADC
-extern float knobbase[2];            // potentiometers
 extern bool got_ui_reset;            // timing
 extern u32 tick;                     // timing
 extern s8 enable_audio;              // audio
+extern float knobbase[2];            // sequencer
 extern u8 playmode;                  // sequencer
 extern u8 recording_knobs;           // sequencer
 extern s8 cur_step;                  // sequencer
 extern bool recording;               // sequencer
 extern PatternQuarter rampattern[4]; // sequencer
 extern SampleInfo ramsample;         // sampler
-extern knobsmoother recgain_smooth;  // sampler
+extern ValueSmoother recgain_smooth; // sampler
 extern int audiorec_gain_target;     // sampler
 extern u8 edit_sample0;              // sampler
 extern u8 recsliceidx;               // sampler
@@ -39,7 +39,7 @@ extern bool isplaying(void);
 extern void clear_latch(void);
 extern void set_cur_step(u8 newcurstep, bool triggerit);
 extern void check_curstep(void);
-extern void knobsmooth_reset(knobsmoother* s, float ival);
+extern void knobsmooth_reset(ValueSmoother* s, float ival);
 // - all of these need cleaning up
 
 #define SHORT_PRESS_TIME 250 // ms
@@ -156,8 +156,8 @@ void shift_set_state(ShiftState new_state) {
 	case SS_RECORD:
 		// this belongs in the sequencer
 		// also recording_knobs is currently not implented
-		knobbase[0] = adc_smooth[4].y2;
-		knobbase[1] = adc_smooth[5].y2;
+		knobbase[0] = adc_get_smooth(ADC_S_A_KNOB);
+		knobbase[1] = adc_get_smooth(ADC_S_B_KNOB);
 		recording_knobs = 0;
 		break;
 	case SS_PLAY:

@@ -1,40 +1,51 @@
 #pragma once
 
-u8 arpbits; // the output of the arpeggiator - which fingers are down
+u8 arpbits;     // the output of the arpeggiator - which fingers are down
 bool arpretrig; // causes the notes to re-attack
 
 s8 curarpfinger;
 s8 arpoctave;
 u8 arpdir;
 s8 arp_nonpedalfinger;
-u8 arpused,arpused2;
+u8 arpused, arpused2;
 s8 arpmode;
 s32 freearpclock;
 #ifdef WIN32
 int __builtin_popcount(int x) {
 	int c = 0;
-	while (x) { c++; x &= x - 1; }
+	while (x) {
+		c++;
+		x &= x - 1;
+	}
 	return c;
 }
 int __builtin_popcountll(unsigned long long x) {
 	int c = 0;
-	while (x) { c++; x &= x - 1; }
+	while (x) {
+		c++;
+		x &= x - 1;
+	}
 	return c;
 }
 int __builtin_ctzll(unsigned long long x) {
-	if (!x) return 64;
+	if (!x)
+		return 64;
 	int c = 0;
-	while (!(x&(1ull<<c))) { c++; }
+	while (!(x & (1ull << c))) {
+		c++;
+	}
 	return c;
 }
 #endif
 
 u8 pickrandombit(u8 mask) {
-	if (!mask) return 0;
+	if (!mask)
+		return 0;
 	int num = __builtin_popcount(mask);
 	num = rand() % num;
-	for (; num--;) mask &= mask - 1;
-	return mask ^ (mask & (mask-1));
+	for (; num--;)
+		mask &= mask - 1;
+	return mask ^ (mask & (mask - 1));
 }
 u8 nextup(u8 allowedfingers) {
 	s8 prevarpfinger = curarpfinger;
@@ -55,9 +66,10 @@ u8 nextdown(u8 allowedfingers) {
 	return (prevarpfinger <= curarpfinger);
 }
 
-void arp_reset_impl(bool partial) { // a 'partial' reset is used when it panics that none of the fingers that are down match the currently set arp bits.
+void arp_reset_impl(bool partial) { // a 'partial' reset is used when it panics that none of the fingers that are down
+	                                // match the currently set arp bits.
 #ifdef EMU
-	if (curarpfinger >= 0) 
+	if (curarpfinger >= 0)
 		EmuDebugLog("!!ARP RESET\r\n");
 #endif
 	arpretrig = false;
@@ -68,7 +80,7 @@ void arp_reset_impl(bool partial) { // a 'partial' reset is used when it panics 
 	arp_nonpedalfinger = -2;
 	freearpclock = 0;
 	arp_divide_counter = 0;
-	ticks_since_arp = 0; 
+	ticks_since_arp = 0;
 	if (!partial) {
 		curarpfinger = -1;
 		arpoctave = 0;
@@ -76,7 +88,7 @@ void arp_reset_impl(bool partial) { // a 'partial' reset is used when it panics 
 	}
 }
 
- void arp_reset(void) {
+void arp_reset(void) {
 	arp_reset_impl(false);
 }
 
@@ -84,7 +96,7 @@ static inline void arp_reset_partial(void) {
 	arp_reset_impl(true);
 }
 
-bool euclidstuff(euclid_state *s, int patlen, int prob, int arpmode) {
+bool euclidstuff(euclid_state* s, int patlen, int prob, int arpmode) {
 	int aprob = clampi((abs(prob) + 256) >> 9, 0, 128);
 	int apatlen = abs(patlen);
 	bool click;
@@ -95,7 +107,7 @@ bool euclidstuff(euclid_state *s, int patlen, int prob, int arpmode) {
 			click = (rand() & 127) < aprob;
 	}
 	else {
-		float k = aprob * (1.f / 128.f); //arpeuclid / (float) (abspatlen);
+		float k = aprob * (1.f / 128.f);                                  // arpeuclid / (float) (abspatlen);
 		click = (floor(s->trigcount * k) != floor(s->trigcount * k - k)); // euclidian rhythms!
 	}
 	s->trigcount++;
@@ -104,7 +116,7 @@ bool euclidstuff(euclid_state *s, int patlen, int prob, int arpmode) {
 		s->trigcount %= apatlen;
 	}
 	if ((patlen < 0) ^ (prob < 0)) {
-		// if patlen or prob are negative, then we clock at a regular rate but silence some steps 
+		// if patlen or prob are negative, then we clock at a regular rate but silence some steps
 		step = true;
 		s->supress = !click;
 	}
@@ -210,7 +222,7 @@ void arptrig(u8 fingerdown_music) {
 		int i = 1;
 	}
 	pt = audiotime;
-	EmuDebugLog("arp %d %d %d\r\n", arpstep, arpretrig,delta);
+	EmuDebugLog("arp %d %d %d\r\n", arpstep, arpretrig, delta);
 #endif
 
 	if (!arpstep)
@@ -219,33 +231,38 @@ void arptrig(u8 fingerdown_music) {
 	u8 allowedfingers = fingerdown_music;
 	if (arpmode >= ARP_UP8)
 		allowedfingers = 0xff;
-	int maxoctave = (arpoctaves+1) / 2;
+	int maxoctave = (arpoctaves + 1) / 2;
 	int minoctave = maxoctave - arpoctaves;
 	switch (arpmode) {
-	default: return;
+	default:
+		return;
 	case ARP_ALL:
 		arpbits = allowedfingers;
 		// in chord mode, with no euclid rhythm, we randomly drop chord notes
 		if (abs(arppatlen) <= 1) {
 			int aprob = abs(prob);
-			for (int i = 0; i < 8; ++i) if (arpbits & (1 << i)) {
-				bool click = (rand() & 32767) < (aprob>>1); 
-				if (!click) arpbits ^= (1 << i);
-			}
+			for (int i = 0; i < 8; ++i)
+				if (arpbits & (1 << i)) {
+					bool click = (rand() & 32767) < (aprob >> 1);
+					if (!click)
+						arpbits ^= (1 << i);
+				}
 		}
 		break;
-	case ARP_PEDALDOWN: case ARP_PEDALUP: case ARP_PEDALUPDOWN:
-	{
+	case ARP_PEDALDOWN:
+	case ARP_PEDALUP:
+	case ARP_PEDALUPDOWN: {
 		if (arp_nonpedalfinger >= 0 && allowedfingers & (1 << arp_nonpedalfinger)) {
-			//for pedal, if we have a remembered arpfinger, we just play that
+			// for pedal, if we have a remembered arpfinger, we just play that
 			curarpfinger = arp_nonpedalfinger;
 			arp_nonpedalfinger = -2;
 		}
 		else {
-			//otherwise we are due to play the pedal, we instead remove the pedal note from the allowed fingers
-			//then we do the logic as usual
+			// otherwise we are due to play the pedal, we instead remove the pedal note from the allowed fingers
+			// then we do the logic as usual
 			u8 allowed_no_pedal = allowedfingers & (allowedfingers - 1);
-			if (allowed_no_pedal == 0) allowed_no_pedal = allowedfingers;
+			if (allowed_no_pedal == 0)
+				allowed_no_pedal = allowedfingers;
 			if (arpmode == ARP_PEDALDOWN || (arpmode == ARP_PEDALUPDOWN && arpdir))
 				arpdownwards(allowed_no_pedal, minoctave, maxoctave);
 			else
@@ -257,20 +274,27 @@ void arptrig(u8 fingerdown_music) {
 		}
 		break;
 	}
-	case ARP_UPDOWN: case ARP_UPDOWN8: case ARP_UPDOWNREP:
+	case ARP_UPDOWN:
+	case ARP_UPDOWN8:
+	case ARP_UPDOWNREP:
 		if (arpdir)
 			arpdownwards(allowedfingers, minoctave, maxoctave);
 		else
 			arpupwards(allowedfingers, minoctave, maxoctave);
 		break;
-	case ARP_UP: case ARP_UP8:
-		arpupwards(allowedfingers,minoctave,maxoctave);
+	case ARP_UP:
+	case ARP_UP8:
+		arpupwards(allowedfingers, minoctave, maxoctave);
 		break;
-	case ARP_DOWN: case ARP_DOWN8:
+	case ARP_DOWN:
+	case ARP_DOWN8:
 		arpdownwards(allowedfingers, minoctave, maxoctave);
 		break;
-	case ARP_RANDOM: case ARP_RANDOM8: case ARP_RANDOM2: case ARP_RANDOM28:
-		arprandom(allowedfingers,minoctave,maxoctave);
+	case ARP_RANDOM:
+	case ARP_RANDOM8:
+	case ARP_RANDOM2:
+	case ARP_RANDOM28:
+		arprandom(allowedfingers, minoctave, maxoctave);
 		break;
 	}
 	if (arp_rhythm.supress)
@@ -281,7 +305,7 @@ void arptrig(u8 fingerdown_music) {
 	synthfingertrigger |= arpbits;
 }
 
-void seq_reset(void ) {
+void seq_reset(void) {
 	ticks_since_step = 0;
 	seq_divide_counter = 0;
 	seq_rhythm.trigcount = 0;
@@ -293,7 +317,7 @@ void seq_step(int initial) { // initial means - this is the initial clock pulse 
 	int seqpatlen = param_eval_int(P_SEQLEN, any_rnd, env16, pressure16);
 	int prob = param_eval_int(P_SEQPROB, any_rnd, env16, pressure16);
 	bool controlled_by_gatecv = seqdiv < 0;
-	if (initial>0) {
+	if (initial > 0) {
 		arp_reset();
 		seq_divide_counter = 0;
 		ticks_since_step = 0;
@@ -306,8 +330,9 @@ void seq_step(int initial) { // initial means - this is the initial clock pulse 
 	}
 	seq_divide_counter++;
 
-	if (initial>=0)	if (seq_divide_counter <= seqdiv || controlled_by_gatecv) // if initial is negative, we FORCE a step
-		return;
+	if (initial >= 0)
+		if (seq_divide_counter <= seqdiv || controlled_by_gatecv) // if initial is negative, we FORCE a step
+			return;
 	seq_divide_counter = 0;
 	last_step_period = ticks_since_step;
 	ticks_since_step = 0;
@@ -315,7 +340,8 @@ void seq_step(int initial) { // initial means - this is the initial clock pulse 
 	int prevstep = cur_step;
 	if (!isplaying()) {
 		seq_rhythm.did_a_retrig = false;
-	} else { // playing!
+	}
+	else { // playing!
 		// actually advance!
 		bool seqretrig = euclidstuff(&seq_rhythm, seqpatlen, prob, -1);
 		if (!seqretrig)
@@ -350,7 +376,8 @@ void seq_step(int initial) { // initial means - this is the initial clock pulse 
 			set_cur_step(cur_step + (seq_dir ? -1 : 1), true);
 			if (looped)
 				OnLoop();
-			break; }
+			break;
+		}
 		case SEQ_PINGPONGREP: {
 			int end = rampreset.looplen_step + loopstart_step - 1;
 			if (seq_dir == 0 && cur_step >= end) {
@@ -370,7 +397,8 @@ void seq_step(int initial) { // initial means - this is the initial clock pulse 
 		case SEQ_RANDOM: {
 			int len = rampreset.looplen_step & 63;
 			uint64_t mask = len ? (((uint64_t)1) << len) - 1 : ~0ull;
-			uint64_t bits = mask & ~(seq_used_bits >> loopstart_step); // bitmask of which steps we are allowed to choose from
+			uint64_t bits =
+			    mask & ~(seq_used_bits >> loopstart_step); // bitmask of which steps we are allowed to choose from
 			bool looped = false;
 			if (!bits) {
 				seq_used_bits = 0;
@@ -378,7 +406,8 @@ void seq_step(int initial) { // initial means - this is the initial clock pulse 
 				looped = true;
 			}
 			int n = bits ? rand() % __builtin_popcountll(bits) : 1; // pick a random bit number
-			while (n-- > 0) bits &= bits - 1; // peel off the bits
+			while (n-- > 0)
+				bits &= bits - 1; // peel off the bits
 			int step = bits ? __builtin_ctzll(bits) : 0;
 			set_cur_step(loopstart_step + step, true);
 			if (looped)
@@ -394,42 +423,38 @@ void seq_step(int initial) { // initial means - this is the initial clock pulse 
 	}
 }
 
-
 void update_arp(bool clock) {
 	arpretrig = false;
-//	bool called_trig = false;
+	//	bool called_trig = false;
 	arpmode = ((rampreset.flags & FLAGS_ARP)) ? param_eval_int(P_ARPMODE, any_rnd, env16, pressure16) : -1;
-	if (arpmode>=0 && !isgrainpreview()) {
+	if (arpmode >= 0 && !isgrainpreview()) {
 		int div = param_eval_int(P_ARPDIV, any_rnd, env16, pressure16);
 		if (div < 0) {
 			u32 dclock = (u32)(table_interp(pitches, 32768 + (-div >> 2)) * (1 << 24));
 			freearpclock -= dclock;
 			clock = freearpclock < 0;
 			if (clock) {
-				freearpclock += 1<<31;
+				freearpclock += 1 << 31;
 				arp_divide_counter = 0;
 			}
 			div = 0;
 		}
 		else {
-			div = divisions[(clampi(div, 0,65535) * DIVISIONS_MAX) >>16]-1;
+			div = divisions[(clampi(div, 0, 65535) * DIVISIONS_MAX) >> 16] - 1;
 		}
 		if (arp_divide_counter > div)
 			arp_divide_counter = 0;
 		if (clock) {
 			if (arp_divide_counter <= 0) {
-//				called_trig = true;
+				//				called_trig = true;
 				last_arp_period = ticks_since_arp;
 				ticks_since_arp = 0;
 				arptrig(synthfingerdown_nogatelen);
 				arp_divide_counter = 0;
 			}
 			arp_divide_counter++;
-			
 		}
-		
 	}
-
 }
 
 void OnGotReset(void) {
@@ -443,28 +468,28 @@ void OnGotReset(void) {
 }
 
 extern volatile u8 gotclkin;
-volatile u8 gotclkin=0;
-
-
+volatile u8 gotclkin = 0;
 
 int update_clock(void) { // returns 1 for clock, 2 for half clock, 0 for neither
 	tick++;
 	bool gotclock = false;
 	//////////////////////////////////////////// eurorack clock input
-	static u8 prevgotclk=0;
-	u8 newgotclk=gotclkin;
-	if(newgotclk!=prevgotclk) {
-		prevgotclk=newgotclk;
-		gotclock=true;
-		external_clock_enable=true;
+	static u8 prevgotclk = 0;
+	u8 newgotclk = gotclkin;
+	if (newgotclk != prevgotclk) {
+		prevgotclk = newgotclk;
+		gotclock = true;
+		external_clock_enable = true;
 	}
 
-	if (/*(reset_in_high && !reset_in_high_prev) || */got_ui_reset) { // TODO - if audio in level is turned down, look for pulses?
+	if (/*(reset_in_high && !reset_in_high_prev) || */ got_ui_reset) { // TODO - if audio in level is turned down, look
+		                                                               // for pulses?
 		OnGotReset();
-	} else 	if (playmode == PLAYING && seqdiv < 0 && getgatesense()) {
+	}
+	else if (playmode == PLAYING && seqdiv < 0 && cv_gate_present()) {
 		// gate cv controls step
 		static bool curgate_digital = true;
-		float curgate = GetADCSmoothed(ADC_GATE);
+		float curgate = adc_get_calib(ADC_GATE);
 		float thresh = curgate_digital ? 0.01f : 0.02f;
 		bool newgate_digital = curgate > thresh;
 		if (newgate_digital && !curgate_digital) {
@@ -491,28 +516,28 @@ int update_clock(void) { // returns 1 for clock, 2 for half clock, 0 for neither
 			gotclock = true;
 		}
 	}
-	////////////////////////////////////////////////////// clock advance 
+	////////////////////////////////////////////////////// clock advance
 	ticks_since_clock++;
 	ticks_since_step++;
 	ticks_since_arp++;
 
 	if (!gotclock) {
-		SetOutputCVClk(0); // trigger style clock
+		send_cv_clock(false); // trigger style clock
 		if (ticks_since_clock == last_clock_period / 2) {
-			SetOutputCVClk(0);
+			send_cv_clock(false);
 			seq_step(0);
 			return 2;
 		}
 		return 0;
 	}
-	SetOutputCVClk(65535);
+	send_cv_clock(true);
 	if (external_clock_enable) {
 		// figure out bpm from the external clock's last 2 periods
 		float avgclockperiod_per_sec = (ticks_since_clock + last_clock_period) * (0.5f * BLOCK_SAMPLES / ACCURATE_FS);
 		float guessed_bpm = (1200.f / 8.f) / maxf(1.f / 16.f, avgclockperiod_per_sec);
-		guessed_bpm+=(bpm10x-guessed_bpm)*(1.f-0.2f); // smooth it a bit
-		bpm10x = (int)(guessed_bpm+0.5f);
-	}		
+		guessed_bpm += (bpm10x - guessed_bpm) * (1.f - 0.2f); // smooth it a bit
+		bpm10x = (int)(guessed_bpm + 0.5f);
+	}
 
 	last_clock_period = ticks_since_clock;
 	ticks_since_clock = 0;

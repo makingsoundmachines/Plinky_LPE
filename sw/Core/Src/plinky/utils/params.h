@@ -857,7 +857,7 @@ static inline int param_eval_int_noscale(u8 paramidx, int rnd, int env16, int pr
 	return clampi(tv >> FULLBITS, (flags & FLAG_SIGNED) ? -65536 : 0, maxi ? 65535 : 65536);
 }
 
-static inline int param_eval_int(u8 paramidx, int rnd, int env16, int pressure16) { // 16 bit fp
+int param_eval_int(u8 paramidx, int rnd, int env16, int pressure16) { // 16 bit fp
 	u8 flags = param_flags[paramidx];
 	u8 maxi = flags & FLAG_MASK;
 	int tv = param_eval_int_noscale(paramidx, rnd, env16, pressure16);

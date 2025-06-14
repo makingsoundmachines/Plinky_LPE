@@ -109,7 +109,6 @@ extern "C" {
 	extern Preset rampreset;
 	extern PatternQuarter rampattern[4];
 	extern s8 cur_step;
-#include "../Core/Src/plinky/low_level/adc.h"
 #include "../Core/Src/plinky/defs/enums.h"
 	extern const short wavetable[WT_LAST][WAVETABLE_SIZE ];
 }

@@ -483,8 +483,8 @@ void DrawFlags() {
 		draw_str(-(128 - 17), 32 - 7, F_8, "latch");
 	}
 	gfx_text_color = 1;
-	vline(126, 32 - (maxpressure_out / 8), 32, 1);
-	vline(127, 32 - (maxpressure_out / 8), 32, 1);
+	vline(126, 32 - (cv_pressure_out / 8), 32, 1);
+	vline(127, 32 - (cv_pressure_out / 8), 32, 1);
 }
 
 const char* getparamstr(int p, int mod, int v, char* valbuf, char* decbuf) {
@@ -605,8 +605,8 @@ void edit_mode_ui(void) {
 
 	oled_clear();
 
-	float damping = life_damping; // / 65536.f * adcbuf[ADC_POT1];
-	float force = life_force;     // / 65536.f * adcbuf[ADC_POT2];
+	float damping = life_damping;
+	float force = life_force;
 	float* prev = surf[frame & 1][0];
 	frame++;
 	float* next = surf[frame & 1][0];
@@ -713,8 +713,8 @@ void edit_mode_ui(void) {
 			int xtab = 0;
 			if (pending_preset != 255 && pending_preset != sysparams.curpreset)
 				xtab = fdraw_str(0, 0, F_20_BOLD, "%c%d->%d", preseticon, sysparams.curpreset + 1, pending_preset + 1);
-			else if (maxpressure_out > 1 && !(ramsample.samplelen && !ramsample.pitched)) {
-				xtab = fdraw_str(0, 0, F_20_BOLD, "%s", notename((pitchhi_out + 1024) / 2048));
+			else if (cv_pressure_out > 1 && !(ramsample.samplelen && !ramsample.pitched)) {
+				xtab = fdraw_str(0, 0, F_20_BOLD, "%s", notename((cv_pitch_hi_out + 1024) / 2048));
 			}
 			else
 				xtab = fdraw_str(0, 0, F_20_BOLD, "%c%d", preseticon, sysparams.curpreset + 1);
@@ -862,11 +862,7 @@ draw_parameter:
 	int loopbright = 96;
 	int phase0 = calcseqsubstep(0, 8);
 
-	int cvpitch = (int)(adc_smooth[6].y2 * (512.f * 12.f)); // pitch cv input
-	int cvquant = param_eval_int(P_CV_QUANT, any_rnd, env16, pressure16);
-	if (cvquant) {
-		cvpitch = (cvpitch + 256) & (~511);
-	}
+	int cvpitch = adc_get_smooth(ADC_S_PITCH);
 
 	for (int fi = 0; fi < 8; ++fi) {
 		Touch* synthf = touch_synth_getlatest(fi);
@@ -878,6 +874,7 @@ draw_parameter:
 		u32 scale = param_eval_finger(P_SCALE, fi, synthf);
 		if (scale >= S_LAST)
 			scale = 0;
+		int cvquant = param_eval_int(P_CV_QUANT, any_rnd, env16, pressure16);
 		if (cvquant == CVQ_SCALE) {
 			// remap the 12 semitones input to the scale steps, evenly, with a slight offset so white keys map to major
 			// scale etc
