@@ -527,10 +527,6 @@ void seq_draw_step_recording(void) {
 	for (u8 i = 0; i <= 8; i++)
 		vline(i * spacing + left_offset, y, y + 7 - (i & 1) * 3, 2);
 
-	// not recording
-	if (visuals_substep == 0)
-		return;
-
 	// recording into substeps
 	if (visuals_substep <= 8) {
 		for (u8 i = 0; i < visuals_substep; i++)
