@@ -1,6 +1,5 @@
 // clang-format off
-#define AVG_GRAINBUF_SAMPLE_SIZE 68 // 2 extra for interpolation, 2 extra for SPI address at the start
-#define GRAINBUF_BUDGET (AVG_GRAINBUF_SAMPLE_SIZE*32)
+#include "utils.h"
 #define MAX_SPI_STATE 32
 
 int grainpos[32];

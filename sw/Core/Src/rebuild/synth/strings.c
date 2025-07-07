@@ -1,4 +1,5 @@
 #include "strings.h"
+#include "data/tables.h"
 #include "hardware/adc_dac.h"
 #include "hardware/midi.h"
 #include "hardware/midi_defs.h"
@@ -17,15 +18,12 @@ extern u8 rampattern_idx;
 extern u8 cur_pattern;
 extern u32 ramtime[GEN_LAST];
 extern euclid_state seq_rhythm;
-extern Voice voices[8];
 bool isplaying(void);
 void set_cur_step(u8 newcurstep, bool triggerit);
 int calcseqsubstep(int tick_offset, int maxsubsteps);
 FingerRecord* readpattern(int string_id);
 int param_eval_finger(u8 paramidx, int fingeridx, Touch* f);
 // -- needs cleaning up
-
-#define NUM_OSCILLATORS 4
 
 // current frame in string_touch
 static u8 strings_write_frame;
@@ -486,7 +484,7 @@ static u8 find_free_midi_string(u8 midi_note_number, u16* midi_note_position, u8
 	// collect non-pressed, non-sounding strings
 	for (u8 string_id = 0; string_id < 8; string_id++) {
 		if (!(midi_pressure_override & (1 << string_id)) && !(write_string_touched & (1 << string_id))
-		    && voices[string_id].vol < 0.001f) {
+		    && voices[string_id].env1_lvl < 0.001f) {
 			string_option[num_string_options] = string_id;
 			num_string_options++;
 		}
@@ -514,8 +512,8 @@ static u8 find_free_midi_string(u8 midi_note_number, u16* midi_note_position, u8
 	}
 	// find quietest
 	for (u8 option_id = 0; option_id < num_string_options; option_id++) {
-		if (voices[string_option[option_id]].vol < min_vol) {
-			min_vol = voices[string_option[option_id]].vol;
+		if (voices[string_option[option_id]].env1_lvl < min_vol) {
+			min_vol = voices[string_option[option_id]].env1_lvl;
 			min_string_id = string_option[option_id];
 		}
 	}

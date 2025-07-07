@@ -4,7 +4,6 @@
 #include "hardware/cv.h"
 #include "synth/params.h"
 // clang-format off
-#include "wtenum.h"
 
 enum ECats {
 	CAT_BLANK,

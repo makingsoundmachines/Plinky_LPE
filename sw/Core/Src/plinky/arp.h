@@ -1,4 +1,5 @@
 #pragma once
+#include "data/tables.h"
 
 u8 arpbits;     // the output of the arpeggiator - which fingers are down
 bool arpretrig; // causes the notes to re-attack
@@ -427,7 +428,7 @@ void update_arp(bool clock) {
 	arpretrig = false;
 	//	bool called_trig = false;
 	arpmode = ((rampreset.flags & FLAGS_ARP)) ? param_eval_int(P_ARPMODE, any_rnd, env16, pressure16) : -1;
-	if (arpmode >= 0 && !isgrainpreview()) {
+	if (arpmode >= 0 && (ui_mode != UI_SAMPLE_EDIT)) {
 		int div = param_eval_int(P_ARPDIV, any_rnd, env16, pressure16);
 		if (div < 0) {
 			u32 dclock = (u32)(table_interp(pitches, 32768 + (-div >> 2)) * (1 << 24));

@@ -1,3 +1,4 @@
+#include "data/tables.h"
 #include "synth/params.h"
 #include "synth/pitch_tools.h"
 
@@ -140,7 +141,6 @@ float knobbase[2];
 u32 flashtime[GEN_LAST]; // for each thing we care about, what have we written to?
 u32 ramtime[GEN_LAST]; //...and what has the UI set up? 
 
-static u8 const zero[2048]={0};
 typedef struct FlashPage {
 	union {
 		u8 raw[2048 - sizeof(SysParams) - sizeof(PageFooter)];

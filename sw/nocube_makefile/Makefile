@@ -32,12 +32,14 @@ MAP = $(BUILD_DIR)/plinkyblack.map
 
 # Source files
 SRCS = \
+	../Core/Src/rebuild/data/tables.c \
 	../Core/Src/rebuild/hardware/adc_dac.c \
 	../Core/Src/rebuild/hardware/cv.c \
 	../Core/Src/rebuild/hardware/encoder.c \
 	../Core/Src/rebuild/hardware/leds.c \
 	../Core/Src/rebuild/hardware/midi.c \
 	../Core/Src/rebuild/hardware/touchstrips.c \
+	../Core/Src/rebuild/synth/sampler.c \
 	../Core/Src/rebuild/synth/strings.c \
 	../Core/Src/rebuild/synth/synth.c \
 	../Core/Src/rebuild/ui/pad_actions.c \

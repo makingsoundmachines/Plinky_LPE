@@ -1,60 +1,56 @@
 #include "synth.h"
+#include "data/tables.h"
 #include "hardware/adc_dac.h"
 #include "hardware/cv.h"
 #include "hardware/midi.h"
 #include "hardware/midi_defs.h"
 #include "hardware/touchstrips.h"
+#include "params.h"
 #include "pitch_tools.h"
+#include "sampler.h"
 #include "strings.h"
+#include "testing/tick_counter.h"
+#include "ui/ui.h"
 
 // cleanup
-void RunVoice(Voice* v, int fingeridx, u32* outbuf);
 int param_eval_int(u8 paramidx, int rnd, int env16, int pressure16);
-float table_interp(const float* table, int x);
-extern Voice voices[8];
 extern s8 arpoctave;
 extern s8 arpmode;
 extern u8 arpbits;
 extern u16 any_rnd;
 extern int env16;
 extern int pressure16;
+extern Preset rampreset;
+extern SampleInfo ramsample;
+extern bool arpretrig;
+
+int param_eval_finger(u8 paramidx, int voice_id, Touch* s_touch);
+
+#define clz __builtin_clz
+#define unlikely(x) __builtin_expect((x), 0)
+#define SMUAD(o, a, b) asm("smuad %0, %1, %2" : "=r"(o) : "r"(a), "r"(b))
 // -- cleanup
 
-static bool got_high_pitch = false; // did we get a high pitch?
-static s32 cv_gate_value;           // cv gate value
-static bool got_low_pitch = false;  // did we get a low pitch?
-static s32 strings_low_pitch = 0;   // pitch on lowest string seen
-bool cv_trig_high = false;          // should cv trigger be high?
-s32 strings_high_pitch = 0;         // pitch on highest string seen
-u16 strings_max_pressure = 0;       // highest pressure seen
+Voice voices[NUM_VOICES];
 
-// initialize oscillator generation
-static void init_strings_for_osc_generation(void) {
-	// clear variables
+static bool cv_trig_high = false;   // should cv trigger be high?
+static s32 cv_gate_value;           // cv gate value
+static bool got_high_pitch = false; // did we save a high pitch?
+s32 high_string_pitch = 0;          // pitch on highest touched string
+static bool got_low_pitch = false;  // did we save a low pitch?
+static s32 low_string_pitch = 0;    // pitch on lowest touched string
+u16 synth_max_pres = 0;             // highest pressure seen
+
+static void osc_generation_init(void) {
 	cv_trig_high = false;
 	got_high_pitch = false;
 	cv_gate_value = 0;
 	got_low_pitch = false;
-	strings_max_pressure = 0;
-
-	// some pre-calculations
-	for (u8 string_id = 0; string_id < NUM_STRINGS; string_id++) {
-		u8 mask = 1 << string_id;
-		// midi note is playing its release phase and has rung out
-		if ((midi_pitch_override & mask) && !(midi_pressure_override & mask) && !(midi_suppress & mask)
-		    && (voices[string_id].vol < 0.001f))
-			// disable pitch override, this truly turns off the note
-			midi_pitch_override &= ~mask;
-		// max pres for all strings
-		Touch* s_touch = get_string_touch(string_id);
-		if (s_touch->pres > strings_max_pressure)
-			strings_max_pressure = s_touch->pres;
-	}
+	synth_max_pres = 0;
 }
 
 // take string values, calculate osc pitches and write them to voice
-static void generate_oscs_from_string(u8 string_id, Voice* voice) {
-	Touch* s_touch = get_string_touch(string_id);
+void generate_oscs(u8 string_id, Voice* voice, Touch* s_touch) {
 	float pres_scaled = s_touch->pres * 1.f / TOUCH_MAX_POS;
 
 	// rj: cv_gate_value is in practice another expression of the maximum pressure over all strings, which goes against
@@ -115,11 +111,11 @@ static void generate_oscs_from_string(u8 string_id, Voice* voice) {
 	Touch* s_touch_sort = sorted_string_touch_ptr(string_id) + 2;
 
 	// loop through oscillators
-	for (u8 osc_id = 0; osc_id < NUM_OSCILLATORS; ++osc_id) {
+	for (u8 osc_id = 0; osc_id < OSCS_PER_VOICE; ++osc_id) {
 		// for midi
 		if ((midi_pitch_override & mask) && !(midi_suppress & mask)) {
 			// generate pitch spread
-			fine_pitch = (osc_id - 2) * 64;
+			fine_pitch = (osc_id - 2) * 64 * param_eval_finger(P_MICROTUNE, string_id, s_touch) >> 16;
 		}
 		// for touch
 		else {
@@ -146,42 +142,295 @@ static void generate_oscs_from_string(u8 string_id, Voice* voice) {
 
 		// save values
 		summed_pitch += osc_pitch;
-		voice->theosc[osc_id].pitch = osc_pitch;
-		voice->theosc[osc_id].targetdphase =
+		voice->osc[osc_id].pitch = osc_pitch;
+		voice->osc[osc_id].goal_phase_diff =
 		    maxi(65536, (s32)(table_interp(pitches, osc_pitch + PITCH_BASE) * (65536.f * 128.f)));
 		++s_touch_sort;
 	}
 
-	// these are saving respectively the lowest and highest string that are pressed, which is not necessarily
-	// always the lowest/highest pitch played
+	// these are saving respectively the lowest and highest string that are pressed
 	if (!got_low_pitch) {
-		strings_low_pitch = summed_pitch;
+		low_string_pitch = summed_pitch;
 		got_low_pitch = true;
 	}
 	if (arpmode < 0 || (arpbits & (1 << string_id))) {
-		strings_high_pitch = summed_pitch;
+		high_string_pitch = summed_pitch;
 		got_high_pitch = true;
 	}
 	// the outgoing midi note is generated from oscillator pitch
 	set_midi_goal_note(string_id, quad_pitch_to_midi_note(summed_pitch));
 }
 
+static float update_envelope(u8 voice_id, Voice* voice, Touch* s_touch) {
+	// calc goal lpg
+	float sens = param_eval_finger(P_SENS, voice_id, s_touch) * (2.f / 65536.f);
+	float goal_lpg = s_touch->pres * 1.f / TOUCH_MAX_POS * sens * sens;
+	if (goal_lpg < 0.f)
+		goal_lpg = 0.f;
+	goal_lpg *= goal_lpg;
+	goal_lpg *= 1.f + ((voice->osc[2].pitch - 43000) * (1.f / 65536.f)); // pitch compensation
+
+	// retrieve envelope
+	bool is_sample_preview = ui_mode == UI_SAMPLE_EDIT;
+	const float attack = is_sample_preview ? 0.5f : lpf_k((param_eval_finger(P_A, voice_id, s_touch)));
+	const float decay = is_sample_preview ? 1.f : lpf_k((param_eval_finger(P_D, voice_id, s_touch)));
+	const float sustain =
+	    is_sample_preview ? 1.f : squaref(param_eval_finger(P_S, voice_id, s_touch) * (1.f / 65536.f));
+	const float release = is_sample_preview ? 0.5f : lpf_k((param_eval_finger(P_R, voice_id, s_touch)));
+
+	// arp - needs some cleanup after arp reorganization
+	u8 mask = 1 << voice_id;
+	if ((arpmode >= 0) && !(arpbits & mask))
+		goal_lpg = 0.f;
+	float env_lvl = voice->env1_lvl;
+
+	// new touch or touch by arp: start new envelope
+	if (arpretrig || (string_touch_start & mask)) {
+		env_lvl *= sustain;
+		voice->env1_decaying = false;
+		cv_trig_high = true; // send cv trigger
+	}
+
+	float down_slope = goal_lpg ? decay : release; // pick the correct slope
+	if (goal_lpg <= 0.f)                           // no pressure => release phase (aka not decaying)
+		voice->env1_decaying = false;
+	else if (voice->env1_decaying) // in decay phase => aim for sustain level
+		goal_lpg *= sustain;
+
+	// apply envelope
+	float attack_threshvol = goal_lpg;
+	float lpg_diff = goal_lpg - env_lvl;
+	lpg_diff *= (lpg_diff > 0.f) ? attack : down_slope; // scale by envelope slope
+	env_lvl += lpg_diff;                                // calc the new env lvl
+	// we hit the peak! time to decay
+	if (env_lvl > attack_threshvol * 0.95f)
+		voice->env1_decaying = true;
+	// constrain to max 1.0
+	if (env_lvl > 1.f) {
+		env_lvl = 1.f;
+		voice->env1_decaying = true;
+	}
+	return env_lvl;
+}
+
+static void apply_subtractive_lpg_noise(u8 voice_id, Voice* voice, Touch* s_touch, float goal_lpg, float noise_diff,
+                                        float drive, float resonance, u32* dst) {
+	float glide = lpf_k(param_eval_finger(P_GLIDE, voice_id, s_touch) >> 2) * (0.5f / BLOCK_SAMPLES);
+
+	// oscillator shape
+	s32 osc_shape_raw = rampreset.params[P_PWM][0]; // unmodulated
+	s32 osc_shape = param_eval_finger(P_PWM, voice_id, s_touch);
+	// raw from -8 to 7, snap to 0 => supersaw
+	if (osc_shape_raw >= -8 && osc_shape_raw < 8)
+		osc_shape = 0;
+	// raw above 7, clamp to positive => wavetable
+	else if (osc_shape_raw > 0)
+		osc_shape = clampi(osc_shape, 1, 65535);
+	// raw below -8, clamp to negative => pulse wave
+	else
+		osc_shape = clampi(osc_shape, -65535, -1);
+
+	// two loops handling two oscillators each
+	float noise;
+	for (u8 osc_id = 0; osc_id < OSCS_PER_VOICE / 2; osc_id++) {
+		s16* osc_dst = ((s16*)dst) + (osc_id & 1);
+		noise = voice->noise_lvl;
+		int rand_table_pos = rand() & 16383;
+		float osc_lpg = voice->env1_lvl;
+		float osc_lpg_diff = (goal_lpg - osc_lpg) * (1.f / BLOCK_SAMPLES);
+
+		Osc* osc = &voice->osc[osc_id];
+
+		u32 flippity = 0;
+		if (osc_shape != 0) {
+			flippity = ~0;
+			{
+				u32 avg_phase_diff = (osc[0].phase_diff + osc[2].phase_diff) / 2;
+				osc[0].phase_diff = avg_phase_diff;
+				osc[2].phase_diff = avg_phase_diff;
+				avg_phase_diff = (osc[0].goal_phase_diff + osc[2].goal_phase_diff) / 2;
+				osc[0].goal_phase_diff = avg_phase_diff;
+				osc[2].goal_phase_diff = avg_phase_diff;
+				if (osc_shape < 0) {
+					s32 phase0_fix =
+					    (s32)(osc[2].phase - osc[0].phase - (osc_shape << 16) + (1 << 31)) / (BLOCK_SAMPLES);
+					osc[0].phase_diff += phase0_fix;
+					osc[0].goal_phase_diff += phase0_fix;
+				}
+			}
+		}
+		int dd_phase1 = (int)((osc->goal_phase_diff - osc->phase_diff) * glide);
+		u32 phase1 = osc->phase;
+		s32 phase1_diff = osc->phase_diff;
+		u32 prev_sample1 = osc->prev_sample;
+		osc += 2;
+		int dd_phase2 = (int)((osc->goal_phase_diff - osc->phase_diff) * glide);
+		u32 phase2 = osc->phase;
+		s32 phase2_diff = osc->phase_diff;
+		u32 prev_sample2 = osc->prev_sample;
+		osc -= 2;
+
+		float y1 = voice->lpg_smoother[osc_id].y1;
+		float y2 = voice->lpg_smoother[osc_id].y2;
+
+		// == WAVETABLE == //
+		if (osc_shape > 0) {
+			s32 shift1 = 16 - clz(maxi(phase1_diff, 1 << 22));
+			s32 sub_wave = (osc_shape & 4095) << 1;
+			sub_wave = sub_wave | ((8191 - sub_wave) << 16);
+			u8 table_id = osc_shape >> 12;
+			const s16* table1 = wavetable[table_id] + wavetable_octave_offset[shift1];
+			for (u8 i = 0; i < BLOCK_SAMPLES; ++i) {
+				u32 i1;
+				u32 i2;
+				s32 s0;
+				s32 s1;
+				phase1_diff += dd_phase1;
+				i1 = (phase1 += phase1_diff) >> shift1;
+				i2 = i1 >> 16;
+				s0 = table1[i2];
+				s1 = table1[i2 + 1];
+				s32 out0 = (s0 << 16) + ((s1 - s0) * (u16)(i1));
+				i2 += WAVETABLE_SIZE;
+				s0 = table1[i2];
+				s1 = table1[i2 + 1];
+				s32 out1 = (s0 << 16) + ((s1 - s0) * (u16)(i1));
+				u32 packed = STEREOPACK(out1 >> 16, out0 >> 16);
+				s32 out;
+				SMUAD(out, packed, sub_wave);
+				//////////////////////////////////////////////////
+				// rest is same as polyblep
+				s16 n = ((s16*)rndtab)[rand_table_pos++];
+				noise += noise_diff;
+
+				osc_lpg += osc_lpg_diff;
+				y1 += (out * drive + n * noise - (y2 - y1) * resonance - y1) * osc_lpg; // drive
+				y1 *= 0.999f;
+				y2 += (y1 - y2) * osc_lpg;
+				y2 *= 0.999f;
+
+				s32 smooth_lpg = FLOAT2FIXED(y2, 0);
+				*osc_dst = SATURATE16(*osc_dst + smooth_lpg);
+				osc_dst += 2;
+			}
+		}
+
+		// == SUPERSAW & PULSE WAVE == //
+
+		else {
+			for (u8 i = 0; i < BLOCK_SAMPLES; ++i) {
+				phase1_diff += dd_phase1;
+				phase1 += phase1_diff;
+				u32 newsample1 = phase1;
+				if (unlikely(phase1 < (u32)phase1_diff)) {
+					// edge! polyblep it.
+					u32 fractime = mini(65535, phase1 / (phase1_diff >> 16));
+					prev_sample1 -= (fractime * fractime) >> 1;
+					fractime = 65535 - fractime;
+					newsample1 += (fractime * fractime) >> 1;
+				}
+				s32 out = (s32)(prev_sample1 >> 4);
+				prev_sample1 = newsample1;
+				phase2_diff += dd_phase2;
+				phase2 += phase2_diff;
+				u32 newsample2 = phase2;
+				if (unlikely(phase2 < (u32)phase2_diff)) {
+					// edge! polyblep it.
+					u32 fractime = mini(65535, phase2 / (phase2_diff >> 16));
+					prev_sample2 -= (fractime * fractime) >> 1;
+					fractime = 65535 - fractime;
+					newsample2 += (fractime * fractime) >> 1;
+				}
+				out += (s32)((prev_sample2 ^ flippity) >> 4) - (2 << (31 - 4));
+				prev_sample2 = newsample2;
+
+				s16 n = ((s16*)rndtab)[rand_table_pos++];
+				noise += noise_diff;
+
+				osc_lpg += osc_lpg_diff;
+				y1 += (out * drive + n * noise - (y2 - y1) * resonance - y1) * osc_lpg; // drive
+				y1 *= 0.999f;
+				y2 += (y1 - y2) * osc_lpg;
+				y2 *= 0.999f;
+
+				s32 smooth_lpg = FLOAT2FIXED(y2, 0);
+				*osc_dst = SATURATE16(*osc_dst + smooth_lpg);
+				osc_dst += 2;
+			} // samples
+		}
+		osc[0].phase = phase1;
+		osc[0].phase_diff = phase1_diff;
+		osc[0].prev_sample = prev_sample1;
+
+		osc[2].phase = phase2;
+		osc[2].phase_diff = phase2_diff;
+		osc[2].prev_sample = prev_sample2;
+
+		voice->lpg_smoother[osc_id].y1 = y1;
+		voice->lpg_smoother[osc_id].y2 = y2;
+	} // osc loop
+
+	voice->env1_lvl = goal_lpg;
+	voice->noise_lvl = noise;
+}
+
+static void run_voice(u8 voice_id, u32* dst) {
+	u8 mask = 1 << voice_id;
+	Voice* voice = &voices[voice_id];
+	Touch* s_touch = get_string_touch(voice_id);
+
+	// track max pressure
+	if (s_touch->pres > synth_max_pres)
+		synth_max_pres = s_touch->pres;
+
+	// midi note is playing its release phase and has rung out
+	if ((midi_pitch_override & mask) && !(midi_pressure_override & mask) && !(midi_suppress & mask)
+	    && (voice->env1_lvl < 0.001f))
+		// disable pitch override, this truly turns off the note
+		midi_pitch_override &= ~mask;
+
+	// generate oscillators
+	generate_oscs(voice_id, voice, s_touch);
+
+	// apply envelope
+	float goal_lpg = update_envelope(voice_id, voice, s_touch);
+
+	// pre-calc noise, drive, resonance
+	int drive_lvl = param_eval_finger(P_DRIVE, voice_id, s_touch);
+	float fdrive = table_interp(pitches, ((32768 - 2048) + drive_lvl / 2));
+	if (drive_lvl < -65536 + 2048)
+		fdrive *= (drive_lvl + 65536) * (1.f / 2048.f); // ensure drive goes right to 0 when full minimum
+	float drive = fdrive * (0.75f / 65536.f);
+	float goal_noise = param_eval_finger(P_NOISE, voice_id, s_touch) * (1.f / 65536.f);
+	goal_noise *= goal_noise;
+	if (drive_lvl > 0)
+		goal_noise *= fdrive;
+	float noise_diff = (goal_noise - voice->noise_lvl) * (1.f / BLOCK_SAMPLES);
+	int resonancei = 65536 - param_eval_finger(P_MIXRESO, voice_id, s_touch);
+	float resonance = 2.1f - (table_interp(pitches, resonancei) * (2.1f / pitches[1024]));
+	drive *= 2.f / (resonance + 2.f);
+
+	// apply low pass gate and noise
+	if (!ramsample.samplelen)
+		apply_subtractive_lpg_noise(voice_id, voice, s_touch, goal_lpg, noise_diff, drive, resonance, dst);
+	else
+		apply_sample_lpg_noise(voice_id, voice, s_touch, goal_lpg, noise_diff, drive, dst);
+}
+
 // send cv values resulting from oscillator generation
-static void send_cvs_from_strings(void) {
+static void send_cvs(void) {
 	send_cv_trigger(cv_trig_high);
 	if (got_high_pitch)
-		send_cv_pitch_hi(strings_high_pitch, true);
+		send_cv_pitch_hi(high_string_pitch, true);
 	send_cv_gate(mini(cv_gate_value, 65535));
 	if (got_low_pitch)
-		send_cv_pitch_lo(strings_low_pitch, true);
-	send_cv_pressure(strings_max_pressure * 8);
+		send_cv_pitch_lo(low_string_pitch, true);
+	send_cv_pressure(synth_max_pres * 8);
 }
 
 void handle_synth_voices(u32* dst) {
-	init_strings_for_osc_generation();
-	for (u8 voice_id = 0; voice_id < NUM_VOICES; ++voice_id) {
-		generate_oscs_from_string(voice_id, &voices[voice_id]);
-		RunVoice(&voices[voice_id], voice_id, dst);
-	}
-	send_cvs_from_strings();
+	osc_generation_init();
+	for (u8 voice_id = 0; voice_id < NUM_VOICES; ++voice_id)
+		run_voice(voice_id, dst);
+	send_cvs();
 }

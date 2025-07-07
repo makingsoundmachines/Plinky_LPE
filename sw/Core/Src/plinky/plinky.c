@@ -53,20 +53,11 @@ extern TIM_HandleTypeDef htim5;
 #include "hardware/adc_dac.h"
 #include "hardware/leds.h"
 #include "hardware/midi.h"
-#include "low_level/audiointrin.h"
 #include "low_level/codec.h"
 #include "low_level/spi.h"
 #include "synth/synth.h"
 #include "testing/tick_counter.h"
 #include "ui/ui.h"
-
-// 16 bit unsigned input, looked up in a 1024 entry table and linearly interpolated
-float table_interp(const float* table, int x) {
-	x = SATURATEU16(x);
-	table += x >> 6;
-	x &= 63;
-	return table[0] + (table[1] - table[0]) * (x * (1.f / 64.f));
-}
 
 #define TWENTY_OVER_LOG2_10 6.02059991328f // (20.f/log2(10.f));
 
@@ -87,16 +78,11 @@ TickCounter _tc_fx;
 TickCounter _tc_audio;
 TickCounter _tc_touch;
 TickCounter _tc_led;
-TickCounter _tc_osc;
 TickCounter _tc_filter;
 
 u32 tick = 0; // increments every 64 samples
 
 s32 bpm10x = 120 * 10;
-
-static inline bool isgrainpreview(void) {
-	return ui_mode == UI_SAMPLE_EDIT;
-}
 
 u8 playmode = PLAY_STOPPED;
 bool recording = false;
@@ -149,7 +135,6 @@ static inline int calcarpsubstep(int tick_offset, int maxsubsteps) { // where ar
 // history
 static float surf[2][8][8];
 
-Voice voices[8];
 #ifdef EMU
 short delaybuf[DLMASK + 1];
 short reverbbuf[RVMASK + 1];
@@ -204,16 +189,12 @@ s8 enable_audio = EA_OFF;
 
 // clang-format on
 
-static inline float lpf_k(int x) {
-	return table_interp(lpf_ks, x);
-}
-
 float param_eval_float(u8 paramidx, int rnd, int env16, int pressure16) {
 	return param_eval_int(paramidx, rnd, env16, pressure16) * (1.f / 65536.f);
 }
 
 int param_eval_finger(u8 paramidx, int fingeridx, Touch* f) {
-	return param_eval_int(paramidx, finger_rnd[fingeridx], voices[fingeridx].env_cur16, f->pres * 32);
+	return param_eval_int(paramidx, finger_rnd[fingeridx], voices[fingeridx].env2_lvl16, f->pres * 32);
 }
 
 extern int16_t accel_raw[3];
@@ -242,22 +223,23 @@ void update_params(int fingertrig, int fingerdown) {
 		Touch* f = get_string_touch(vi);
 #ifdef NEW_LAYOUT
 		if (fingertrig & bit) {
-			v->env_level = 0.f;
-			v->env_decaying = false;
+			v->env2_lvl = 0.f;
+			v->env2_decaying = false;
 		}
 		int down = (fingerdown & bit);
-		float target = down ? (v->env_decaying) ? 2.f * (param_eval_finger(P_S2, vi, f) * (1.f / 65536.f)) : 2.2f : 0.f;
-		float dlevel = target - v->env_level;
-		float k = lpf_k(param_eval_finger((dlevel > 0.f) ? P_A2 : (v->env_decaying && down) ? P_D2 : P_R2, vi, f));
-		// update v->env_level
-		v->env_level += (target - v->env_level) * k;
-		if (v->env_level >= 2.f && down)
-			v->env_decaying = true;
-		v->env_cur16 = SATURATE17(v->env_level * param_eval_finger(P_ENV_LEVEL, vi, f));
+		float target =
+		    down ? (v->env2_decaying) ? 2.f * (param_eval_finger(P_S2, vi, f) * (1.f / 65536.f)) : 2.2f : 0.f;
+		float dlevel = target - v->env2_lvl;
+		float k = lpf_k(param_eval_finger((dlevel > 0.f) ? P_A2 : (v->env2_decaying && down) ? P_D2 : P_R2, vi, f));
+		// update v->env2_lvl
+		v->env2_lvl += (target - v->env2_lvl) * k;
+		if (v->env2_lvl >= 2.f && down)
+			v->env2_decaying = true;
+		v->env2_lvl16 = SATURATE17(v->env2_lvl * param_eval_finger(P_ENV_LEVEL, vi, f));
 #else
 		if (fingertrig & bit) {
 			v->env_phase = (uint64_t)(65536.f * 65536.f * 2.f * (0.5f - 0.4999f));
-			v->env_level = 2.f; // so that it clips!
+			v->env2_lvl = 2.f; // so that it clips!
 		}
 		int lfofreq = param_eval_finger(P_ENV_RATE, vi, f);
 		u32 dlfo = (u32)(table_interp(pitches, 32768 + (lfofreq >> 1)) * (1 << 24));
@@ -267,10 +249,10 @@ void update_params(int fingertrig, int fingerdown) {
 		v->env_phase += dlfo;
 		u32 cur_cycle = v->env_phase >> 32;
 		if (cur_cycle != prev_cycle)
-			v->env_level *= param_eval_finger(P_ENV_REPEAT, vi, f) * (1.f / 65536.f);
-		lfoval *= v->env_level;
+			v->env2_lvl *= param_eval_finger(P_ENV_REPEAT, vi, f) * (1.f / 65536.f);
+		lfoval *= v->env2_lvl;
 		lfoval *= param_eval_finger(P_ENV_LEVEL, vi, f);
-		v->env_cur16 = SATURATE17((int)lfoval);
+		v->env2_lvl16 = SATURATE17((int)lfoval);
 #endif
 	}
 	// update average tilt + pressure
@@ -285,7 +267,7 @@ void update_params(int fingertrig, int fingerdown) {
 			p = 0;
 		totw += p;
 		maxp = maxi(maxp, p);
-		maxenv = maxf(maxenv, voices[fi].env_cur16);
+		maxenv = maxf(maxenv, voices[fi].env2_lvl16);
 		tottilt += index_to_tilt16(fi) * p;
 		if (fingertrig & (1 << fi)) {
 			finger_rnd[fi] += 4813;
@@ -404,103 +386,17 @@ static inline void putscopepixel(unsigned int x, unsigned int y) {
 	scope[x] |= (1 << y);
 }
 
-float UpdateEnvelope(Voice* v, int fingeridx, float targetvol) {
-	Touch* f = get_string_touch(fingeridx);
-	float sens = param_eval_finger(P_SENS, fingeridx, f);
-	sens *= (2.f / 65536.f);
-	targetvol *= sens * sens;
-	bool gp = isgrainpreview();
-	const float sustain =
-	    gp ? 1.f : squaref(param_eval_finger(P_S, fingeridx, f) * (1.f / 65536.f)); // lerp(0.f,1.f,pot1);
-	const float attack = gp ? 0.5f : lpf_k((param_eval_finger(P_A, fingeridx, f)));
-	const float decay = gp ? 1.f : lpf_k((param_eval_finger(P_D, fingeridx, f)));
-	const float release = gp ? 0.5f : lpf_k((param_eval_finger(P_R, fingeridx, f)));
-
-	if (targetvol < 0.f)
-		targetvol = 0.f;
-	targetvol *= targetvol;
-	// pitch compensation
-	if (!ramsample.samplelen) {
-		targetvol *= 1.f + ((v->theosc[2].pitch - 43000) * (1.f / 65536.f));
-	}
-
-	int bit = 1 << fingeridx;
-	if (arpmode >= 0) {
-		if (!(arpbits & bit))
-			targetvol = 0.f;
-	}
-
-	float vol = v->vol;
-	if (arpretrig || (string_touch_start & bit)) {
-		vol *= sustain;
-		v->decaying = false;
-		cv_trig_high = true;
-	}
-
-	float decay_or_release = decay;
-	if (targetvol <= 0.f) {
-		v->decaying = 0; // release phase
-		decay_or_release = release;
-	}
-	else if (v->decaying) {
-		targetvol *= sustain;
-	}
-
-	float attack_threshvol = targetvol;
-	float dvol = (targetvol - vol);
-	dvol *= (dvol > 0.f) ? attack : decay_or_release; // scale delta back by release time
-	targetvol = vol + dvol;                           // new target
-	if (targetvol > attack_threshvol * 0.95f)
-		v->decaying = 1; // we hit the peak! time to decay.
-	if (targetvol > 1.f) {
-		targetvol = 1.f;
-		v->decaying = 1;
-	}
-	return targetvol;
-}
-
 inline s32 trifold(u32 x) {
 	if (x > 0x80000000)
 		x = 0xffffffff - x;
 	return (s32)(x >> 4);
 }
 
-static inline int sample_slice_pos8(int pos16) {
-	pos16 = clampi(pos16, 0, 65535);
-	int i = pos16 >> 13;
-	int p0 = ramsample.splitpoints[i];
-	int p1 = ramsample.splitpoints[i + 1];
-	return (p0 << 8) + (((p1 - p0) * (pos16 & 0x1fff)) >> (13 - 8));
-}
-
-static inline int calcloopstart(u8 sliceidx) {
-	int all = ramsample.loop & 2;
-	return (all) ? 0 : ramsample.splitpoints[sliceidx];
-}
-static inline int calcloopend(u8 sliceidx) {
-	int all = ramsample.loop & 2;
-	return (all || sliceidx >= 7) ? ramsample.samplelen - 192 : ramsample.splitpoints[sliceidx + 1];
-}
-
-static inline int doloop(int playhead, u8 sliceidx) {
+static inline int doloop(int playhead, u8 slice_id) {
 	if (!(ramsample.loop & 1))
 		return playhead;
-	int loopstart = calcloopstart(sliceidx);
-	int loopend = calcloopend(sliceidx);
-	int looplen = loopend - loopstart;
-	if (looplen > 0 && (playhead < loopstart || playhead >= loopstart + looplen)) {
-		playhead = (playhead - loopstart) % looplen;
-		if (playhead < 0)
-			playhead += looplen;
-		playhead += loopstart;
-	}
-	return playhead;
-}
-static inline int doloop8(int playhead, u8 sliceidx) {
-	if (!(ramsample.loop & 1))
-		return playhead;
-	int loopstart = calcloopstart(sliceidx) << 8;
-	int loopend = calcloopend(sliceidx) << 8;
+	int loopstart = calcloopstart(slice_id);
+	int loopend = calcloopend(slice_id);
 	int looplen = loopend - loopstart;
 	if (looplen > 0 && (playhead < loopstart || playhead >= loopstart + looplen)) {
 		playhead = (playhead - loopstart) % looplen;
@@ -515,473 +411,6 @@ static inline int doloop8(int playhead, u8 sliceidx) {
 float arpdebug[1024];
 int arpdebugi;
 #endif
-
-#ifdef EMU
-#define SMUAD(o, a, b) o = (int)(((s16)(a)) * ((s16)(b)) + ((s16)(a >> 16)) * ((s16)(b >> 16)))
-#else
-#define SMUAD(o, a, b) asm("smuad %0, %1, %2" : "=r"(o) : "r"(a), "r"(b))
-#endif
-
-extern const short wavetable[17][1031];
-
-#ifndef EMU
-__attribute__((section(".wavetableSection")))
-#endif
-#include "defs/wavetable.h"
-#ifdef _WIN32
-u32 clz(u32 val) {
-	u8 res = 0;
-	if (!val)
-		return 32;
-	while (!(val & 0x80000000)) {
-		res++;
-		val <<= 1;
-	}
-	return res;
-}
-#else
-#define clz __builtin_clz
-#endif
-void RunVoice(Voice* v, int fingeridx, u32* outbuf) {
-	float targetvol = get_string_touch(fingeridx)->pres * 1.f / TOUCH_MAX_POS;
-	targetvol = UpdateEnvelope(v, fingeridx, targetvol);
-	tc_start(&_tc_osc);
-	float noise;
-#ifdef EMU
-	if (fingeridx == 4) {
-		arpdebug[arpdebugi] = targetvol; // +(click ? 0.5 : 0);
-		                                 // if (click && targetvol < 0.001f) {
-		                                 //	arpdebug[arpdebugi] = 1.f;
-		                                 // }
-	}
-#endif
-	Touch* f = get_string_touch(fingeridx);
-
-	float glide = lpf_k(param_eval_finger(P_GLIDE, fingeridx, f) >> 2) * (0.5f / BLOCK_SAMPLES);
-	int drivelvl = param_eval_finger(P_DRIVE, fingeridx, f);
-	float fdrive = table_interp(pitches, ((32768 - 2048) + drivelvl / 2));
-	if (drivelvl < -65536 + 2048)
-		fdrive *= (drivelvl + 65536) * (1.f / 2048.f); // ensure drive goes right to 0 when full minimum
-	float drive = fdrive * (0.75f / 65536.f);
-
-	float targetnoise = param_eval_finger(P_NOISE, fingeridx, f) * (1.f / 65536.f);
-	targetnoise *= targetnoise;
-	if (drivelvl > 0)
-		targetnoise *= fdrive;
-	float dnoise = (targetnoise - v->noise) * (1.f / BLOCK_SAMPLES);
-
-	int resonancei = 65536 - param_eval_finger(P_MIXRESO, fingeridx, f);
-	float resonance = 2.1f - (table_interp(pitches, resonancei) * (2.1f / pitches[1024]));
-
-	drive *= 2.f / (resonance + 2.f);
-
-	Touch* synthf = get_string_touch(fingeridx);
-	float timestretch = 1.f;
-	float posjit = 0.f;
-	float sizejit = 1.f;
-	float gsize = 0.125f;
-	float grate = 1.f;
-	float gratejit = 0.f;
-	int smppos = 0;
-	if (ramsample.samplelen) {
-		if (!isgrainpreview()) {
-			timestretch = param_eval_finger(P_SMP_TIME, fingeridx, synthf) * (2.f / 65536.f);
-			gsize = param_eval_finger(P_SMP_GRAINSIZE, fingeridx, synthf) * (1.414f / 65536.f);
-			grate = param_eval_finger(P_SMP_RATE, fingeridx, synthf) * (2.f / 65536.f);
-			smppos = (param_eval_finger(P_SMP_POS, fingeridx, synthf) * ramsample.samplelen) >> 16;
-			posjit = param_eval_finger(P_JIT_POS, fingeridx, synthf) * (1.f / 65536.f);
-			sizejit = param_eval_finger(P_JIT_GRAINSIZE, fingeridx, synthf) * (1.f / 65536.f);
-			gratejit = param_eval_finger(P_JIT_RATE, fingeridx, synthf) * (1.f / 65536.f);
-		}
-	}
-	int trig = string_touch_start & (1 << fingeridx);
-
-	int prevsliceidx = v->sliceidx;
-	if (ramsample.samplelen) {
-		bool gp = isgrainpreview();
-
-		// decide on the sample for the NEXT frame
-		if (trig) { // on trigger frames, we FADE out the old grains! then the next dma fetch will be the new sample and
-			        // we can fade in again
-			EmuDebugLog("!!!!!!!!!!!!TRIG! %d\n", arpretrig);
-			targetvol = 0.f;
-			//		DebugLog("\r\n%d", fingeridx);
-			int ypos = 0;
-			if (ramsample.pitched && !gp) {
-				/// / / / ////////////////////// multisample choice
-				int best = fingeridx;
-				int bestdist = 0x7fffffff;
-				int mypitch = (v->theosc[1].pitch + v->theosc[2].pitch) / 2;
-				int mysemi = (mypitch) >> 9;
-				static u8 multisampletime[8];
-				static u8 trigcount = 0;
-				trigcount++;
-				for (int i = 0; i < 8; ++i) {
-					int dist = abs(mysemi - ramsample.notes[i]) * 256 - (u8)(trigcount - multisampletime[i]);
-					if (dist < bestdist) {
-						bestdist = dist;
-						best = i;
-					}
-				}
-				multisampletime[best] = trigcount; // for round robin
-				v->sliceidx = best;
-				if (grate < 0.f)
-					ypos = 8;
-			}
-			else {
-				v->sliceidx = fingeridx;
-				ypos = (f->pos / 256);
-				if (gp)
-					ypos = 0;
-				if (grate < 0.f)
-					ypos++;
-			}
-			v->initialfingerpos = gp ? 128 : f->pos;
-			v->playhead8 = sample_slice_pos8(((v->sliceidx * 8) + ypos) << (16 - 6));
-			if (grate < 0.f) {
-				v->playhead8 -= 192 << 8;
-				if (v->playhead8 < 0)
-					v->playhead8 = 0;
-			}
-			knobsmooth_reset(&v->fingerpos, 0);
-		}
-		else { // not trigger - just advance playhead
-			float ms2 =
-			    (v->thegrains[0].multisample_grate + v->thegrains[1].multisample_grate); // double multisample rate
-			int delta_playhead8 = (int)(grate * ms2 * timestretch * (BLOCK_SAMPLES * 0.5f * 256.f) + 0.5f);
-			v->playhead8 = doloop8(v->playhead8 + delta_playhead8, v->sliceidx);
-
-			float gdeadzone = clampf(minf(1.f - posjit, timestretch * 2.f), 0.f,
-			                         1.f); // if playing back normally and not jittering, add a deadzone
-			float fpos = deadzone(f->pos - v->initialfingerpos, gdeadzone * 32.f);
-			if (gp)
-				fpos = 0.f;
-			smooth_value(&v->fingerpos, fpos, 2048.f);
-		}
-	} // sampler prep
-
-#define OSC_COUNT 2 // DO NOT CHECK IN 1 // XXX 2
-	s32 pwm_base = rampreset.params[P_PWM][0];
-	s32 pwm = param_eval_finger(P_PWM, fingeridx, synthf);
-	if (pwm_base >= -8 && pwm_base < 8)
-		pwm = 0;
-	else if (pwm_base > 0)
-		pwm = clampi(pwm, 1, 65535);
-	else
-		pwm = clampi(pwm, -65535, -1);
-
-	for (int osci = 0; osci < OSC_COUNT; osci++) {
-		s16* dst = ((s16*)outbuf) + (osci & 1);
-		noise = v->noise;
-		float y1 = v->y[0 + osci], y2 = v->y[2 + osci];
-		int randtabpos = rand() & 16383;
-		if (ramsample.samplelen) {
-			// mix grains
-			GrainPair* g = &v->thegrains[osci];
-			int grainidx = fingeridx * 4 + osci * 2;
-			int g0start = 0;
-			if (grainidx)
-				g0start = grainbufend[grainidx - 1];
-			int g1start = grainbufend[grainidx];
-			int g2start = grainbufend[grainidx + 1];
-
-			int64_t posa = g->pos[0];
-			int64_t posb = g->pos[1];
-			int loopstart = calcloopstart(prevsliceidx);
-			int loopend = calcloopend(prevsliceidx);
-			bool outofrange0 = posa < loopstart || posa >= loopend;
-			bool outofrange1 = posb < loopstart || posb >= loopend;
-			int gvol24 = g->vol24;
-			int dgvol24 = g->dvol24;
-			int dpos24 = g->dpos24;
-			int fpos24 = g->fpos24;
-			float vol = v->vol;
-			float dvol = (targetvol - vol) * (1.f / BLOCK_SAMPLES);
-			outofrange0 |= g1start - g0start <= 2;
-			outofrange1 |= g2start - g1start <= 2;
-			g->outflags = (outofrange0 ? 1 : 0) + (outofrange1 ? 2 : 0);
-			if ((g1start - g0start <= 2 && g2start - g1start <= 2)) {
-				// fast mode :) emulate side effects without doing any work
-				vol += dvol * BLOCK_SAMPLES;
-				noise += dnoise * BLOCK_SAMPLES;
-				gvol24 -= dgvol24 * BLOCK_SAMPLES;
-				fpos24 += dpos24 * BLOCK_SAMPLES;
-				int id = fpos24 >> 24;
-				g->pos[0] += id;
-				g->pos[1] += id;
-				fpos24 &= 0xffffff;
-			}
-			else {
-				const s16* src0 = (outofrange0 ? (const s16*)zero : &grainbuf[g0start + 2]) + g->bufadjust;
-				const s16* src0_backup = src0;
-				const s16* src1 = (outofrange1 ? (const s16*)zero : &grainbuf[g1start + 2]) + g->bufadjust;
-				if (spistate && spistate <= grainidx + 2) {
-					while (spistate && spistate <= grainidx + 2)
-						;
-				}
-				for (int i = 0; i < BLOCK_SAMPLES; ++i) {
-					int o0, o1;
-#ifdef EMU
-					ASSERT(outofrange0 || (src0 >= &grainbuf[g0start + 2] && src0 + 1 < &grainbuf[g1start]));
-					ASSERT(outofrange1 || (src1 >= &grainbuf[g1start + 2] && src1 + 1 < &grainbuf[g2start]));
-#endif
-					u32 ab0 = *(u32*)(src0); // fetch a pair of 16 bit samples to interpolate between
-					u32 mix = (fpos24 << (16 - 9)) & 0x7fff0000;
-					mix |= 32767 - (mix >> 16); // mix is now the weights for the linear interpolation
-					SMUAD(o0, ab0, mix);        // do the interpolation, result is *32768
-					o0 >>= 16;
-
-					u32 ab1 = *(u32*)(src1); // fetch a pair for the other grain in the pair
-					SMUAD(o1, ab1, mix);     // linear interp by same weights
-					o1 >>= 16;
-
-					fpos24 += dpos24; // advance fractional sample pos
-					int bigdpos = (fpos24 >> 24);
-					fpos24 &= 0xffffff;
-					src0 += bigdpos; // advance source pointers by any whole sample increment
-					src1 += bigdpos;
-
-					mix = (gvol24 >> 9) & 0x7fff; // blend between the two grain results
-					mix |= (32767 - mix) << 16;
-					u32 o01 = STEREOPACK(o0, o1);
-					int ofinal;
-					SMUAD(ofinal, o01, mix);
-					gvol24 -= dgvol24;
-					if (gvol24 < 0)
-						gvol24 = 0;
-
-					s16 n = ((s16*)rndtab)[randtabpos++]; // mix in a white noise source
-					noise += dnoise;                      // volume ramp for noise
-
-					vol += dvol;                                               // volume ramp for grain signal
-					float input = (ofinal * drive + n * noise);                // input to filter
-					float cutoff = 1.f - squaref(maxf(0.f, 1.f - vol * 1.1f)); // filter cutoff for low pass gate
-					y1 += (input - y1) * cutoff;                               // do the lowpass
-
-					int yy = FLOAT2FIXED(y1 * vol, 0); // for granular, we include an element of straight VCA
-					*dst = SATURATE16(*dst + yy);      // write to output
-					dst += 2;
-				}
-				int bigposdelta = src0 - src0_backup;
-				g->pos[0] += bigposdelta;
-				g->pos[1] += bigposdelta;
-			} // grain mix
-			g->fpos24 = fpos24;
-			g->vol24 = gvol24;
-
-			if (gvol24 <= dgvol24 || trig) { // new grain trigger! this is for the *next* frame
-				                             //				if (targetvol > 0.01f)
-				                             //					DebugLog("%c", 'a' + (int)(targetvol * 25));
-				if (targetvol > 0.01f) {
-					// int i = 1;
-				}
-				if (!trig) {
-					// int i = 1;
-				}
-				int ph = v->playhead8 >> 8;
-				int slicelen = ramsample.splitpoints[v->sliceidx + 1] - ramsample.splitpoints[v->sliceidx];
-				if (ui_mode != UI_SAMPLE_EDIT) {
-					ph += ((int)(v->fingerpos.y2 * slicelen)) >> (10);
-					ph += smppos; // scrub input
-				}
-				g->vol24 = ((1 << 24) - 1);
-				int grainsize = ((rand() & 127) * sizejit + 128.f) * (gsize * gsize) + 0.5f;
-				grainsize *= BLOCK_SAMPLES;
-				int jitpos = (rand() & 255) * posjit;
-				ph += ((grainsize + 8192) * jitpos) >> 8;
-				g->dvol24 = g->vol24 / grainsize;
-
-				float grate2 = 1.f + ((rand() & 255) * (gratejit * gratejit)) * (1.f / 256.f);
-				if (timestretch < 0.f)
-					grate2 = -grate2;
-				g->grate_ratio = grate2;
-				g->pos[0] = trig ? ph : g->pos[1];
-				g->pos[1] = ph;
-			}
-		}
-		else {
-			// synth
-			float vol = v->vol;
-			float dvol = (targetvol - vol) * (1.f / BLOCK_SAMPLES);
-
-			Osc* o = &v->theosc[osci];
-
-			u32 flippity = 0;
-			if (pwm != 0) {
-				flippity = ~0;
-				{
-					u32 avgdp = (o[0].dphase + o[2].dphase) / 2;
-					o[0].dphase = avgdp; //(s32)((avgdp - o[0].dphase) * pp) >> 10;
-					o[2].dphase = avgdp; // (s32)((avgdp - o[2].dphase)* pp) >> 10;
-					avgdp = (o[0].targetdphase + o[2].targetdphase) / 2;
-					o[0].targetdphase = avgdp; // (s32)((avgdp - o[0].targetdphase)* pp) >> 10;
-					o[2].targetdphase = avgdp; // (s32)((avgdp - o[2].targetdphase)* pp) >> 10;
-
-					if (pwm < 0) {
-						s32 phase0fix = (s32)(o[2].phase - o[0].phase - (pwm << 16) + (1 << 31)) / (BLOCK_SAMPLES);
-						o[0].dphase += phase0fix;
-						o[0].targetdphase += phase0fix;
-					}
-				}
-			}
-			int ddphase1 = (int)((o->targetdphase - o->dphase) * glide);
-			u32 phase1 = o->phase;
-			s32 dphase1 = o->dphase;
-			u32 prevsample1 = o->prevsample;
-			o += 2;
-			int ddphase2 = (int)((o->targetdphase - o->dphase) * glide);
-			u32 phase2 = o->phase;
-			s32 dphase2 = o->dphase;
-			u32 prevsample2 = o->prevsample;
-			o -= 2;
-
-			if (pwm > 0) {
-				//  we need to choose the shift so that, after shifting right, there are 16 bits of fractional part in
-				//  each cycle if the increment was say, 1<<(32-9) = ((1<<23)-1), we would take just over 512 steps to
-				//  cycle, so we want to shift by 7
-				int shift1 = 16 - clz(maxi(dphase1, 1 << 22));
-				const static u16 wavetable_octave_offset[17] = {
-				    0,
-				    0,
-				    0,
-				    0,
-				    0,
-				    0,
-				    0,
-				    0,               // 7 - 9 bits
-				    513,             // 8 - 8 bits
-				    513 + 257,       // 9 - 7 bits
-				    513 + 257 + 129, // 10 - 6 bits
-				    513 + 257 + 129 + 65,
-				    513 + 257 + 129 + 65 + 33,
-				    513 + 257 + 129 + 65 + 33 + 17,
-				    513 + 257 + 129 + 65 + 33 + 17 + 9,
-				    513 + 257 + 129 + 65 + 33 + 17 + 9 + 5,
-				    513 + 257 + 129 + 65 + 33 + 17 + 9 + 5 + 3, // 1031
-				};
-				// 16 wave shapes
-				//				pwm = 2<<12;
-				u32 subwave = (pwm & 4095) << (1);
-				subwave = subwave | ((8191 - subwave) << 16);
-				int wtbase = (pwm) >> (12);
-				const s16* table1 = wavetable[wtbase] + wavetable_octave_offset[shift1];
-				for (int i = 0; i < BLOCK_SAMPLES; ++i) {
-					unsigned int i, i2;
-					int s0, s1;
-					dphase1 += ddphase1;
-					i = (phase1 += dphase1) >> shift1;
-					i2 = i >> 16;
-					s0 = table1[i2], s1 = table1[i2 + 1];
-					s32 out0 = (s0 << 16) + ((s1 - s0) * (u16)(i));
-					i2 += WAVETABLE_SIZE;
-					s0 = table1[i2], s1 = table1[i2 + 1];
-					s32 out1 = (s0 << 16) + ((s1 - s0) * (u16)(i));
-					u32 packed = STEREOPACK(out1 >> 16, out0 >> 16);
-					s32 out;
-					SMUAD(out, packed, subwave);
-					//////////////////////////////////////////////////
-					// rest is same as polyblep
-					s16 n = ((s16*)rndtab)[randtabpos++];
-					noise += dnoise;
-
-					vol += dvol;
-					y1 += (out * drive + n * noise - (y2 - y1) * resonance - y1) * vol; // drive
-					y1 *= 0.999f;
-					y2 += (y1 - y2) * vol;
-
-					y2 *= 0.999f;
-
-					int yy = FLOAT2FIXED(y2, 0);
-					*dst = SATURATE16(*dst + yy);
-					dst += 2;
-				}
-			}
-			else {
-				for (int i = 0; i < BLOCK_SAMPLES; ++i) {
-					dphase1 += ddphase1;
-					phase1 += dphase1;
-					u32 newsample1 = phase1;
-
-					if (unlikely(phase1 < (u32)dphase1)) {
-						// edge! polyblep it.
-						u32 fractime = mini(65535, phase1 / (dphase1 >> 16));
-						prevsample1 -= (fractime * fractime) >> 1;
-						fractime = 65535 - fractime;
-						newsample1 += (fractime * fractime) >> 1;
-					}
-					s32 out = (s32)(prevsample1 >> 4); // (s32)prevsample1 >> 4
-					prevsample1 = newsample1;
-
-					dphase2 += ddphase2;
-					phase2 += dphase2;
-					u32 newsample2 = phase2;
-					if (unlikely(phase2 < (u32)dphase2)) {
-						// edge! polyblep it.
-						u32 fractime = mini(65535, phase2 / (dphase2 >> 16));
-						prevsample2 -= (fractime * fractime) >> 1;
-						fractime = 65535 - fractime;
-						newsample2 += (fractime * fractime) >> 1;
-					}
-
-					out += (s32)((prevsample2 ^ flippity) >> 4) - (2 << (31 - 4));
-					prevsample2 = newsample2;
-
-					s16 n = ((s16*)rndtab)[randtabpos++];
-					noise += dnoise;
-
-					vol += dvol;
-					y1 += (out * drive + n * noise - (y2 - y1) * resonance - y1) * vol; // drive
-					y1 *= 0.999f;
-					y2 += (y1 - y2) * vol;
-
-					y2 *= 0.999f;
-
-					int yy = FLOAT2FIXED(y2, 0);
-					*dst = SATURATE16(*dst + yy);
-					dst += 2;
-				} // samples
-			}
-			o[0].phase = phase1;
-			o[0].dphase = dphase1;
-			o[0].prevsample = prevsample1;
-
-			o[2].phase = phase2;
-			o[2].dphase = dphase2;
-			o[2].prevsample = prevsample2;
-		} // synth
-		v->y[osci] = y1, v->y[osci + 2] = y2;
-	} // osc loop
-
-	v->vol = targetvol;
-	v->noise = noise;
-
-	if (ramsample.samplelen) {
-		// update pitch (aka dpos24) for next time!
-		for (int gi = 0; gi < 2; ++gi) {
-			float multisample_grate;
-			if (ramsample.pitched && !isgrainpreview()) {
-				int relpitch = v->theosc[1 + gi].pitch - ramsample.notes[v->sliceidx] * 512;
-				if (relpitch < -512 * 12 * 5) {
-					multisample_grate = 0.f;
-				}
-				else {
-					multisample_grate = // exp2f(relpitch / (512.f * 12.f));
-					    table_interp(pitches, relpitch + 32768);
-				}
-			}
-			else {
-				multisample_grate = 1.f;
-			}
-			v->thegrains[gi].multisample_grate = multisample_grate;
-			int dpos24 = (1 << 24) * (grate * v->thegrains[gi].grate_ratio * multisample_grate);
-			while (dpos24 > (2 << 24))
-				dpos24 >>= 1;
-			v->thegrains[gi].dpos24 = dpos24;
-		}
-	}
-
-	tc_stop(&_tc_osc);
-}
 
 s32 Reverb2(s32 input, s16* buf) {
 	int i = reverbpos;
@@ -1364,7 +793,7 @@ void DoAudio(u32* dst, u32* audioin) {
 		u32 sampleaddr = ((cur_sample1 - 1) & 7) * MAX_SAMPLE_LEN;
 
 		for (int i = 0; i < 8; ++i) {
-			GrainPair* g = voices[i].thegrains;
+			GrainPair* g = voices[i].grain_pair;
 			int glen0 =
 			    ((abs(g[0].dpos24) * (BLOCK_SAMPLES / 2) + g[0].fpos24 / 2 + 1) >> 23) + 2; // +2 for interpolation
 			int glen1 =
@@ -1381,7 +810,7 @@ void DoAudio(u32* dst, u32* audioin) {
 			grainpos[i * 4 + 2] = (int)(g[1].pos[0]) - g[1].bufadjust + sampleaddr;
 			grainpos[i * 4 + 3] = (int)(g[1].pos[1]) - g[1].bufadjust + sampleaddr;
 			glen += 2; // 2 extra 'samples' for the SPI header
-			gprio[i] = ((int)(voices[i].vol * 65535.f) << 12) + i + (glen << 3);
+			gprio[i] = ((int)(voices[i].env1_lvl * 65535.f) << 12) + i + (glen << 3);
 		}
 		sort8(gprio, gprio);
 		u8 lengths[8];
@@ -1398,7 +827,7 @@ void DoAudio(u32* dst, u32* audioin) {
 			// we only budget for MAX_SPI_STATE transfers. so after that, len goes to 0. also helps CPU load
 			if (i < 8 - MAX_SAMPLE_VOICES)
 				len = 0;
-			else if (voices[fi].vol <= 0.01f && !(string_touched & (1 << fi)))
+			else if (voices[fi].env1_lvl <= 0.01f && !(string_touched & (1 << fi)))
 				len = 0; // if your finger is up and the volume is 0, we can just skip this one.
 			lengths[fi] = (pos + len * 4 > GRAINBUF_BUDGET) ? 0 : len;
 			pos += len * 4;

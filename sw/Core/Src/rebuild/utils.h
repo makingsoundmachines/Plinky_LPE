@@ -18,9 +18,6 @@
 #include "stm32l476xx.h"
 #include "stm32l4xx_hal.h"
 
-// data
-#include "data/tables.h"
-
 // basic typedefs
 typedef int8_t s8;
 typedef int16_t s16;
@@ -104,6 +101,8 @@ void gfx_debug(u8 row, const char* fmt, ...);
 void DebugLog(const char* fmt, ...);
 
 // plinky utils
+static u8 const zero[2048] = {0};
+
 static inline float deadzone(float f, float zone) {
 	if (f < zone && f > -zone)
 		return 0.f;
@@ -233,13 +232,6 @@ enum {
 	FLAGS_LATCH = 2,
 };
 
-typedef struct Osc {
-	u32 phase, prevsample;
-	s32 dphase;
-	s32 targetdphase;
-	int pitch;
-} Osc;
-
 typedef struct GrainPair {
 	int fpos24;
 	int pos[2];
@@ -252,24 +244,44 @@ typedef struct GrainPair {
 	int outflags;
 } GrainPair;
 
-typedef struct Voice {
-	float vol;
-	float y[4];
-	Osc theosc[4];
-	GrainPair thegrains[2];
-	// grain synth state
-	int playhead8;
-	u8 sliceidx;
-	int initialfingerpos;
-	ValueSmoother fingerpos;
-
-	u8 decaying;
-	int env_cur16;
-	float noise;
-	float env_level;
-	int env_decaying;
-} Voice;
-
 #define MAX_SAMPLE_LEN (1024 * 1024 * 2) // max sample length in samples
 #define BLOCK_SAMPLES 64
 #define FLAG_MASK 127
+#define AVG_GRAINBUF_SAMPLE_SIZE 68 // 2 extra for interpolation, 2 extra for SPI address at the start
+#define GRAINBUF_BUDGET (AVG_GRAINBUF_SAMPLE_SIZE * 32)
+
+#include "low_level/audiointrin.h"
+
+extern SampleInfo ramsample;
+
+static inline int sample_slice_pos8(int pos16) {
+	pos16 = clampi(pos16, 0, 65535);
+	int i = pos16 >> 13;
+	int p0 = ramsample.splitpoints[i];
+	int p1 = ramsample.splitpoints[i + 1];
+	return (p0 << 8) + (((p1 - p0) * (pos16 & 0x1fff)) >> (13 - 8));
+}
+
+static inline int calcloopstart(u8 slice_id) {
+	int all = ramsample.loop & 2;
+	return (all) ? 0 : ramsample.splitpoints[slice_id];
+}
+static inline int calcloopend(u8 slice_id) {
+	int all = ramsample.loop & 2;
+	return (all || slice_id >= 7) ? ramsample.samplelen - 192 : ramsample.splitpoints[slice_id + 1];
+}
+
+static inline int doloop8(int playhead, u8 slice_id) {
+	if (!(ramsample.loop & 1))
+		return playhead;
+	int loopstart = calcloopstart(slice_id) << 8;
+	int loopend = calcloopend(slice_id) << 8;
+	int looplen = loopend - loopstart;
+	if (looplen > 0 && (playhead < loopstart || playhead >= loopstart + looplen)) {
+		playhead = (playhead - loopstart) % looplen;
+		if (playhead < 0)
+			playhead += looplen;
+		playhead += loopstart;
+	}
+	return playhead;
+}

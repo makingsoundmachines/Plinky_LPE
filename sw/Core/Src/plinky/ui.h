@@ -1,9 +1,11 @@
-#include "gfx/data/names.h"
 #include "gfx/gfx.h"
-#include "hardware/encoder.h"
-#include "ui/pad_actions.h"
 #include "ui/shift_states.h"
 #include "ui/ui.h"
+#include "gfx/data/names.h"
+#include "synth/pitch_tools.h"
+#include "synth/strings.h"
+#include "ui/pad_actions.h"
+#include "hardware/encoder.h"
 
 u8 audiohistpos = 0;
 u8 audiopeakhistory[32];
@@ -145,9 +147,9 @@ void DebugSPIPage(int addr) {
 	spistate = 0;
 }
 
-void DrawSample(SampleInfo* s, int sliceidx) {
-	sliceidx &= 7;
-	int ofs = s->splitpoints[sliceidx] / 1024;
+void DrawSample(SampleInfo* s, int slice_id) {
+	slice_id &= 7;
+	int ofs = s->splitpoints[slice_id] / 1024;
 	int maxx = s->samplelen / 1024;
 	gfx_text_color = 3;
 	for (int i = 0; i < 128; ++i) {
@@ -160,10 +162,10 @@ void DrawSample(SampleInfo* s, int sliceidx) {
 			vline(i, 18 + h, 32, 1);
 		}
 	}
-	fdraw_str(64 + 2, 0, F_12, "%d", sliceidx + 1);
+	fdraw_str(64 + 2, 0, F_12, "%d", slice_id + 1);
 	// draw other slices
 	for (int si = 0; si < 8; ++si)
-		if (si != sliceidx) {
+		if (si != slice_id) {
 			int x = (s->splitpoints[si] / 1024) - ofs + 64;
 			char buf[2] = {'1' + si, 0};
 			u8 h = getwaveform4(s, s->splitpoints[si] / 1024);
@@ -202,8 +204,8 @@ void DrawSamplePlayback(SampleInfo* s) {
 	max_pos = clampi(max_pos, 0, s->samplelen);
 
 	for (int i = 0; i < 8; ++i) {
-		GrainPair* gr = voices[i].thegrains;
-		int vvol = (int)(256.f * voices[i].vol);
+		GrainPair* gr = voices[i].grain_pair;
+		int vvol = (int)(256.f * voices[i].env1_lvl);
 		if (vvol > 8)
 			for (int g = 0; g < 4; ++g) {
 				if (!(gr->outflags & (1 << (g & 1)))) {
@@ -435,7 +437,7 @@ void DrawVoices(void) {
 	for (u8 i = 0; i < 8; i++) {
 		// string volume
 		if (maxVolume[i] != 0) {
-			volLineHeight[i] = voices[i].vol / maxVolume[i] * maxHeight;
+			volLineHeight[i] = voices[i].env1_lvl / maxVolume[i] * maxHeight;
 		}
 		// string pressed
 		if (write_string_touched_copy & (1 << i)) {
@@ -447,7 +449,7 @@ void DrawVoices(void) {
 			// volume line catches up
 			volLineHeight[i] = maxf(volLineHeight[i], touchLineHeight[i]);
 			// remember peak volume
-			maxVolume[i] = voices[i].vol;
+			maxVolume[i] = voices[i].env1_lvl;
 		}
 		// string not pressed
 		else {
@@ -483,8 +485,8 @@ void DrawFlags() {
 		draw_str(-(128 - 17), 32 - 7, F_8, "latch");
 	}
 	gfx_text_color = 1;
-	vline(126, 32 - (strings_max_pressure >> 6), 32, 1);
-	vline(127, 32 - (strings_max_pressure >> 6), 32, 1);
+	vline(126, 32 - (synth_max_pres >> 6), 32, 1);
+	vline(127, 32 - (synth_max_pres >> 6), 32, 1);
 }
 
 const char* getparamstr(int p, int mod, int v, char* valbuf, char* decbuf) {
@@ -713,8 +715,8 @@ void edit_mode_ui(void) {
 			int xtab = 0;
 			if (pending_preset != 255 && pending_preset != sysparams.curpreset)
 				xtab = fdraw_str(0, 0, F_20_BOLD, "%c%d->%d", preseticon, sysparams.curpreset + 1, pending_preset + 1);
-			else if (strings_max_pressure > 1 && !(ramsample.samplelen && !ramsample.pitched)) {
-				xtab = fdraw_str(0, 0, F_20_BOLD, "%s", notename((strings_high_pitch + 1024) / 2048));
+			else if (synth_max_pres > 1 && !(ramsample.samplelen && !ramsample.pitched)) {
+				xtab = fdraw_str(0, 0, F_20_BOLD, "%s", notename((high_string_pitch + 1024) / 2048));
 			}
 			else
 				xtab = fdraw_str(0, 0, F_20_BOLD, "%c%d", preseticon, sysparams.curpreset + 1);
