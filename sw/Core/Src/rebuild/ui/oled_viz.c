@@ -1,12 +1,10 @@
 #include "oled_viz.h"
-#include "config.h"
 #include "gfx/data/logo.h"
 #include "gfx/data/names.h"
 #include "hardware/ram.h"
 #include "synth/sampler.h"
 #include "ui/pad_actions.h"
 #include "ui/shift_states.h"
-#include "ui/ui.h"
 
 // == TOOLS == //
 

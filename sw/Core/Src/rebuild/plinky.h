@@ -1,6 +1,9 @@
 #pragma once
 #include "utils.h"
 
+#define VERSION2 "LPE 0.00"
+#define GOLDEN_CHECKSUM 0xb5a7228c
+
 typedef enum UIMode {
 	UI_DEFAULT,     // regular playing mode
 	UI_EDITING_A,   // editing any of the A parameters
@@ -13,4 +16,7 @@ typedef enum UIMode {
 
 extern UIMode ui_mode;
 
-void ui_frame(void);
+void plinky_init(void);
+void plinky_codec_tick(u32* audio_out, u32* audio_in);
+void plinky_loop(void);
+void plinky_reboot_sequence(u16 reboot_delay);

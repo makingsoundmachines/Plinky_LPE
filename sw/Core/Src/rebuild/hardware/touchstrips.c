@@ -4,13 +4,8 @@
 #include "synth/time.h"
 #include "ui/pad_actions.h"
 #include "ui/shift_states.h"
-#include "ui/ui.h"
 
 #define TOUCH_THRESHOLD 1000
-
-// cleanup
-extern CalibResult calibresults[18];
-// -- cleanup
 
 // stm setup
 
@@ -51,14 +46,19 @@ void MX_TSC_Init(void) {
 	HAL_TSC_IODischarge(&htsc, ENABLE);
 }
 
-// touch_frame is volatile because calib.h has a blocking "while (touch_frame == ff);" loop
-volatile u8 touch_frame = 0; // frame counter for touch reading loop
+static CalibData touch_calib[NUM_TOUCH_READINGS];
 
-u16 sensor_min[2 * NUM_TOUCH_READINGS]; // lifetime low
-u16 sensor_max[2 * NUM_TOUCH_READINGS]; // lifetime high
+CalibData* touch_calib_ptr(void) {
+	return touch_calib;
+}
+
+u8 touch_frame = 0; // frame counter for touch reading loop
 
 static u16 sensor_val[2 * NUM_TOUCH_READINGS];       // current value (range 0 - 65027)
 static Touch touches[NUM_TOUCHES][NUM_TOUCH_FRAMES]; // the touches
+
+static u16 sensor_min[2 * NUM_TOUCH_READINGS]; // lifetime low
+static u16 sensor_max[2 * NUM_TOUCH_READINGS]; // lifetime high
 
 static u8 read_this_frame = 0; // has touch (0 - 7) been read this touch_frame? bitmask
 
@@ -73,6 +73,16 @@ static u8 read_this_frame = 0; // has touch (0 - 7) been read this touch_frame? 
 #define IS_TOUCH(reading_id) (A_DIFF(reading_id) + B_DIFF(reading_id) > TOUCH_THRESHOLD)
 
 // == GET TOUCH INFO == //
+
+// sensor position: ratio between a and b values mapped to [-4096 .. 4095]
+static s16 sensor_reading_position(u8 reading_id) {
+	return ((B_VAL(reading_id) - A_VAL(reading_id)) << 12) / (A_VAL(reading_id) + B_VAL(reading_id) + 1);
+}
+
+// sensor pressure: sensor values added (normalized for noise floor)
+static u16 sensor_reading_pressure(u8 reading_id) {
+	return clampi(A_DIFF(reading_id) + B_DIFF(reading_id), 0, 65536);
+}
 
 bool touch_read_this_frame(u8 strip_id) {
 	return read_this_frame & (1 << strip_id);
@@ -138,7 +148,7 @@ static void process_reading(u8 reading_id) {
 	// calibration
 	u16 calib_pos;
 	s16 calib_pres;
-	const CalibResult* c = &calibresults[reading_id];
+	const CalibData* c = &touch_calib[reading_id];
 
 	// we have calibration data, let's apply it
 	if (c->pres[0] != 0) {
@@ -410,17 +420,5 @@ void reset_touches(void) {
 	memset(sensor_val, 0, sizeof(sensor_val));
 	memset(sensor_min, -1, sizeof(sensor_min));
 	memset(sensor_max, 0, sizeof(sensor_max));
-	memset(calibresults, 0, sizeof(calibresults));
-}
-
-// == FOR CALIB == //
-
-// sensor position: ratio between a and b values mapped to [-4096 .. 4095]
-s16 sensor_reading_position(u8 reading_id) {
-	return ((B_VAL(reading_id) - A_VAL(reading_id)) << 12) / (A_VAL(reading_id) + B_VAL(reading_id) + 1);
-}
-
-// sensor pressure: sensor values added (normalized for noise floor)
-u16 sensor_reading_pressure(u8 reading_id) {
-	return clampi(A_DIFF(reading_id) + B_DIFF(reading_id), 0, 65536);
+	memset(touch_calib, 0, sizeof(touch_calib));
 }

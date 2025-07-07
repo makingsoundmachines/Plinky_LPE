@@ -11,7 +11,6 @@
 #include "synth/sequencer.h"
 #include "synth/strings.h"
 #include "synth/time.h"
-#include "ui.h"
 
 #define SHORT_PRESS_TIME 250 // ms
 

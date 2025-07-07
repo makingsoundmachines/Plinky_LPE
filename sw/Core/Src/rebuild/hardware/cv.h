@@ -11,7 +11,6 @@ enum ECVQuant {
 	CVQ_LAST,
 };
 
-void cv_calib(void);
 void send_cv_pitch_hi(s32 data, bool apply_calib);
 void send_cv_pitch_lo(s32 data, bool apply_calib);
 

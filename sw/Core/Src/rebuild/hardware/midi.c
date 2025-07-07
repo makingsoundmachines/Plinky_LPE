@@ -10,6 +10,10 @@
 #include "touchstrips.h"
 #include "tusb.h"
 
+// cleanup
+#include "../../web_usb.h"
+// -- cleanup
+
 // midi uart, lives in main.c
 extern UART_HandleTypeDef huart3;
 
@@ -301,7 +305,7 @@ static void midi_bytes_to_msg(const u8* buf, u8 len) {
 }
 
 // handles up to one buffer (16 bytes) of incoming serial midi data
-void process_serial_midi_in(void) {
+static void process_serial_midi_in(void) {
 	// pass the midi out buffer to the uart
 	// rj: why is this in the midi in function?
 	midi_buffer_to_uart();
@@ -320,7 +324,7 @@ void process_serial_midi_in(void) {
 	last_read_pos = read_pos;
 }
 
-void process_usb_midi_in(void) {
+static void process_usb_midi_in(void) {
 	const static u8 max_packets_per_call = 2;
 	u8 midi_packet[4];
 	u8 packets_handled = 0;
@@ -330,6 +334,13 @@ void process_usb_midi_in(void) {
 		process_midi_msg(midi_packet[1], midi_packet[2], midi_packet[3]);
 		packets_handled++;
 	} while (packets_handled < max_packets_per_call);
+}
+
+void process_midi(void) {
+	process_all_midi_out();
+	pump_web_usb(true);
+	process_serial_midi_in();
+	process_usb_midi_in();
 }
 
 // == AUX == //

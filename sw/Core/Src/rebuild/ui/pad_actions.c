@@ -7,7 +7,6 @@
 #include "synth/params.h"
 #include "synth/sampler.h"
 #include "synth/time.h"
-#include "ui.h"
 
 #define LONGPRESS_THRESH 160 // full read cycles
 

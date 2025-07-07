@@ -14,9 +14,6 @@
 #include "time.h"
 #include "ui/oled_viz.h"
 #include "ui/pad_actions.h"
-#include "ui/ui.h"
-
-#define SMUAD(o, a, b) asm("smuad %0, %1, %2" : "=r"(o) : "r"(a), "r"(b))
 
 SamplerMode sampler_mode = SM_PREVIEW;
 

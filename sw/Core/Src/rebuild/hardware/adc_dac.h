@@ -33,11 +33,7 @@ typedef struct ADC_DAC_Calib {
 	float bias, scale;
 } ADC_DAC_Calib;
 
-// after cleaning up calib and testjig() we migh be able to make some more of these local
-#define ADC_CHANS 8
-#define ADC_SAMPLES 8
-extern ADC_DAC_Calib adc_dac_calib[NUM_ADC_DAC_ITEMS];
-extern u16 adc_buffer[ADC_CHANS * ADC_SAMPLES];
+ADC_DAC_Calib* adc_dac_calib_ptr(void);
 
 void adc_dac_init(void);
 
@@ -46,3 +42,6 @@ float adc_get_calib(ADC_DAC_Index index);
 float adc_get_smooth(ADCSmoothIndex index);
 
 void adc_update_inputs(void);
+
+// cleanup in cv
+extern ADC_DAC_Calib adc_dac_calib[10];

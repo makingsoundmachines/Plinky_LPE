@@ -17,7 +17,6 @@
 #include "ui/oled_viz.h"
 #include "ui/pad_actions.h"
 #include "ui/shift_states.h"
-#include "ui/ui.h"
 
 #define EDITING_PARAM (selected_param < NUM_PARAMS)
 

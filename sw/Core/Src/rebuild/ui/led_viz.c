@@ -8,7 +8,6 @@
 #include "synth/sampler.h"
 #include "synth/sequencer.h"
 #include "ui/shift_states.h"
-#include "ui/ui.h"
 
 static u8 pulse_half;
 static u8 pulse;

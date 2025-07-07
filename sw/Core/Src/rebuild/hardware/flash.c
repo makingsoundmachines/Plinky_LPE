@@ -1,6 +1,13 @@
 #include "flash.h"
+#include "adc_dac.h"
+#include "gfx/gfx.h"
 #include "ram.h"
+#include "synth/audio.h"
 #include "synth/param_defs.h"
+#include "touchstrips.h"
+
+const static u64 MAGIC = 0xf00dcafe473ff02a;
+const static u8 calib_sector = 255;
 
 static u8 latest_page_id[NUM_FLASH_ITEMS] = {};
 static u8 backup_page_id[NUM_PRESETS] = {};
@@ -51,6 +58,116 @@ SampleInfo* sample_info_flash_ptr(u8 sample0) {
 }
 
 // main
+
+void check_bootloader_flash(void) {
+	u8 count = 0;
+	u32* rb32 = (u32*)reverb_ram_buf;
+	u32 magic = rb32[64];
+	char* rb = (char*)reverb_ram_buf;
+	for (; count < 64; ++count)
+		if (rb[count] != 1)
+			break;
+	DebugLog("bootloader left %d ones for us magic is %08x\r\n", count, magic);
+	const u32* app_base = (const u32*)delay_ram_buf;
+
+	if (count != 64 / 4 || magic != 0xa738ea75) {
+		return;
+	}
+	char buf[32];
+	// checksum!
+	u32 checksum = 0;
+	for (u32 i = 0; i < 65536 / 4; ++i) {
+		checksum = checksum * 23 + ((u32*)delay_ram_buf)[i];
+	}
+	if (checksum != GOLDEN_CHECKSUM) {
+		DebugLog("bootloader checksum failed %08x != %08x\r\n", checksum, GOLDEN_CHECKSUM);
+		oled_clear();
+		draw_str(0, 0, F_8, "bad bootloader crc");
+		snprintf(buf, sizeof(buf), "%08x vs %08x", (unsigned int)checksum, (unsigned int)GOLDEN_CHECKSUM);
+		draw_str(0, 8, F_8, buf);
+		oled_flip();
+		HAL_Delay(10000);
+		return;
+	}
+	oled_clear();
+	snprintf(buf, sizeof(buf), "%08x %d", (unsigned int)magic, count);
+	draw_str(0, 0, F_16, buf);
+	snprintf(buf, sizeof(buf), "%08x %08x", (unsigned int)app_base[0], (unsigned int)app_base[1]);
+	draw_str(0, 16, F_12, buf);
+	oled_flip();
+
+	rb32[64]++; // clear the magic
+
+	DebugLog("bootloader app base is %08x %08x\r\n", (unsigned int)app_base[0], (unsigned int)app_base[1]);
+
+	/*
+	 * We refuse to program the first word of the app until the upload is marked
+	 * complete by the host.  So if it's not 0xffffffff, we should try booting it.
+	 */
+	if (app_base[0] == 0xffffffff || app_base[0] == 0) {
+		HAL_Delay(10000);
+		return;
+	}
+
+	// first word is stack base - needs to be in RAM region and word-aligned
+	if ((app_base[0] & 0xff000003) != 0x20000000) {
+		HAL_Delay(10000);
+		return;
+	}
+
+	/*
+	 * The second word of the app is the entrypoint; it must point within the
+	 * flash area (or we have a bad flash).
+	 */
+	if (app_base[1] < 0x08000000 || app_base[1] >= 0x08010000) {
+		HAL_Delay(10000);
+		return;
+	}
+	DebugLog("FLASHING BOOTLOADER! DO NOT RESET\r\n");
+	oled_clear();
+	draw_str(0, 0, F_12_BOLD, "FLASHING\nBOOTLOADER");
+	char verbuf[5] = {};
+	memcpy(verbuf, (void*)(delay_ram_buf + 65536 - 4), 4);
+	draw_str(0, 24, F_8, verbuf);
+
+	oled_flip();
+	HAL_FLASH_Unlock();
+	FLASH_EraseInitTypeDef EraseInitStruct;
+	EraseInitStruct.TypeErase = FLASH_TYPEERASE_PAGES;
+	EraseInitStruct.Banks = FLASH_BANK_1;
+	EraseInitStruct.Page = 0;
+	EraseInitStruct.NbPages = 65536 / 2048;
+	u32 SECTORError = 0;
+	if (HAL_FLASHEx_Erase(&EraseInitStruct, &SECTORError) != HAL_OK) {
+		DebugLog("BOOTLOADER flash erase error %d\r\n", SECTORError);
+		oled_clear();
+		draw_str(0, 0, F_16_BOLD, "BOOTLOADER\nERASE ERROR");
+		oled_flip();
+		HAL_Delay(10000);
+		return;
+	}
+	DebugLog("BOOTLOADER flash erased ok!\r\n");
+
+	__HAL_FLASH_DATA_CACHE_DISABLE();
+	__HAL_FLASH_INSTRUCTION_CACHE_DISABLE();
+	__HAL_FLASH_DATA_CACHE_RESET();
+	__HAL_FLASH_INSTRUCTION_CACHE_RESET();
+	__HAL_FLASH_INSTRUCTION_CACHE_ENABLE();
+	__HAL_FLASH_DATA_CACHE_ENABLE();
+	u64* s = (u64*)delay_ram_buf;
+	volatile u64* d = (volatile u64*)0x08000000;
+	u32 size_bytes = 65536;
+	for (; size_bytes > 0; size_bytes -= 8) {
+		HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, (u32)(size_t)(d++), *s++);
+	}
+	HAL_FLASH_Lock();
+	DebugLog("BOOTLOADER has been flashed!\r\n");
+	oled_clear();
+	draw_str(0, 0, F_12_BOLD, "BOOTLOADER\nFLASHED OK!");
+	draw_str(0, 24, F_8, verbuf);
+	oled_flip();
+	HAL_Delay(3000);
+}
 
 void init_flash() {
 	u8 dummy_page = 0;
@@ -174,4 +291,30 @@ void flash_write_page(void* src, u32 size, u8 page_id) {
 	HAL_FLASH_Lock();
 	latest_page_id[page_id] = flash_page;
 	flash_busy = false;
+}
+
+// calib
+
+u8 flash_read_calib(void) {
+	volatile u64* flash = (volatile u64*)(FLASH_ADDR_256 + calib_sector * 2048);
+	u8 ver = 0;
+	u8 ok = 0;
+	if (flash[0] == MAGIC && flash[255] == ~MAGIC)
+		ver = 2;
+	if (ver == 0) {
+		DebugLog("no calibration found in flash\r\n");
+		return 0;
+	}
+	volatile u64* s = flash + 1;
+	if (*s != ~(u64)(0)) {
+		ok |= 1;
+		memcpy(touch_calib_ptr(), (u64*)s, sizeof(CalibData) * NUM_TOUCH_READINGS);
+	}
+	s += sizeof(CalibData) * NUM_TOUCH_READINGS / 8;
+	if (*s != ~(u64)(0)) {
+		ok |= 2;
+		memcpy(adc_dac_calib_ptr(), (u64*)s, sizeof(ADC_DAC_Calib) * 10);
+	}
+	s += sizeof(ADC_DAC_Calib) * 10 / 8;
+	return ok;
 }

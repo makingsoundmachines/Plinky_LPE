@@ -32,6 +32,9 @@ typedef char bool;
 #define false 0
 #endif
 
+// basic plinky info
+#include "plinky.h"
+
 // basic defines
 #define NUM_STRINGS 8
 
@@ -42,10 +45,10 @@ typedef struct Touch {
 	u16 pos;
 } Touch;
 
-typedef struct CalibResult {
+typedef struct CalibData {
 	u16 pres[NUM_STRINGS];
 	s16 pos[NUM_STRINGS];
-} CalibResult;
+} CalibData;
 
 typedef struct ValueSmoother {
 	float y1, y2;
@@ -107,7 +110,8 @@ static inline bool ispow2(s16 x) {
 
 // debug
 void gfx_debug(u8 row, const char* fmt, ...);
-void DebugLog(const char* fmt, ...);
+static inline void DebugLog(const char* fmt, ...) {
+}
 
 // plinky utils
 #define clz __builtin_clz
@@ -170,11 +174,3 @@ static inline void sort8(int *dst, const int *src) {
 }
 #undef SWAP
 // clang-format on
-
-// TEMP - these will get organised into their appropriate modules
-
-static inline u16 SATURATEU16(s32 a) {
-	int tmp;
-	asm("usat %0, %1, %2" : "=r"(tmp) : "I"(16), "r"(a));
-	return tmp;
-}

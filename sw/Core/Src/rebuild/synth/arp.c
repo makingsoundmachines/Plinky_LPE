@@ -6,7 +6,6 @@
 #include "sequencer.h"
 #include "strings.h"
 #include "time.h"
-#include "ui/ui.h"
 
 ArpOrder arp_order = ARP_UP;
 s8 arp_oct_offset = 0;

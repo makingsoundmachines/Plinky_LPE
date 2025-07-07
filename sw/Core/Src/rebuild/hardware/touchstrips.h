@@ -17,9 +17,10 @@
 #define TOUCH_MIN_PRES -2048
 #define TOUCH_FULL_PRES 2047
 
-extern volatile u8 touch_frame;
+extern u8 touch_frame;
 
 void MX_TSC_Init(void);
+CalibData* touch_calib_ptr(void);
 
 // get touch info
 
@@ -30,10 +31,3 @@ Touch* get_touch_prev(u8 touch_id, u8 frames_back);
 
 u8 read_touchstrips(void);
 void reset_touches(void);
-
-// only global for calib.h
-
-s16 sensor_reading_position(u8 reading_id);
-u16 sensor_reading_pressure(u8 reading_id);
-extern u16 sensor_min[2 * NUM_TOUCH_READINGS];
-extern u16 sensor_max[2 * NUM_TOUCH_READINGS];

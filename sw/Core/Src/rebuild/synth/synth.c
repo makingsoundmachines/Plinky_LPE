@@ -17,7 +17,6 @@
 #include "testing/tick_counter.h"
 #include "time.h"
 #include "ui/oled_viz.h"
-#include "ui/ui.h"
 
 Voice voices[NUM_VOICES];
 

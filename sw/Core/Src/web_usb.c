@@ -1,33 +1,15 @@
-#pragma once
+#include "web_usb.h"
+
 #include "data/tables.h"
 #include "gfx/gfx.h"
+#include "hardware/flash.h"
 #include "hardware/ram.h"
 #include "hardware/spi.h"
+#include "synth/audio.h"
 #include "synth/audio_tools.h"
-#include "synth/params.h"
-#ifdef DEBUG
-// #define DEBUG_WU
-#endif
-#ifdef DEBUG_WU
-#define WUDebugLog DebugLog
-#else
+#include "ui/oled_viz.h"
 #define WUDebugLog(...)
-#endif
 
-#ifdef EMU
-static inline uint32_t tud_vendor_write_available(void) {
-	return 0;
-}
-static inline uint32_t tud_vendor_available(void) {
-	return 0;
-}
-static inline uint32_t tud_vendor_read(void* buffer, uint32_t bufsize) {
-	return 0;
-}
-static inline uint32_t tud_vendor_write(const void* buffer, uint32_t bufsize) {
-	return 0;
-}
-#else
 uint32_t tud_vendor_n_write_available(uint8_t itf);
 uint32_t tud_vendor_n_available(uint8_t itf);
 uint32_t tud_vendor_n_read(uint8_t itf, void* buffer, uint32_t bufsize);
@@ -44,8 +26,6 @@ static inline uint32_t tud_vendor_read(void* buffer, uint32_t bufsize) {
 static inline uint32_t tud_vendor_write(void const* buffer, uint32_t bufsize) {
 	return tud_vendor_n_write(0, buffer, bufsize);
 }
-
-#endif
 
 extern const short wavetable[17][1031];
 
@@ -159,7 +139,7 @@ void draw_webusb_ui2() {
 extern bool web_serial_connected;
 volatile bool want_webusb_on_audio_thread = true; // to get fast midi response we want to be on audio thread if possible
 
-void PumpWebUSB(bool calling_from_audio_thread) {
+void pump_web_usb(bool calling_from_audio_thread) {
 	if (want_webusb_on_audio_thread != calling_from_audio_thread)
 		return;
 	if (!web_serial_connected) {

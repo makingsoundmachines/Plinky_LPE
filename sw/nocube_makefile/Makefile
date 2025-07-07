@@ -32,6 +32,7 @@ MAP = $(BUILD_DIR)/plinkyblack.map
 
 # Source files
 SRCS = \
+	../Core/Src/rebuild/plinky.c \
 	../Core/Src/rebuild/data/tables.c \
 	../Core/Src/rebuild/hardware/accelerometer.c \
 	../Core/Src/rebuild/hardware/adc_dac.c \
@@ -58,12 +59,10 @@ SRCS = \
 	../Core/Src/rebuild/ui/oled_viz.c \
 	../Core/Src/rebuild/ui/pad_actions.c \
 	../Core/Src/rebuild/ui/shift_states.c \
-	../Core/Src/rebuild/ui/ui.c \
 	../Core/Src/rebuild/gfx/gfx.c \
 	../Core/Src/rebuild/gfx/oled/oled.c \
 	../Core/Src/main.c \
 	../Core/Src/lis2dh12_reg.c \
-	../Core/Src/plinky/plinky.c \
 	../Core/Src/stm32l4xx_hal_msp.c \
 	../Core/Src/stm32l4xx_it.c \
 	../Core/Src/syscalls.c \
@@ -78,6 +77,7 @@ SRCS = \
 	../Core/Src/tinyusb/src/device/usbd.c \
 	../Core/Src/tinyusb/src/device/usbd_control.c \
 	../Core/Src/tinyusb/src/portable/st/synopsys/dcd_synopsys.c \
+	../Core/Src/web_usb.c \
 	../Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal.c \
 	../Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_adc.c \
 	../Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_adc_ex.c \

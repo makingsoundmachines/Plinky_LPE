@@ -1,52 +1,40 @@
 
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "hardware/leds.h"
-#include "tusb.h"
 #include "main.h"
+#include "tusb.h"
 
-
-enum
-{
-    VENDOR_REQUEST_WEBUSB = 1,
-    VENDOR_REQUEST_MICROSOFT = 2
-};
+enum { VENDOR_REQUEST_WEBUSB = 1, VENDOR_REQUEST_MICROSOFT = 2 };
 
 extern uint8_t const desc_ms_os_20[];
 
 extern bool web_serial_connected;
 bool web_serial_connected = false;
 
+#define URL "www.plinkysynth.com/webusb"
 
-#define URL  "www.plinkysynth.com/webusb"
+const tusb_desc_webusb_url_t desc_url = {.bLength = 3 + sizeof(URL) - 1,
+                                         .bDescriptorType = 3, // WEBUSB URL type
+                                         .bScheme = 1,         // 0: http, 1: https
+                                         .url = URL};
 
-const tusb_desc_webusb_url_t desc_url =
-{
-  .bLength         = 3 + sizeof(URL) - 1,
-  .bDescriptorType = 3, // WEBUSB URL type
-  .bScheme         = 1, // 0: http, 1: https
-  .url             = URL
-};
-
-
-
-void OTG_FS_IRQHandler(void)
-{
-  tud_int_handler(0);
+void OTG_FS_IRQHandler(void) {
+	tud_int_handler(0);
 }
 
-//int HAL_GetTick(void);
+// int HAL_GetTick(void);
 #define millis HAL_GetTick
 typedef unsigned char u8;
 extern u8 leds[9][8];
 void board_led_write(bool state) {
 	//	leds[0][0]=state?255:0;
 	if (state)
-		GPIOD->BSRR=1;
+		GPIOD->BSRR = 1;
 	else
-		GPIOD->BRR=1;
+		GPIOD->BRR = 1;
 }
 
 /* This MIDI example send sequence of note (on/off) repeatedly. To test on PC, you need to install
@@ -65,36 +53,52 @@ void board_led_write(bool state) {
  * - 1000 ms : device mounted
  * - 2500 ms : device is suspended
  */
-enum  {
-  BLINK_NOT_MOUNTED = 250,
-  BLINK_MOUNTED = 1000,
-  BLINK_SUSPENDED = 2500,
+enum {
+	BLINK_NOT_MOUNTED = 250,
+	BLINK_MOUNTED = 1000,
+	BLINK_SUSPENDED = 2500,
 };
 
 static uint32_t blink_interval_ms = BLINK_NOT_MOUNTED;
 void led_blinking_task(void);
-//void midi_task(void);
+// void midi_task(void);
 
 extern TIM_HandleTypeDef htim1;
 
-static inline uint32_t mix(uint32_t a,uint32_t b,uint32_t c) \
-{ \
-  a -= b; a -= c; a ^= (c>>13); \
-  b -= c; b -= a; b ^= (a<<8); \
-  c -= a; c -= b; c ^= (b>>13); \
-  a -= b; a -= c; a ^= (c>>12);  \
-  b -= c; b -= a; b ^= (a<<16); \
-  c -= a; c -= b; c ^= (b>>5); \
-  a -= b; a -= c; a ^= (c>>3);  \
-  b -= c; b -= a; b ^= (a<<10); \
-  c -= a; c -= b; c ^= (b>>15); \
-  return c;
+static inline uint32_t mix(uint32_t a, uint32_t b, uint32_t c) {
+	a -= b;
+	a -= c;
+	a ^= (c >> 13);
+	b -= c;
+	b -= a;
+	b ^= (a << 8);
+	c -= a;
+	c -= b;
+	c ^= (b >> 13);
+	a -= b;
+	a -= c;
+	a ^= (c >> 12);
+	b -= c;
+	b -= a;
+	b ^= (a << 16);
+	c -= a;
+	c -= b;
+	c ^= (b >> 5);
+	a -= b;
+	a -= c;
+	a ^= (c >> 3);
+	b -= c;
+	b -= a;
+	b ^= (a << 10);
+	c -= a;
+	c -= b;
+	c ^= (b >> 15);
+	return c;
 }
 uint32_t serialno;
 
 /*------------- MAIN -------------*/
-void midiinit(void)
-{
+void midiinit(void) {
 #if 0
 
 	// based on https://github.com/hathach/tinyusb/blob/fix-stm32l4/hw/bsp/stm32l476disco/stm32l476disco.c
@@ -134,12 +138,12 @@ void midiinit(void)
 	  USB_OTG_FS->GOTGCTL |= USB_OTG_GOTGCTL_BVALOVAL;
 #endif
 
-	uint32_t 	uid0=HAL_GetUIDw0 ();
-	uint32_t 	uid1=HAL_GetUIDw1 ();
-	uint32_t 	uid2=HAL_GetUIDw2 ();
-	serialno = mix(uid0,uid1,uid2);
+	uint32_t uid0 = HAL_GetUIDw0();
+	uint32_t uid1 = HAL_GetUIDw1();
+	uint32_t uid2 = HAL_GetUIDw2();
+	serialno = mix(uid0, uid1, uid2);
 
-  // tusb_init();
+	// tusb_init();
 }
 
 /*
@@ -159,40 +163,35 @@ int miditest(void) {
   return 0;
 }*/
 
-
 //--------------------------------------------------------------------+
 // Device callbacks
 //--------------------------------------------------------------------+
 
 // Invoked when device is mounted
-void tud_mount_cb(void)
-{
-  blink_interval_ms = BLINK_MOUNTED;
-  web_serial_connected = true;
+void tud_mount_cb(void) {
+	blink_interval_ms = BLINK_MOUNTED;
+	web_serial_connected = true;
 }
 
 // Invoked when device is unmounted
-void tud_umount_cb(void)
-{
-  blink_interval_ms = BLINK_NOT_MOUNTED;
-  web_serial_connected = false;
+void tud_umount_cb(void) {
+	blink_interval_ms = BLINK_NOT_MOUNTED;
+	web_serial_connected = false;
 }
 
 // Invoked when usb bus is suspended
 // remote_wakeup_en : if host allow us  to perform remote wakeup
 // Within 7ms, device must draw an average of current less than 2.5 mA from bus
-void tud_suspend_cb(bool remote_wakeup_en)
-{
-  (void) remote_wakeup_en;
-  blink_interval_ms = BLINK_SUSPENDED;
-  web_serial_connected = false;
+void tud_suspend_cb(bool remote_wakeup_en) {
+	(void)remote_wakeup_en;
+	blink_interval_ms = BLINK_SUSPENDED;
+	web_serial_connected = false;
 }
 
 // Invoked when usb bus is resumed
-void tud_resume_cb(void)
-{
-  blink_interval_ms = BLINK_MOUNTED;
-  web_serial_connected = true;
+void tud_resume_cb(void) {
+	blink_interval_ms = BLINK_MOUNTED;
+	web_serial_connected = true;
 }
 
 //--------------------------------------------------------------------+
@@ -202,63 +201,55 @@ void tud_resume_cb(void)
 // Invoked when a control transfer occurred on an interface of this class
 // Driver response accordingly to the request and the transfer stage (setup/data/ack)
 // return false to stall control endpoint (e.g unsupported request)
-bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t const* request)
-{
-    // nothing to with DATA & ACK stage
-    if (stage != CONTROL_STAGE_SETUP) return true;
+bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t const* request) {
+	// nothing to with DATA & ACK stage
+	if (stage != CONTROL_STAGE_SETUP)
+		return true;
 
-    switch (request->bRequest)
-    {
-    case VENDOR_REQUEST_WEBUSB:
-        // match vendor request in BOS descriptor
-        // Get landing page url
-        return tud_control_xfer(rhport, request, (void*)&desc_url, desc_url.bLength);
+	switch (request->bRequest) {
+	case VENDOR_REQUEST_WEBUSB:
+		// match vendor request in BOS descriptor
+		// Get landing page url
+		return tud_control_xfer(rhport, request, (void*)&desc_url, desc_url.bLength);
 
-    case VENDOR_REQUEST_MICROSOFT:
-        if (request->wIndex == 7)
-        {
-            // Get Microsoft OS 2.0 compatible descriptor
-            uint16_t total_len;
-            memcpy(&total_len, desc_ms_os_20 + 8, 2);
+	case VENDOR_REQUEST_MICROSOFT:
+		if (request->wIndex == 7) {
+			// Get Microsoft OS 2.0 compatible descriptor
+			uint16_t total_len;
+			memcpy(&total_len, desc_ms_os_20 + 8, 2);
 
-            return tud_control_xfer(rhport, request, (void*)desc_ms_os_20, total_len);
-        }
-        else
-        {
-            return false;
-        }
+			return tud_control_xfer(rhport, request, (void*)desc_ms_os_20, total_len);
+		}
+		else {
+			return false;
+		}
 
-    case 0x22:
-        // Webserial simulate the CDC_REQUEST_SET_CONTROL_LINE_STATE (0x22) to
-        // connect and disconnect.
-        web_serial_connected = (request->wValue != 0);
+	case 0x22:
+		// Webserial simulate the CDC_REQUEST_SET_CONTROL_LINE_STATE (0x22) to
+		// connect and disconnect.
+		web_serial_connected = (request->wValue != 0);
 
-        // Always lit LED if connected
-        if (web_serial_connected)
-        {
-            board_led_write(true);
-//            blink_interval_ms = BLINK_ALWAYS_ON;
+		// Always lit LED if connected
+		if (web_serial_connected) {
+			board_led_write(true);
+			//            blink_interval_ms = BLINK_ALWAYS_ON;
 
-            //tud_vendor_write_str("\r\nTinyUSB WebUSB device example\r\n");
-        }
-        else
-        {
-            blink_interval_ms = BLINK_MOUNTED;
-        }
+			// tud_vendor_write_str("\r\nTinyUSB WebUSB device example\r\n");
+		}
+		else {
+			blink_interval_ms = BLINK_MOUNTED;
+		}
 
-        // response with status OK
-        return tud_control_status(rhport, request);
+		// response with status OK
+		return tud_control_status(rhport, request);
 
-    default:
-        // stall unknown request
-        return false;
-    }
+	default:
+		// stall unknown request
+		return false;
+	}
 
-    return true;
+	return true;
 }
-
-void PumpWebUSB(bool calling_from_audio_thread);
-
 
 /*
 //--------------------------------------------------------------------+
@@ -312,10 +303,10 @@ void midi_task(void)
   static uint32_t start_ms = 0;
 
   if (tud_midi_available()) {
-	  unsigned char packet[4]={};
-	  if (tud_midi_receive(packet)) {
-		//  DebugLog("%02x %02x %02x %02x\r\n", packet[0],packet[1],packet[2],packet[3]);
-	  }
+      unsigned char packet[4]={};
+      if (tud_midi_receive(packet)) {
+        //  DebugLog("%02x %02x %02x %02x\r\n", packet[0],packet[1],packet[2],packet[3]);
+      }
   }
 
   // send note every 1000 ms

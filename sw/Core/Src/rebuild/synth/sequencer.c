@@ -8,7 +8,6 @@
 #include "params.h"
 #include "time.h"
 #include "ui/shift_states.h"
-#include "ui/ui.h"
 
 // cleanup
 #include "hardware/adc_dac.h"

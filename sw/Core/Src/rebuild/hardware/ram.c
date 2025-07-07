@@ -6,7 +6,6 @@
 #include "hardware/codec.h"
 #include "synth/param_defs.h"
 #include "ui/oled_viz.h"
-#include "ui/ui.h"
 
 // cleanup
 #include "synth/lfos.h"

@@ -1,6 +1,13 @@
 // clang-format off
 #include "tables.h"
 
+
+__STATIC_FORCEINLINE u16 SATURATEU16(s32 a) {
+	int tmp;
+	asm("usat %0, %1, %2" : "=r"(tmp) : "I"(16), "r"(a));
+	return tmp;
+}
+
 // 16 bit unsigned input, looked up in a 1024 entry table and linearly interpolated
 float table_interp(const float* table, int x) {
 	x = SATURATEU16(x);

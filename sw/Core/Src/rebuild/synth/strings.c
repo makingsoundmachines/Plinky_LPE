@@ -13,7 +13,6 @@
 #include "synth/time.h"
 #include "ui/pad_actions.h"
 #include "ui/shift_states.h"
-#include "ui/ui.h"
 
 // current frame in string_touch
 static u8 strings_write_frame;

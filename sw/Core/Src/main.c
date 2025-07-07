@@ -20,15 +20,12 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "plinky.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #define FLASH_LATENCY_5 FLASH_LATENCY_4 // WOOHAHAHAHAH
-#include "hardware/accelerometer.h"
 #include "hardware/touchstrips.h"
-#include "plinky/core.h"
-#include "rebuild/hardware/encoder.h"
-#include "rebuild/synth/time.h"
 #include <stdlib.h>
 #include <string.h>
 /* USER CODE END Includes */
@@ -105,8 +102,10 @@ static void MX_USB_OTG_FS_PCD_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-int miditest(void);
-void usb_midi_init(void);
+static inline void denormals_init(void) {
+	uint32_t fcspr = __get_FPSCR();
+	__set_FPSCR(fcspr | (1 << 24));
+}
 
 /* USER CODE END 0 */
 
@@ -153,50 +152,25 @@ int main(void) {
 	MX_TIM5_Init();
 	MX_USB_OTG_FS_PCD_Init();
 	/* USER CODE BEGIN 2 */
-	// check if the bootloader wants us to flash
 
-	// check_bootloader_flash(); // used to be here, but now we do it in plinky_init
-
-	//  miditest();
-
-#ifdef NEW_PINOUT
 	// for the new pinout, we use the stm's internal voltage reference
 	HAL_SYSCFG_VREFBUF_VoltageScalingConfig(SYSCFG_VREFBUF_VOLTAGE_SCALE1);
 	HAL_SYSCFG_EnableVREFBUF();
 	HAL_SYSCFG_VREFBUF_HighImpedanceConfig(SYSCFG_VREFBUF_HIGH_IMPEDANCE_DISABLE);
-#else
-	// for the old pinout, pd0 is the cs line, needs to be fast!
+
+	denormals_init();
+
+	// turn debug pin to an output
 	GPIO_InitTypeDef GPIO_InitStruct = {0};
-	GPIO_InitStruct.Pin = GPIO_PIN_0;
+	GPIO_InitStruct.Pin = GPIO_PIN_8;
 	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-	HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
-	// pd14 is not a timer, its gpiout for N4. hopefully this undoes the timer config of tim4 ch3 in TIM4_Init
-	GPIO_InitStruct.Pin = GPIO_PIN_14;
-	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-	GPIO_InitStruct.Pull = GPIO_NOPULL;
-	GPIO_InitStruct.Speed = GPIO_SPEED_LOW;
-	HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
-#endif
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+	GPIOA->BSRR = 1 << 8; // cs high
 
-	//	DebugLog("plinky black 0.1\r\n");
-	void plinky_init(void);
 	plinky_init();
-	encoder_init();
-	/* USER CODE END 2 */
-
-	/* Infinite loop */
-	/* USER CODE BEGIN WHILE */
-
-	while (1) {
-		/* USER CODE END WHILE */
-
-		/* USER CODE BEGIN 3 */
-		void plinky_frame(void);
-		plinky_frame();
-	}
-	/* USER CODE END 3 */
+	plinky_loop();
 }
 
 /**

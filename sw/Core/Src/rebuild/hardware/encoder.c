@@ -6,7 +6,6 @@
 #include "synth/sampler.h"
 #include "ui/oled_viz.h"
 #include "ui/pad_actions.h"
-#include "ui/ui.h"
 
 volatile s8 encoder_value = 0;
 volatile bool encoder_pressed = false;
@@ -58,21 +57,8 @@ void encoder_tick(void) {
 	if (encoder_pressed)
 		encoder_press_duration++;
 
-	// reboot belongs in system
-	if (!encoder_pressed) {
-		if (encoder_press_duration > 500) {
-			HAL_Delay(500);
-			HAL_NVIC_SystemReset();
-		}
-	}
-	// reboot prep stage 2
-	if (encoder_press_duration > 500) {
-		flash_message(F_20_BOLD, "REBOOT!!", "");
-	}
-	// reboot prep stage 1
-	else if (encoder_press_duration > 250) {
-		flash_message(F_20_BOLD, "REBOOT?", "");
-	}
+	if (encoder_press_duration > 250)
+		plinky_reboot_sequence(encoder_press_duration);
 
 	if ((enc_diff || encoder_pressed || prev_encoder_pressed)) {
 		// log time

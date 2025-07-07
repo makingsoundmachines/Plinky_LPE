@@ -22,6 +22,7 @@
 
 extern bool flash_busy;
 
+void check_bootloader_flash(void);
 void init_flash();
 void flash_toggle_preset(u8 preset_id);
 
@@ -36,3 +37,7 @@ SampleInfo* sample_info_flash_ptr(u8 sample0);
 void flash_erase_page(u8 page);
 void flash_write_block(void* dst, void* src, int size);
 void flash_write_page(void* src, u32 size, u8 page_id);
+
+// calib
+
+u8 flash_read_calib(void);

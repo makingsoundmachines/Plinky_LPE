@@ -8,6 +8,12 @@ extern ADC_HandleTypeDef hadc1;
 extern TIM_HandleTypeDef htim6;
 extern TIM_HandleTypeDef htim3;
 
+#define ADC_CHANS 8
+#define ADC_SAMPLES 8
+
+#define ADC_CHANS 8
+#define ADC_SAMPLES 8
+
 ADC_DAC_Calib adc_dac_calib[NUM_ADC_DAC_ITEMS] = {
     // cv inputs
     {52100.f, 1.f / -9334.833333f}, // pitch
@@ -25,6 +31,10 @@ ADC_DAC_Calib adc_dac_calib[NUM_ADC_DAC_ITEMS] = {
     {42490.f, (26620 - 42490) * (1.f / (2048.f * 12.f * 2.f))}, // pitch lo
     {42511.f, (26634 - 42511) * (1.f / (2048.f * 12.f * 2.f))}, // pitch hi
 };
+
+ADC_DAC_Calib* adc_dac_calib_ptr(void) {
+	return adc_dac_calib;
+}
 
 // only global for calib and testjig - preferred local
 u16 adc_buffer[ADC_CHANS * ADC_SAMPLES];

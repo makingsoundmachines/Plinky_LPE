@@ -1,10 +1,6 @@
 #include "codec.h"
 #include "synth/time.h"
 
-// cleanup
-void uitick(u32* dst, const u32* src, int half);
-// -- cleanup
-
 extern I2C_HandleTypeDef hi2c2;
 extern SAI_HandleTypeDef hsai_BlockB1;
 extern SAI_HandleTypeDef hsai_BlockA1;
@@ -292,11 +288,11 @@ static short tx_buf[SAMPLES_PER_TICK * 4];
 static short rx_buf[SAMPLES_PER_TICK * 4];
 
 void HAL_SAI_RxCpltCallback(SAI_HandleTypeDef* hi2s) {
-	uitick(((u32*)tx_buf) + SAMPLES_PER_TICK, ((u32*)rx_buf) + SAMPLES_PER_TICK, 1);
+	plinky_codec_tick(((u32*)tx_buf) + SAMPLES_PER_TICK, ((u32*)rx_buf) + SAMPLES_PER_TICK);
 }
 
 void HAL_SAI_RxHalfCpltCallback(SAI_HandleTypeDef* hi2s) {
-	uitick((u32*)tx_buf, ((u32*)rx_buf), 0);
+	plinky_codec_tick((u32*)tx_buf, ((u32*)rx_buf));
 }
 
 static u8 wmcodec_write(u8 reg, u16 data) {
