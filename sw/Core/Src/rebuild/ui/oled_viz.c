@@ -8,10 +8,6 @@
 #include "ui/shift_states.h"
 #include "ui/ui.h"
 
-// cleanup
-extern short* delaybuf;
-// -- cleanup
-
 // == TOOLS == //
 
 const char* note_name(int note) {

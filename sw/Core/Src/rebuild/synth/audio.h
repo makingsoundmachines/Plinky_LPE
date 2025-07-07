@@ -4,22 +4,26 @@
 #include "sampler.h"
 #include "utils.h"
 
-extern ValueSmoother ext_gain_smoother; // gain applied to external audio
+// this module handles mixing audio levels throughout the synth and applying audio effects
 
-// set the gain for external audio from the value of ADC_A_KNOB
+extern short* reverb_ram_buf;
+extern short* delay_ram_buf;
+
+// sampler stuff
+extern s16 audio_in_peak;
+extern s16 audio_in_hold;
+void reverb_clear(void);
+void delay_clear(void);
+
+// possibly move to sampler
+
+extern ValueSmoother ext_gain_smoother;
 static inline void init_ext_gain_for_recording(void) {
 	set_smoother(&ext_gain_smoother, 65535 - adc_get_raw(ADC_A_KNOB));
 }
 
-// smoothly set the gain for the external audio, either from the P_INPUT_LVL parameter or from the value of ADC_A_KNOB
-static inline void handle_ext_gain(void) {
-	static u16 ext_gain_goal = 1 << 15;
-	if (sampler_mode > SM_PREVIEW) {
-		u16 gain_knob_value = 65535 - adc_get_raw(ADC_A_KNOB);
-		if (abs(gain_knob_value - ext_gain_goal) > 256) // hysteresis
-			ext_gain_goal = gain_knob_value;
-	}
-	else
-		ext_gain_goal = param_val(P_INPUT_LVL);
-	smooth_value(&ext_gain_smoother, ext_gain_goal, 65536.f);
-}
+// main
+
+void audio_init(void);
+void audio_pre(u32* audio_out, u32* audio_in);
+void audio_post(u32* audio_out, u32* audio_in);

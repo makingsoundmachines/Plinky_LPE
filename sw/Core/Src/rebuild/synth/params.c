@@ -44,6 +44,12 @@ static Touch* touch_pointer[NUM_STRINGS];
 
 // == INLINES == //
 
+static s32 SATURATE17(s32 a) {
+	int tmp;
+	asm("ssat %0, %1, %2" : "=r"(tmp) : "I"(17), "r"(a));
+	return tmp;
+}
+
 static int get_volume_as_param(void) {
 	return (sys_params.headphonevol + 45) * (PARAM_SIZE / 64);
 }

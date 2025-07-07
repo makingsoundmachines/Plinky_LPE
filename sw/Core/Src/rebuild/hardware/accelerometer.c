@@ -6,6 +6,8 @@
 
 extern I2C_HandleTypeDef hi2c2;
 
+#define I2C_TIMEOUT 20
+
 static int32_t platform_write(void* handle, uint8_t reg, uint8_t* bufp, uint16_t len) {
 	/* Write multiple command */
 	reg |= 0x80;

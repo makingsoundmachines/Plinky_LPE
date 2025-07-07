@@ -3,6 +3,7 @@
 #include "gfx/gfx.h"
 #include "hardware/ram.h"
 #include "hardware/spi.h"
+#include "synth/audio_tools.h"
 #include "synth/params.h"
 #ifdef DEBUG
 // #define DEBUG_WU
@@ -308,15 +309,15 @@ statedone:
 				wu_hdr.magic[3] = wu_magic_ext[3]; // 32 bit mode
 				if (len >= 65536)
 					len = 65536;
-				SetWUState(WU_RECVDATA, ((u8*)delaybuf), len);
+				SetWUState(WU_RECVDATA, ((u8*)delay_ram_buf), len);
 			}
 			else if (wu_hdr.cmd == 5) {
 				// write wavetable ram
 				// g_disable_fx = 1;
 				// while (g_disable_fx < 2)
 				// 	;
-				memcpy(delaybuf, wavetable, sizeof(wavetable));
-				SetWUState(WU_RECVDATA, ((u8*)delaybuf) + wu_hdr_offset() + wu_hdr.idx * WAVETABLE_SIZE * 2,
+				memcpy(delay_ram_buf, wavetable, sizeof(wavetable));
+				SetWUState(WU_RECVDATA, ((u8*)delay_ram_buf) + wu_hdr_offset() + wu_hdr.idx * WAVETABLE_SIZE * 2,
 				           wu_hdr_len());
 			}
 			else if (wu_hdr.cmd == 0) {
@@ -373,7 +374,7 @@ statedone:
 				// spi_erase64k(addr, draw_webusb_ui2);
 				for (int o = 0; o < len; o += 256) {
 					tud_task(); // keep the host happy
-					s16* src = (s16*)(delaybuf) + o / 2;
+					s16* src = (s16*)(delay_ram_buf) + o / 2;
 					s16* dst = (s16*)(spi_bit_tx + 4);
 					// int peak = 0;
 					// for (int i = 0; i < 256 / 2; ++i) {
@@ -401,7 +402,7 @@ statedone:
 						len = 65536;
 					usb_started = millis();
 					wu_lasteventtime = millis();
-					SetWUState(WU_RECVDATA, ((u8*)delaybuf), len);
+					SetWUState(WU_RECVDATA, ((u8*)delay_ram_buf), len);
 					continue;
 				}
 				else {
@@ -412,8 +413,8 @@ statedone:
 			}
 			else if (wu_hdr.cmd == 5) {
 				// write to wavetable ram
-				flash_program_array((void*)wavetable, (void*)delaybuf, (sizeof(wavetable) + 7) & ~7);
-				memset(delaybuf, 0, (DLMASK + 1) * 2);
+				flash_program_array((void*)wavetable, (void*)delay_ram_buf, (sizeof(wavetable) + 7) & ~7);
+				memset(delay_ram_buf, 0, (DL_SIZE_MASK + 1) * 2);
 				// g_disable_fx = 0;
 			}
 			goto reset;

@@ -3,6 +3,7 @@
 #include "gfx/gfx.h"
 #include "hardware/accelerometer.h"
 #include "hardware/adc_dac.h"
+#include "hardware/codec.h"
 #include "hardware/encoder.h"
 #include "hardware/flash.h"
 #include "hardware/ram.h"
@@ -23,7 +24,7 @@
 // main loop frame
 
 void plinky_frame(void) {
-	codec_setheadphonevol(sys_params.headphonevol + 45);
+	codec_set_volume(sys_params.headphonevol + 45);
 
 	PumpWebUSB(false);
 

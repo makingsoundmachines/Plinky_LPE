@@ -3,6 +3,7 @@
 #include "gfx/data/icons.h"
 #include "gfx/data/names.h"
 #include "gfx/gfx.h"
+#include "hardware/codec.h"
 #include "synth/param_defs.h"
 #include "ui/oled_viz.h"
 #include "ui/ui.h"
@@ -13,7 +14,6 @@
 #include "synth/sequencer.h" // (?)
 #include "synth/strings.h"
 #include "ui/pad_actions.h"
-void codec_setheadphonevol(int vol);
 // -- cleanup
 
 #define NUM_RAM_ITEMS (NUM_PRESETS + NUM_PATTERNS + NUM_SAMPLES)
@@ -137,7 +137,7 @@ void init_ram(void) {
 		last_ram_write[i] = 0;
 		last_flash_write[i] = 0;
 	}
-	codec_setheadphonevol(sys_params.headphonevol + 45);
+	codec_set_volume(sys_params.headphonevol + 45);
 	recent_load_item = sys_params.curpreset;
 }
 

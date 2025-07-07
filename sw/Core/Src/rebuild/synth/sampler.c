@@ -1,5 +1,6 @@
 #include "sampler.h"
 #include "audio.h"
+#include "audio_tools.h"
 #include "data/tables.h"
 #include "gfx/data/icons.h"
 #include "gfx/gfx.h"
@@ -14,15 +15,6 @@
 #include "ui/oled_viz.h"
 #include "ui/pad_actions.h"
 #include "ui/ui.h"
-
-// cleanup
-extern short* delaybuf;
-extern s16 audioin_peak;
-extern s16 audioin_hold;
-
-void reverb_clear(void);
-void delay_clear(void);
-// -- cleanup
 
 #define SMUAD(o, a, b) asm("smuad %0, %1, %2" : "=r"(o) : "r"(a), "r"(b))
 
@@ -79,10 +71,10 @@ static int calcloopend(u8 slice_id) {
 void sampler_recording_tick(u32* dst, u32* audioin) {
 	update_sample_ram(false);
 	// while armed => check for incoming audio
-	if ((sampler_mode == SM_ARMED) && (audioin_peak > 1024))
+	if ((sampler_mode == SM_ARMED) && (audio_in_peak > 1024))
 		start_recording_sample();
 	if (sampler_mode > SM_ERASING && sampler_mode < SM_STOPPING4) {
-		s16* dldst = delaybuf + (buf_write_pos & DLMASK);
+		s16* dldst = delay_ram_buf + (buf_write_pos & DL_SIZE_MASK);
 		// stopping recording => write zeroes (why don't we just write these all at once?)
 		if (sampler_mode >= SM_STOPPING1) {
 			memset(dldst, 0, SAMPLES_PER_TICK * 2);
@@ -504,12 +496,12 @@ void write_flash_sample_blocks(void) {
 	// when blocks available and sample not full
 	while ((write_pos >= buf_read_pos + BlockSize) && (s->samplelen < MAX_SAMPLE_LEN)) {
 		// set up read/write adresses
-		s16* src = delaybuf + (buf_read_pos & DLMASK);
+		s16* src = delay_ram_buf + (buf_read_pos & DL_SIZE_MASK);
 		s16* dst = (s16*)(spi_bit_tx + 4);
 		int flashaddr = (buf_read_pos - buf_start_pos) * 2;
 		buf_read_pos += BlockSize;
 		u16 peak = 0;
-		s16* delaybufend = delaybuf + DLMASK + 1;
+		s16* delay_ram_bufend = delay_ram_buf + DL_SIZE_MASK + 1;
 		// copy a block
 		for (u8 i = 0; i < BlockSize; ++i) {
 			s16 smp = *src++;
@@ -517,8 +509,8 @@ void write_flash_sample_blocks(void) {
 			// save peak value for waveform
 			peak = maxi(peak, abs(smp));
 			// loop buffer
-			if (src == delaybufend)
-				src = delaybuf;
+			if (src == delay_ram_bufend)
+				src = delay_ram_buf;
 		}
 		// save waveform
 		setwaveform4(s, flashaddr / 2 / 1024, peak / 1024);
@@ -542,7 +534,7 @@ void write_flash_sample_blocks(void) {
 	// finalize recording sample
 	if (sampler_mode == SM_STOPPING4) {
 		reverb_clear();
-		// clear out the raw audio in the delaybuf
+		// clear out the raw audio in the delay_ram_buf
 		delay_clear();
 		log_ram_edit(SEG_SAMPLE);
 		// fill in the remaining split points
@@ -582,7 +574,7 @@ void try_stop_recording_sample(void) {
 }
 
 void finish_recording_sample(void) {
-	// clear out the raw audio in the delaybuf
+	// clear out the raw audio in the delay_ram_buf
 	reverb_clear();
 	delay_clear();
 	log_ram_edit(SEG_SAMPLE); // fill in the remaining split points
@@ -712,8 +704,8 @@ void sampler_oled_visuals(void) {
 		// otherwise: fall thru
 	default:
 		// live audio visuals
-		u8 peak = maxi(0, audioin_peak / 128);
-		u8 hold = maxi(0, audioin_hold / 128);
+		u8 peak = maxi(0, audio_in_peak / 128);
+		u8 hold = maxi(0, audio_in_hold / 128);
 		draw_str(-128, 0, F_12,
 		         sampler_mode == SM_PRE_ARMED   ? "rec level " I_A
 		         : sampler_mode == SM_ARMED     ? "armed!"
@@ -737,7 +729,7 @@ void sampler_oled_visuals(void) {
 			int pmx = 0;
 			int pmn = 0;
 			for (u16 j = 0; j < 256; ++j) {
-				int p = -delaybuf[--srcpos & DLMASK];
+				int p = -delay_ram_buf[--srcpos & DL_SIZE_MASK];
 				pmx = maxi(p, pmx);
 				pmn = mini(p, pmn);
 			}
@@ -838,7 +830,7 @@ void draw_sample_playback(SampleInfo* s) {
 
 void update_peak_hist(void) {
 	peak_hist_pos = (peak_hist_pos + 1) & 31;
-	peak_hist[peak_hist_pos] = clampi(audioin_peak / 64, 0, 255);
+	peak_hist[peak_hist_pos] = clampi(audio_in_peak / 64, 0, 255);
 }
 
 void sampler_leds(u8 pulse_half, u8 pulse) {

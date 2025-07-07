@@ -110,6 +110,10 @@ void gfx_debug(u8 row, const char* fmt, ...);
 void DebugLog(const char* fmt, ...);
 
 // plinky utils
+#define clz __builtin_clz
+#define unlikely(x) __builtin_expect((x), 0)
+#define SMUAD(o, a, b) asm("smuad %0, %1, %2" : "=r"(o) : "r"(a), "r"(b))
+
 static u8 const zero[2048] = {0};
 
 static inline float deadzone(float f, float zone) {
@@ -169,6 +173,8 @@ static inline void sort8(int *dst, const int *src) {
 
 // TEMP - these will get organised into their appropriate modules
 
-#include "low_level/audiointrin.h"
-
-#define I2C_TIMEOUT 20
+static inline u16 SATURATEU16(s32 a) {
+	int tmp;
+	asm("usat %0, %1, %2" : "=r"(tmp) : "I"(16), "r"(a));
+	return tmp;
+}

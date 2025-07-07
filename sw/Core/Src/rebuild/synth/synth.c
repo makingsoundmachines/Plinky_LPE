@@ -1,4 +1,6 @@
 #include "synth.h"
+#include "audio.h"
+#include "audio_tools.h"
 #include "data/tables.h"
 #include "gfx/gfx.h"
 #include "hardware/adc_dac.h"
@@ -16,12 +18,6 @@
 #include "time.h"
 #include "ui/oled_viz.h"
 #include "ui/ui.h"
-
-// cleanup
-#define clz __builtin_clz
-#define unlikely(x) __builtin_expect((x), 0)
-#define SMUAD(o, a, b) asm("smuad %0, %1, %2" : "=r"(o) : "r"(a), "r"(b))
-// -- cleanup
 
 Voice voices[NUM_VOICES];
 
