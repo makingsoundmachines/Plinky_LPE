@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gfx/data/icons.h"
+#include "hardware/cv.h"
 #include "synth/params.h"
 // clang-format off
 #include "wtenum.h"
@@ -31,9 +32,6 @@ const char* const kpresetcats[CAT_LAST] = {
 "Gnarly",
 "Weird",
 };
-
-
-enum ECVQuant { CVQ_OFF, CVQ_ON, CVQ_SCALE, CVQ_LAST };
 
 enum EArpModes {
 	ARP_UP,
@@ -68,81 +66,10 @@ enum ESeqModes {
 	SEQ_LAST,
 };
 
-enum Scales {
-S_MAJOR,			
-S_MINOR,			
-S_HARMMINOR,		
-S_PENTA,			
-S_PENTAMINOR,		
-S_HIRAJOSHI,		
-S_INSEN,			
-S_IWATO,			
-S_MINYO,			
-
-S_FIFTHS,			
-S_TRIADMAJOR,		
-S_TRIADMINOR,		
-
-S_DORIAN,			
-S_PHYRGIAN,		
-S_LYDIAN,			
-S_MIXOLYDIAN,		
-S_AEOLIAN,			
-S_LOCRIAN,			
-
-S_BLUESMINOR,		
-S_BLUESMAJOR,		
-
-S_ROMANIAN,		
-S_WHOLETONE,		
-
-S_HARMONICS,
-S_HEXANY, 
-S_JUST, 
-
-
-S_CHROMATIC,
-S_DIMINISHED,
-S_LAST,
-};
-
-
-
 enum ELFOShape {
 	LFO_TRI, LFO_SIN, LFO_SMOOTHNOISE, LFO_STEPNOISE, LFO_BISQUARE, LFO_SQUARE, LFO_SANDCASTLE, LFO_SAW, LFO_BITRIGS, LFO_TRIGS, LFO_ENV, LFO_LAST,
 };
 
-
-
-const char* const scalenames[S_LAST] = {
-[S_MAJOR]="Major",
-[S_MINOR]="Minor",
-[S_HARMMINOR]="Harmonic Min",
-[S_PENTA]="Penta Maj",
-[S_PENTAMINOR]="Penta Min",
-[S_HIRAJOSHI]="Hirajoshi",
-[S_INSEN]="Insen",
-[S_IWATO]="Iwato",
-[S_MINYO]="Minyo",
-[S_FIFTHS]="Fifths",
-[S_TRIADMAJOR]="Triad Maj",
-[S_TRIADMINOR]="Triad Min",
-[S_DORIAN]="Dorian",
-[S_PHYRGIAN]="Phrygian",
-[S_LYDIAN]="Lydian",
-[S_MIXOLYDIAN]="Mixolydian",
-[S_AEOLIAN]="Aeolian",
-[S_LOCRIAN]="Lacrian",
-[S_BLUESMINOR]="Blues Min",
-[S_BLUESMAJOR]="Blues Maj",
-[S_ROMANIAN]="Romanian",
-[S_WHOLETONE]="Wholetone",
-[S_HARMONICS]="Harmonics",
-[S_HEXANY]="Hexany",
-[S_JUST]="Just",
-[S_CHROMATIC]="Chromatic",
-[S_DIMINISHED]="Diminished",
-};
 const char* const lfonames[LFO_LAST] = {
 		[LFO_TRI] = "Triangle",[LFO_SIN] = "Sine",[LFO_SMOOTHNOISE] = "SmthRnd",
 		[LFO_STEPNOISE] = "StepRnd",[LFO_BISQUARE] = "BiSquare",

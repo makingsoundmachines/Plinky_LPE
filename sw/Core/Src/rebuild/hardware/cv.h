@@ -1,12 +1,15 @@
 #pragma once
 #include "utils.h"
 
-// should live in synth
-extern s32 cv_pitch_hi_out;
-extern u8 cv_pressure_out;
-
 // this is defined in main.c
 extern TIM_HandleTypeDef htim3;
+
+enum ECVQuant {
+	CVQ_OFF,
+	CVQ_ON,
+	CVQ_SCALE,
+	CVQ_LAST,
+};
 
 void cv_calib(void);
 void send_cv_pitch_hi(s32 data, bool apply_calib);
@@ -25,7 +28,6 @@ static inline void send_cv_gate(u16 data) {
 }
 
 static inline void send_cv_pressure(u16 data) {
-	cv_pressure_out = clampi(data >> 6, 0, 255);
 	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, data >> 8);
 }
 

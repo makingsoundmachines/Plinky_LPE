@@ -10,12 +10,7 @@ extern s8 enable_audio;
 // this is defined in main.c
 extern DAC_HandleTypeDef hdac1;
 
-// these should live in the synth
-s32 cv_pitch_hi_out;
-u8 cv_pressure_out;
-
 void send_cv_pitch_hi(s32 data, bool apply_calib) {
-	cv_pitch_hi_out = data;
 	if (apply_calib) {
 		data = (s32)((data * adc_dac_calib[DAC_PITCH_CV_HI].scale) + adc_dac_calib[DAC_PITCH_CV_HI].bias);
 		s32 step = abs((s32)(adc_dac_calib[DAC_PITCH_CV_HI].scale * (2048.f * 12.f)));

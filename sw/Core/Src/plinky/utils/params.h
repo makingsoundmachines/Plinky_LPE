@@ -1,4 +1,5 @@
 #include "synth/params.h"
+#include "synth/pitch_tools.h"
 
 // clang-format off
 static inline u8 lfohashi(u16 step) {
@@ -78,111 +79,6 @@ float lfo_eval(u32 ti, float warp, unsigned int shape) {
 	if (shape>=LFO_LAST) shape=0;
 	return (*lfofuncs[shape])(t, step);
 }
-
-#define C  ( 0*512)
-#define Cs ( 1*512)
-#define D  ( 2*512)
-#define Ds ( 3*512)
-#define E  ( 4*512)
-#define F  ( 5*512)
-#define Fs ( 6*512)
-#define G  ( 7*512)
-#define Gs ( 8*512)
-#define A  ( 9*512)
-#define As (10*512)
-#define B  (11*512)
-
-#define Es F
-#define Bs C
-
-#define Ab Gs
-#define Bb As
-#define Cb B
-#define Db Cs
-#define Eb Ds
-#define Fb E
-#define Gb Fs
-
-#define CENTS(c) (((c)*512)/100)
-
-const static u16 scaletab[S_LAST][16] = {
-[S_CHROMATIC]		= {12, C,Cs,D,Ds,E,F,Fs,G,Gs,A,As,B},
-[S_MAJOR]			= {7, C,D,E,F,G,A,B},
-[S_MINOR]			= {7, C,D,Eb,F,G,Ab,Bb},
-[S_HARMMINOR]		= {7,C,D,Ds,F,G,Gs,B},
-[S_PENTA]			= {5, C,D,E,G,A},
-[S_PENTAMINOR]		= {5, C,Ds,F,G,As},
-[S_HIRAJOSHI]		= {5, C,D,Ds,G,Gs},
-[S_INSEN]			= {5, C,Cs,F,G,As},
-[S_IWATO]			= {5, C,Cs,F,Fs,As},
-[S_MINYO]			= {5, C,D,F,G,A},
-
-[S_FIFTHS]			= {2, C,G},
-[S_TRIADMAJOR]		= {3, C,E,G},
-[S_TRIADMINOR]		= {3, C,Eb,G},
-
-// these are dups of major/minor/rotations thereof, but lets throw them in anyway
-[S_DORIAN]			= {7, C,D,Ds,F,G,A,As},
-[S_PHYRGIAN]		= {7, C,Db,Eb,F,G,Ab,Bb},
-[S_LYDIAN]			= {7, C,D,E,Fs,G,A,B},
-[S_MIXOLYDIAN]		= {7, C,D,E,F,G,A,Bb},
-[S_AEOLIAN]			= {7, C,D,Eb,F,G,Ab,Bb},
-[S_LOCRIAN]			= {7, C,Db,Eb,F,Gb,Ab,Bb},
-
-[S_BLUESMAJOR]		= {6,C,D,Ds,E,G,A},
-[S_BLUESMINOR] = {6,C,Ds,F,Fs,G,As},
-
-[S_ROMANIAN]		= {7,C,D,Ds,Fs,G,A,As},
-[S_WHOLETONE]		= {6,C,D,E,Fs,Gs,As},
-
-// microtonal stuff
-[S_HARMONICS] = {4, C, E - CENTS(14), G + CENTS(2), Bb - CENTS(31)},
-[S_HEXANY] = { 5, CENTS(0), CENTS(386), CENTS(498), CENTS(702), CENTS(814)}, // kinda C,E,F,G,G# but the E is quite flat
-
-[S_JUST] = {7, CENTS(0),	CENTS(204), CENTS(386), CENTS(498), CENTS(702), CENTS(884), CENTS(1088)},
-[S_DIMINISHED]		= {8,C,D,Ds,F,Fs,Gs,A,B},
-};
-
-#undef C
-#undef D
-#undef E
-#undef F
-#undef G
-#undef A
-#undef B
-#undef Cs
-#undef Ds
-#undef Es
-#undef Fs
-#undef Gs
-#undef As
-#undef Bs
-#undef Cb
-#undef Db
-#undef Eb
-#undef Fb
-#undef Gb
-#undef Ab
-#undef Bb
-
-
-
-// returns number of notes in scale
-static inline u8 scalelen(int scale) {
-	return scaletab[scale][0];
-}
-
-// returns pitch, step is relative to C1
-static inline int lookupscale(int scale, int step) {
-	int oct = step / scalelen(scale);
-	step -= oct * scalelen(scale);
-	if (step < 0) {
-		step += scalelen(scale); 
-		oct--; 
-	}
-	return oct * (12 * 512) + scaletab[scale][step+1];
-}
-
 
 int params_premod[P_LAST]; // parameters with the lfos/inputs pre-mixed in
 #define FULLBITS 10
@@ -491,7 +387,6 @@ void ProgramPage(void* datasrc, u32 datasize, u8 index) {
 	updating_bank2 = 0;
 #endif
 }
-void clear_latch(void);
 
 void SetPreset(u8 preset, bool force) {
 	if (preset >= 32)

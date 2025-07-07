@@ -3,6 +3,7 @@
 #include "hardware/touchstrips.h"
 #include "pad_actions.h"
 #include "synth/params.h"
+#include "synth/strings.h"
 #include "ui.h"
 
 // all of these need cleaning up
@@ -36,7 +37,6 @@ extern void recording_stop(void);
 extern void OnLoop(void);
 extern void seq_step(int initial);
 extern bool isplaying(void);
-extern void clear_latch(void);
 extern void set_cur_step(u8 newcurstep, bool triggerit);
 extern void check_curstep(void);
 extern void knobsmooth_reset(ValueSmoother* s, float ival);

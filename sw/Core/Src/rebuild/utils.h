@@ -18,6 +18,9 @@
 #include "stm32l476xx.h"
 #include "stm32l4xx_hal.h"
 
+// data
+#include "data/tables.h"
+
 // basic typedefs
 typedef int8_t s8;
 typedef int16_t s16;
@@ -123,9 +126,31 @@ static inline float smooth_value(ValueSmoother* s, float new_val, float max_scal
 
 // TEMP - these will get organised into their appropriate modules
 
-#define NUM_VOICES 8
 #define FULL 1024
 #define HALF (FULL / 2)
+
+// clang-format off
+#define SWAP(a,b) if (a>b) { int t=a; a=b; b=t; }
+static inline void sort8(int *dst, const int *src) {
+	int a0=src[0],a1=src[1],a2=src[2],a3=src[3],a4=src[4],a5=src[5],a6=src[6],a7=src[7];
+	SWAP(a0,a1);SWAP(a2,a3);SWAP(a4,a5);SWAP(a6,a7);
+	SWAP(a0,a2);SWAP(a1,a3);SWAP(a4,a6);SWAP(a5,a7);
+	SWAP(a1,a2);SWAP(a5,a6);SWAP(a0,a4);SWAP(a3,a7);
+	SWAP(a1,a5);SWAP(a2,a6);
+	SWAP(a1,a4);SWAP(a3,a6);
+	SWAP(a2,a4);SWAP(a3,a5);
+	SWAP(a3,a4);
+	dst[0]=a0; dst[1]=a1; dst[2]=a2; dst[3]=a3; dst[4]=a4; dst[5]=a5; dst[6]=a6; dst[7]=a7;
+}
+#undef SWAP
+// clang-format on
+
+typedef struct euclid_state {
+	int trigcount;
+	bool did_a_retrig;
+	bool supress;
+
+} euclid_state;
 
 // save/load
 typedef struct Preset {

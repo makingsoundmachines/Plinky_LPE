@@ -49,7 +49,6 @@ extern TIM_HandleTypeDef htim5;
 #include "core.h"
 #include "defs/enums.h"
 #include "defs/lfo.h"
-#include "defs/tables.h"
 #include "gfx/gfx.h"
 #include "hardware/adc_dac.h"
 #include "hardware/leds.h"
@@ -57,12 +56,12 @@ extern TIM_HandleTypeDef htim5;
 #include "low_level/audiointrin.h"
 #include "low_level/codec.h"
 #include "low_level/spi.h"
+#include "synth/synth.h"
 #include "testing/tick_counter.h"
 #include "ui/ui.h"
 
-const static float
-table_interp(const float* table,
-             int x) { // 16 bit unsigned input, looked up in a 1024 entry table and linearly interpolated
+// 16 bit unsigned input, looked up in a 1024 entry table and linearly interpolated
+float table_interp(const float* table, int x) {
 	x = SATURATEU16(x);
 	table += x >> 6;
 	x &= 63;
@@ -91,13 +90,7 @@ TickCounter _tc_led;
 TickCounter _tc_osc;
 TickCounter _tc_filter;
 
-u8 prevsynthfingerdown = 0;
-u8 prevsynthfingerdown_nogatelen = 0;     // same as above, but without gatelen applied
-u8 prevprevsynthfingerdown_nogatelen = 0; // same as above, but without gatelen applied
-u8 synthfingerdown = 0;                   // bit set when finger is down
-u8 synthfingerdown_nogatelen = 0;
-u8 synthfingertrigger = 0; // bit set on frame finger goes down
-u32 tick = 0;              // increments every 64 samples
+u32 tick = 0; // increments every 64 samples
 
 s32 bpm10x = 120 * 10;
 
@@ -129,7 +122,7 @@ int seqdiv = 0; // what we count up to , to get seq division
 uint64_t seq_used_bits = 0;
 u8 seq_dir = 0;
 
-static inline int calcseqsubstep(int tick_offset, int maxsubsteps) { // where are we within a recorded step?
+int calcseqsubstep(int tick_offset, int maxsubsteps) { // where are we within a recorded step?
 	if (last_step_period <= 0)
 		return 0;
 	if (ticks_since_step + tick_offset >= last_step_period)
@@ -246,7 +239,7 @@ void update_params(int fingertrig, int fingerdown) {
 	for (int vi = 0; vi < 8; ++vi) {
 		int bit = 1 << vi;
 		Voice* v = &voices[vi];
-		Touch* f = touch_synth_getlatest(vi);
+		Touch* f = get_string_touch(vi);
 #ifdef NEW_LAYOUT
 		if (fingertrig & bit) {
 			v->env_level = 0.f;
@@ -286,7 +279,7 @@ void update_params(int fingertrig, int fingerdown) {
 	int maxp = 0;
 	int maxenv = 0;
 	for (int fi = 0; fi < 8; ++fi) {
-		Touch* f = touch_synth_getlatest(fi);
+		Touch* f = get_string_touch(fi);
 		int p = f->pres;
 		if (p < 0)
 			p = 0;
@@ -411,10 +404,8 @@ static inline void putscopepixel(unsigned int x, unsigned int y) {
 	scope[x] |= (1 << y);
 }
 
-bool trigout = false;
-
 float UpdateEnvelope(Voice* v, int fingeridx, float targetvol) {
-	Touch* f = touch_synth_getlatest(fingeridx);
+	Touch* f = get_string_touch(fingeridx);
 	float sens = param_eval_finger(P_SENS, fingeridx, f);
 	sens *= (2.f / 65536.f);
 	targetvol *= sens * sens;
@@ -440,10 +431,10 @@ float UpdateEnvelope(Voice* v, int fingeridx, float targetvol) {
 	}
 
 	float vol = v->vol;
-	if (arpretrig || (synthfingertrigger & bit)) {
+	if (arpretrig || (string_touch_start & bit)) {
 		vol *= sustain;
 		v->decaying = false;
-		trigout = true;
+		cv_trig_high = true;
 	}
 
 	float decay_or_release = decay;
@@ -551,7 +542,8 @@ u32 clz(u32 val) {
 #else
 #define clz __builtin_clz
 #endif
-void RunVoice(Voice* v, int fingeridx, float targetvol, u32* outbuf) {
+void RunVoice(Voice* v, int fingeridx, u32* outbuf) {
+	float targetvol = get_string_touch(fingeridx)->pres * 1.f / TOUCH_MAX_POS;
 	targetvol = UpdateEnvelope(v, fingeridx, targetvol);
 	tc_start(&_tc_osc);
 	float noise;
@@ -563,7 +555,7 @@ void RunVoice(Voice* v, int fingeridx, float targetvol, u32* outbuf) {
 		                                 // }
 	}
 #endif
-	Touch* f = touch_synth_getlatest(fingeridx);
+	Touch* f = get_string_touch(fingeridx);
 
 	float glide = lpf_k(param_eval_finger(P_GLIDE, fingeridx, f) >> 2) * (0.5f / BLOCK_SAMPLES);
 	int drivelvl = param_eval_finger(P_DRIVE, fingeridx, f);
@@ -583,7 +575,7 @@ void RunVoice(Voice* v, int fingeridx, float targetvol, u32* outbuf) {
 
 	drive *= 2.f / (resonance + 2.f);
 
-	Touch* synthf = touch_synth_getlatest(fingeridx);
+	Touch* synthf = get_string_touch(fingeridx);
 	float timestretch = 1.f;
 	float posjit = 0.f;
 	float sizejit = 1.f;
@@ -602,7 +594,7 @@ void RunVoice(Voice* v, int fingeridx, float targetvol, u32* outbuf) {
 			gratejit = param_eval_finger(P_JIT_RATE, fingeridx, synthf) * (1.f / 65536.f);
 		}
 	}
-	int trig = synthfingertrigger & (1 << fingeridx);
+	int trig = string_touch_start & (1 << fingeridx);
 
 	int prevsliceidx = v->sliceidx;
 	if (ramsample.samplelen) {
@@ -1165,49 +1157,6 @@ float gainhistoryrms[512];
 int ghi;
 #endif
 
-int stride(u32 scale, int stride_semitones,
-           int fingeridx) {   // returns the number of scale steps up from 0 for finger index fi
-	static u8 stridetable[8]; // memoise the result indexed by fi
-	static u8 stridehash[8];
-	u8 newhash = stride_semitones + (scale * 16);
-	if (newhash != stridehash[fingeridx]) {
-		// memoise this man
-		stridehash[fingeridx] = newhash;
-		int pos = 0;
-		u8 usedsteps[16] = {1, 0};
-		const u16* scaleptr = scaletab[scale];
-		u8 numsteps = *scaleptr++;
-		for (int fi = 0; fi < fingeridx; ++fi) {
-			pos += stride_semitones;
-			int step = pos % 12;
-			int best = 0, bestdist = 0;
-			int bestscore = 9999;
-			for (int i = 0; i < numsteps; ++i) {
-				int qstep = scaleptr[i] / 512; // candidate step in the scale
-				int dist = qstep - step;
-				if (dist < -6) {
-					dist += 12;
-					qstep += 12;
-				}
-				else if (dist > 6) {
-					dist -= 12;
-					qstep -= 12;
-				}
-				int score = abs(dist) * 16 + usedsteps[i]; // penalise steps we have used many times
-				if (score < bestscore) {
-					bestscore = score;
-					best = i;
-					bestdist = dist;
-				}
-			}
-			usedsteps[best]++;
-			pos += bestdist;
-			stridetable[fingeridx] = best + (pos / 12) * numsteps;
-		}
-	}
-	return stridetable[fingeridx];
-}
-
 #ifdef EMU
 float m_compressor, m_dry, m_audioin, m_dry2wet, m_delaysend, m_delayreturn, m_reverbin, m_reverbout, m_fxout, m_output;
 void MONITORPEAK(float* mon, u32 stereoin) {
@@ -1330,8 +1279,6 @@ void PreProcessAudioIn(u32* audioin) {
 }
 static s16 scopex = 0;
 
-int stride(u32 scale, int stride_semitones, int fingeridx);
-
 int audiotime = 0;
 void DoAudio(u32* dst, u32* audioin) {
 	audiotime += BLOCK_SAMPLES;
@@ -1380,57 +1327,21 @@ void DoAudio(u32* dst, u32* audioin) {
 	process_usb_midi_in();
 	// do the clock first so we can update the sequencer step etc
 	bool gotclock = update_clock();
-	static u8 whichhalf = 0;
-	// start of a full update of all strings
-	if (!whichhalf) {
-		total_ui_pressure = 0;
-		read_from_seq = false;
-	}
-	// update strings
-	for (int fi = whichhalf; fi < whichhalf + 4; ++fi) {
-		finger_synth_update(fi);
-	}
-	// end of a full update of all strings
-	if (whichhalf) {
-		// you've released your fingers, you're recording in step mode - let's advance!
-		if (total_ui_pressure <= 0 && prev_total_ui_pressure <= 0 && prev_prev_total_ui_pressure > 0 && recording
-		    && !isplaying()) {
-			set_cur_step(cur_step + 1, false);
-		}
-		prev_prev_total_ui_pressure = prev_total_ui_pressure;
-		prev_total_ui_pressure = total_ui_pressure;
-		// rather than incrementing, we let finger_frame_synth shadow the ui. that way we get the full variability of
-		// the ui input (due to it ticking slowly), but we dont accidentally read ahead
-		finger_frame_synth = touch_frame;
-	}
-	whichhalf ^= 4;
 
-	prevsynthfingerdown = synthfingerdown;
-	synthfingerdown = 0;
-	prevprevsynthfingerdown_nogatelen = prevsynthfingerdown_nogatelen;
-	prevsynthfingerdown_nogatelen = synthfingerdown_nogatelen;
-	synthfingerdown_nogatelen = synthfingerdown_nogatelen_internal;
-	for (int fi = 0; fi < 8; ++fi) {
-		Touch* synthf = touch_synth_getlatest(fi);
-		int thresh = (prevsynthfingerdown & (1 << fi)) ? -50 : 1;
-		if (synthf->pres > thresh) {
-			synthfingerdown |= 1 << fi;
-		}
-	}
-	synthfingertrigger = (synthfingerdown & ~prevsynthfingerdown);
-	// needs finger_down to be set
+	generate_string_touches();
 
+	// arp / sequencer stuff
 	bool latchon = ((rampreset.flags & FLAGS_LATCH));
 
-	if (!isplaying() && !read_from_seq && !latchon && synthfingerdown_nogatelen != 0
-	    && prevsynthfingerdown_nogatelen == 0) {
+	if (!isplaying() && !read_from_seq && !latchon && write_string_touched_copy != 0
+	    && write_string_touched_1back == 0) {
 		// they have put their finger down after no arp playing, trigger it immediately!
 		arp_reset_partial();
 		seq_reset(); // so that gate length works
 	}
 
 	update_arp(gotclock);
-	update_params(synthfingertrigger, synthfingerdown);
+	update_params(string_touch_start, string_touched);
 	int seqdivi = param_eval_int(P_SEQDIV, any_rnd, env16, pressure16);
 	seqdiv = (seqdivi == DIVISIONS_MAX) ? -1 : divisions[clampi(seqdivi, 0, DIVISIONS_MAX - 1)] - 1;
 
@@ -1441,110 +1352,10 @@ void DoAudio(u32* dst, u32* audioin) {
 	CopySampleToRam(false);
 	CopyPatternToRam(false);
 
-	// decide on pitches & run the dry synth for the 8 fingers!
-	int maxpressure = 0;
-	int pitchhi = 0;
-	int maxvol = 0;
-	bool gotlow = false, gothi = false;
-	trigout = false;
+	// synth
 
-	int cvpitch = adc_get_smooth(ADC_S_PITCH);
-	for (int fi = 0; fi < 8; ++fi) {
-		u8 bit = 1 << fi;
-		Touch* synthf = touch_synth_getlatest(fi);
-		float vol = (synthf->pres) * 1.f / 2048.f; // sensitivity
-		{
-			// pitch table is (64*8) steps per semitone, ie 512 per semitone
-			int octave = arpoctave + param_eval_finger(P_OCT, fi, synthf);
-			// so heres my maths, this comes out at 435
-			// 8887421 comes from the value of pitch when playing a C
-			// the pitch of middle c in plinky as written is (4.0/(65536.0*65536.0/8887421.0/31250.0f))
-			// which is 1.0114729530400526 too low
-			// which is 0.19749290999 semitones flat
-			// *512 = 101. so I need to add 101 to pitch_base
+	handle_synth_voices(dst);
 
-#define PITCH_BASE ((32768 - (12 << 9)) + (1 * 512) + 101)
-			int pitchbase = 12 * ((octave << 9) + (param_eval_finger(P_PITCH, fi, synthf) >> 7)); // +- one octave
-			int root = param_eval_finger(P_ROTATE, fi, synthf);
-			int interval = (param_eval_finger(P_INTERVAL, fi, synthf) * 12) >> 7;
-			int totpitch = 0;
-			// sounding out a midi note
-			if ((midi_pitch_override & bit) && !(midi_suppress & bit)) {
-				Touch* f = fingers_synth_sorted[fi] + 2;
-				s32 midi_pitch = midi_note_to_pitch(midi_notes[fi], midi_channels[fi]);
-				for (int i = 0; i < 4; ++i) {
-					int pitch = pitchbase + ((i & 1) ? interval : 0) + (i - 2) * 64
-					            + midi_pitch; //  (lookupscale(scale, ystep + root)) + +((fine * microtune) >> 14);
-					totpitch += pitch;
-					voices[fi].theosc[i].pitch = pitch;
-					voices[fi].theosc[i].targetdphase =
-					    maxi(65536, (int)(table_interp(pitches, pitch + PITCH_BASE) * (65536.f * 128.f)));
-					++f;
-				}
-				// midi note is released and volume has rung out
-				if (!(midi_pressure_override & bit) && (voices[fi].vol < 0.001f)) {
-					// disable pitch override, this truly turns off the note
-					midi_pitch_override &= ~bit;
-				}
-			}
-			// anything but a midi note
-			else {
-				u32 scale = param_eval_finger(P_SCALE, fi, synthf);
-				if (scale >= S_LAST)
-					scale = 0;
-				int cvquant = param_eval_int(P_CV_QUANT, any_rnd, env16, pressure16);
-				if (cvquant != CVQ_SCALE)
-					pitchbase += cvpitch;
-				else {
-					// remap the 12 semitones input to the scale steps, evenly, with a slight offset so white keys map
-					// to major scale etc
-					int steps = ((cvpitch / 512) * scaletab[scale][0] + 1) / 12;
-					root += steps;
-				}
-				int stride_semitones = maxi(0, param_eval_finger(P_STRIDE, fi, synthf));
-				root += stride(scale, stride_semitones, fi);
-				int microtune = 64 + param_eval_finger(P_MICROTUNE, fi, synthf); // really, micro-tune amount
-
-				Touch* f = fingers_synth_sorted[fi] + 2;
-				for (int i = 0; i < 4; ++i) {
-					int position = f->pres <= 0 ? memory_position[fi] : f->pos;
-					int ystep = 7 - (position >> 8);
-					int fine = 128 - (position & 255);
-					int pitch = pitchbase + (lookupscale(scale, ystep + root)) + ((i & 1) ? interval : 0)
-					            + ((fine * microtune) >> 14);
-					totpitch += pitch;
-					voices[fi].theosc[i].pitch = pitch;
-					voices[fi].theosc[i].targetdphase =
-					    maxi(65536, (int)(table_interp(pitches, pitch + PITCH_BASE) * (65536.f * 128.f)));
-					++f;
-				}
-			}
-#ifdef DEBUG
-			if (fi == 0)
-#endif
-				// if (fi<6)
-				RunVoice(&voices[fi], fi, vol, dst);
-			if (vol > 0.001f) {
-				if (!gotlow) {
-					send_cv_pitch_lo(totpitch, true);
-					gotlow = true;
-				}
-				if (arpmode < 0 || (arpbits & (1 << fi))) {
-					pitchhi = totpitch;
-					gothi = true;
-				}
-				midi_goal_note[fi] = clampi((totpitch + 1024) / 2048 + 24, 0, 127);
-			}
-			maxvol = maxi(maxvol, (int)(vol * 65536.f));
-		}
-		if (synthf->pres > maxpressure)
-			maxpressure = synthf->pres;
-	}
-	send_cv_pressure(mini(maxpressure * 8, 65535));
-	send_cv_trigger(trigout ? true : false);
-	if (gothi)
-		send_cv_pitch_hi(pitchhi, true);
-	send_cv_gate(maxvol);
 	tc_stop(&_tc_audio);
 
 	if (ramsample.samplelen > 0) {
@@ -1584,10 +1395,10 @@ void DoAudio(u32* dst, u32* audioin) {
 			int prio = gprio[i];
 			int fi = prio & 7;
 			int len = (prio >> 3) & 255;
+			// we only budget for MAX_SPI_STATE transfers. so after that, len goes to 0. also helps CPU load
 			if (i < 8 - MAX_SAMPLE_VOICES)
-				len =
-				    0; // we only budget for MAX_SPI_STATE transfers. so after that, len goes to 0. also helps CPU load.
-			else if (voices[fi].vol <= 0.01f && !(synthfingerdown & (1 << fi)))
+				len = 0;
+			else if (voices[fi].vol <= 0.01f && !(string_touched & (1 << fi)))
 				len = 0; // if your finger is up and the volume is 0, we can just skip this one.
 			lengths[fi] = (pos + len * 4 > GRAINBUF_BUDGET) ? 0 : len;
 			pos += len * 4;
@@ -2368,7 +2179,7 @@ void SetExpanderDAC(int chan, int data) {
 
 #ifdef WASM
 
-bool send_midi_msg(u8 status, u8 data1, u8 data2) {
+bool send_midimsg(u8 status, u8 data1, u8 data2) {
 	return true;
 }
 void spi_update_dac(int chan) {

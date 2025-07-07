@@ -195,11 +195,11 @@ void DrawSamplePlayback(SampleInfo* s) {
 	}
 	s8 gx[8 * 4], gy[8 * 4], gd[8 * 4];
 	int numtodraw = 0;
-	int minpos = MAX_SAMPLE_LEN;
-	int maxpos = 0;
+	int min_pos = MAX_SAMPLE_LEN;
+	int max_pos = 0;
 
-	minpos = clampi(minpos, 0, s->samplelen);
-	maxpos = clampi(maxpos, 0, s->samplelen);
+	min_pos = clampi(min_pos, 0, s->samplelen);
+	max_pos = clampi(max_pos, 0, s->samplelen);
 
 	for (int i = 0; i < 8; ++i) {
 		GrainPair* gr = voices[i].thegrains;
@@ -213,10 +213,10 @@ void DrawSamplePlayback(SampleInfo* s) {
 						vol = 15 - vol;
 					int graindir = (gr->dpos24 < 0) ? -1 : 1;
 					int disppos = pos + graindir * 1024 * 32;
-					minpos = mini(minpos, pos);
-					maxpos = maxi(maxpos, pos);
-					minpos = mini(minpos, disppos);
-					maxpos = maxi(maxpos, disppos);
+					min_pos = mini(min_pos, pos);
+					max_pos = maxi(max_pos, pos);
+					min_pos = mini(min_pos, disppos);
+					max_pos = maxi(max_pos, disppos);
 					int x = (pos / 1024) - ofs + 32;
 					int y = (vol * vvol) >> 8;
 					if (g & 2)
@@ -244,17 +244,17 @@ void DrawSamplePlayback(SampleInfo* s) {
 		vline(x, y - 1, y + 1, 1);
 		put_pixel(x + gd[i], y, 1);
 	}
-	if (minpos >= maxpos)
+	if (min_pos >= max_pos)
 		jumpable = true;
 	else {
 		if (jumpable)
-			curofscenter = minpos - 8 * 1024;
+			curofscenter = min_pos - 8 * 1024;
 		else {
 #define GRAIN_SCROLL_SHIFT 3
-			if (minpos < curofscenter)
-				curofscenter += (minpos - curofscenter) >> GRAIN_SCROLL_SHIFT;
-			if (maxpos > curofscenter + (128 - 48) * 1024)
-				curofscenter += (maxpos - curofscenter - (128 - 48) * 1024) >> GRAIN_SCROLL_SHIFT;
+			if (min_pos < curofscenter)
+				curofscenter += (min_pos - curofscenter) >> GRAIN_SCROLL_SHIFT;
+			if (max_pos > curofscenter + (128 - 48) * 1024)
+				curofscenter += (max_pos - curofscenter - (128 - 48) * 1024) >> GRAIN_SCROLL_SHIFT;
 		}
 		jumpable = false;
 	}
@@ -438,7 +438,7 @@ void DrawVoices(void) {
 			volLineHeight[i] = voices[i].vol / maxVolume[i] * maxHeight;
 		}
 		// string pressed
-		if (synthfingerdown_nogatelen & (1 << i)) {
+		if (write_string_touched_copy & (1 << i)) {
 			// move touch line
 			if (touchLineHeight[i] < maxHeight)
 				touchLineHeight[i] += moveSpeed;
@@ -483,8 +483,8 @@ void DrawFlags() {
 		draw_str(-(128 - 17), 32 - 7, F_8, "latch");
 	}
 	gfx_text_color = 1;
-	vline(126, 32 - (cv_pressure_out / 8), 32, 1);
-	vline(127, 32 - (cv_pressure_out / 8), 32, 1);
+	vline(126, 32 - (strings_max_pressure >> 6), 32, 1);
+	vline(127, 32 - (strings_max_pressure >> 6), 32, 1);
 }
 
 const char* getparamstr(int p, int mod, int v, char* valbuf, char* decbuf) {
@@ -613,7 +613,7 @@ void edit_mode_ui(void) {
 	int i = 0;
 	for (int y = 0; y < 8; ++y) {
 		for (int x = 0; x < 8; ++x, ++i) {
-			Touch* curfinger = touch_synth_getlatest(x);
+			Touch* curfinger = get_string_touch(x);
 			float corners = 0.f, edges = 0.f;
 			if (x > 0) {
 				if (y > 0)
@@ -713,8 +713,8 @@ void edit_mode_ui(void) {
 			int xtab = 0;
 			if (pending_preset != 255 && pending_preset != sysparams.curpreset)
 				xtab = fdraw_str(0, 0, F_20_BOLD, "%c%d->%d", preseticon, sysparams.curpreset + 1, pending_preset + 1);
-			else if (cv_pressure_out > 1 && !(ramsample.samplelen && !ramsample.pitched)) {
-				xtab = fdraw_str(0, 0, F_20_BOLD, "%s", notename((cv_pitch_hi_out + 1024) / 2048));
+			else if (strings_max_pressure > 1 && !(ramsample.samplelen && !ramsample.pitched)) {
+				xtab = fdraw_str(0, 0, F_20_BOLD, "%s", notename((strings_high_pitch + 1024) / 2048));
 			}
 			else
 				xtab = fdraw_str(0, 0, F_20_BOLD, "%c%d", preseticon, sysparams.curpreset + 1);
@@ -865,7 +865,7 @@ draw_parameter:
 	int cvpitch = adc_get_smooth(ADC_S_PITCH);
 
 	for (int fi = 0; fi < 8; ++fi) {
-		Touch* synthf = touch_synth_getlatest(fi);
+		Touch* synthf = get_string_touch(fi);
 		FingerRecord* fr = readpattern(fi);
 
 		///////////////////////////////////// ROOT NOTE DISPLAY
@@ -878,11 +878,10 @@ draw_parameter:
 		if (cvquant == CVQ_SCALE) {
 			// remap the 12 semitones input to the scale steps, evenly, with a slight offset so white keys map to major
 			// scale etc
-			int steps = ((cvpitch / 512) * scaletab[scale][0] + 1) / 12;
+			int steps = ((cvpitch / 512) * scale_table[scale][0] + 1) / 12;
 			root += steps;
 		}
-		int stride_semitones = maxi(0, param_eval_finger(P_STRIDE, fi, synthf));
-		root += stride(scale, stride_semitones, fi);
+		root += scale_steps_at_string(scale, fi, synthf);
 
 		///////////////////////////////////////////////////////
 		int sp0 = ramsample.splitpoints[fi];
@@ -987,7 +986,7 @@ bargraph:
 						k = maxi(k, avgpeak * (96 / 16));
 					}
 					else {
-						int pitch = (lookupscale(scale, (7 - y) + root));
+						int pitch = (pitch_at_step(scale, (7 - y) + root));
 						pitch %= 12 * 512;
 						if (pitch < 0)
 							pitch += 12 * 512;

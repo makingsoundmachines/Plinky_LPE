@@ -302,7 +302,7 @@ void arptrig(u8 fingerdown_music) {
 	else if (curarpfinger >= 0 && curarpfinger < 8) {
 		arpbits |= 1 << curarpfinger;
 	}
-	synthfingertrigger |= arpbits;
+	string_touch_start |= arpbits;
 }
 
 void seq_reset(void) {
@@ -449,7 +449,7 @@ void update_arp(bool clock) {
 				//				called_trig = true;
 				last_arp_period = ticks_since_arp;
 				ticks_since_arp = 0;
-				arptrig(synthfingerdown_nogatelen);
+				arptrig(write_string_touched_copy);
 				arp_divide_counter = 0;
 			}
 			arp_divide_counter++;

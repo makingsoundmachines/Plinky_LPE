@@ -1,6 +1,7 @@
 #include "midi.h"
 #include "gfx/gfx.h"
 #include "midi_defs.h"
+#include "synth/strings.h"
 #include "touchstrips.h"
 #include "tusb.h"
 
@@ -11,43 +12,27 @@ extern u8 playmode;
 extern volatile u8 gotclkin;
 extern s8 arpmode;
 extern u8 arpbits;
-extern Voice voices[8];
-extern u8 synthfingerdown_nogatelen_internal;
-extern u16 memory_position[8];
 
 extern int GetParam(u8 paramidx, u8 mod);
 extern void SetPreset(u8 preset, bool force);
 extern void EditParamNoQuant(u8 paramidx, u8 mod, s16 data);
 extern void ShowMessage(Font fnt, const char* msg, const char* submsg);
 extern void OnLoop(void);
-extern Touch* touch_synth_getlatest(int finger);
-extern Touch* touch_synth_getprev(int finger);
-extern int string_center_pitch(u8 fi);
-extern int string_pitch_at_pad(u8 fi, u8 pad);
-extern int param_eval_finger(u8 paramidx, int fingeridx, Touch* f);
 // -- needs cleaning up
 
 // midi uart, lives in main.c
 extern UART_HandleTypeDef huart3;
-
-// these should all live in the synth, as they all define the properties of a voice moreso than a property of midi
-// itself
-u8 midi_pressure_override = 0; // true if midi note is pressed
-u8 midi_pitch_override = 0;    // true if midi note is sounded out, includes release phase
-u8 midi_suppress = 0;          // true if midi is suppressed by touch / latch / sequencer note
-u8 midi_notes[NUM_VOICES];
-u16 midi_positions[NUM_VOICES];
-u8 midi_velocities[NUM_VOICES];
-u8 midi_goal_note[NUM_VOICES];
-u8 midi_channels[NUM_VOICES] = {255, 255, 255, 255, 255, 255, 255, 255};
-u8 midi_poly_pressure[NUM_VOICES];
-// -- synth
 
 #define NUM_14BIT_CCS 32
 #define MIDI_BUFFER_SIZE 16
 
 u8 midi_chan_pressure[NUM_MIDI_CHANNELS];
 s16 midi_chan_pitchbend[NUM_MIDI_CHANNELS];
+u8 midi_goal_note[NUM_STRINGS]; // the string is playing this note
+
+void set_midi_goal_note(u8 string_id, u8 midi_note) {
+	midi_goal_note[string_id] = midi_note;
+}
 
 // buffers
 static u8 midi_receive_buffer[MIDI_BUFFER_SIZE];
@@ -60,112 +45,6 @@ void midi_init(void) {
 	HAL_UART_Receive_DMA(&huart3, midi_receive_buffer, sizeof(midi_receive_buffer));
 	// usb
 	tusb_init();
-}
-
-// === SYNTH UTILITIES === //
-
-static u8 find_midi_note(u8 chan, u8 note) {
-	for (int string_id = 0; string_id < 8; ++string_id)
-		if ((midi_pitch_override & (1 << string_id)) && midi_notes[string_id] == note
-		    && midi_channels[string_id] == chan)
-			return string_id;
-	return 255;
-}
-
-static u8 find_string_for_midi_pitch(int midi_pitch) {
-	// pitch falls below center of bottom string
-	if (midi_pitch < string_center_pitch(0))
-		return 0;
-	// pitch falls above center of top string
-	if (midi_pitch >= string_center_pitch(7))
-		return 7;
-	// find the string with the closest center pitch
-	u8 desired_string = 0;
-	s32 min_dist = 2147483647; // int max
-	for (u8 i = 0; i < 8; i++) {
-		u32 pitch_dist = abs(string_center_pitch(i) - midi_pitch);
-		if (pitch_dist < min_dist) {
-			min_dist = pitch_dist;
-			desired_string = i;
-		}
-	}
-	return desired_string;
-}
-
-// return the position of the highest pad the midi pitch is higher than - or equal to
-static u16 find_string_position_for_midi_pitch(u8 string_id, int midi_pitch) {
-	// top pad has pad_id 0
-	// pad spacing is 256 per pad, position = pad_id << 8
-	for (u8 pad = 7; pad > 0; pad--) {
-		if (midi_pitch >= string_pitch_at_pad(string_id, pad)) {
-			return (7 - pad) << 8;
-		}
-	}
-	// if the pitch was lower than the pitch of pad 1, we return the bottom pad
-	return 7 << 8;
-}
-
-static u8 find_free_midi_string(u8 midi_note_number, u16* midi_note_position) {
-	Touch* synthf = touch_synth_getlatest(0);
-	s32 midi_pitch =
-	    // base pitch
-	    12 * ((param_eval_finger(P_OCT, 0, synthf) << 9) + (param_eval_finger(P_PITCH, 0, synthf) >> 7)) +
-	    // pitch
-	    ((midi_note_number - 24) << 9);
-
-	// find the best string for this midi note
-	u8 desired_string = find_string_for_midi_pitch(midi_pitch);
-
-	// try to find:
-	// 1. the non-sounding string closest to our desired string
-	// 2. the sounding string that is the quietest
-	u8 string_option[8];
-	u8 num_string_options = 0;
-	u8 min_string_dist = 255;
-	float min_vol = __FLT_MAX__;
-	u8 min_string_id = 255;
-
-	// collect non-sounding strings
-	for (u8 string_id = 0; string_id < 8; string_id++) {
-		if (voices[string_id].vol < 0.001f) {
-			string_option[num_string_options] = string_id;
-			num_string_options++;
-		}
-	}
-	// find closest
-	for (u8 option_id = 0; option_id < num_string_options; option_id++) {
-		if (abs(string_option[option_id] - desired_string) < min_string_dist) {
-			min_string_dist = abs(string_option[option_id] - desired_string);
-			min_string_id = string_option[option_id];
-		}
-	}
-	// return closest, if found
-	if (min_string_dist != 255) {
-		// collect the position on the string before returning
-		*midi_note_position = find_string_position_for_midi_pitch(min_string_id, midi_pitch);
-		return min_string_id;
-	}
-	// collect non-pressed strings
-	num_string_options = 0;
-	for (u8 string_id = 0; string_id < 8; string_id++) {
-		if (!(synthfingerdown_nogatelen_internal & (1 << string_id))) {
-			string_option[num_string_options] = string_id;
-			num_string_options++;
-		}
-	}
-	// find quietest
-	for (u8 option_id = 0; option_id < num_string_options; option_id++) {
-		if (voices[string_option[option_id]].vol < min_vol) {
-			min_vol = voices[string_option[option_id]].vol;
-			min_string_id = string_option[option_id];
-		}
-	}
-	// collect the position on the string before returning
-	if (min_string_id != 255) {
-		*midi_note_position = find_string_position_for_midi_pitch(min_string_id, midi_pitch);
-	}
-	// return quietest - this returns 255 if nothing was found
-	return min_string_id;
 }
 
 // === OUTPUT LOOP === //
@@ -224,11 +103,11 @@ static bool send_midi_msg(u8 status, u8 data1, u8 data2) {
 // outgoing midi gets processed once and sent out identically to serial and usb
 void process_all_midi_out(void) {
 	static u8 string_id = 0;
-	static u8 note[NUM_VOICES];             // last sent midi note
-	static u8 note_on_pressure[NUM_VOICES]; // pressure/velocity sent on note on
-	static u8 aftertouch[NUM_VOICES];       // last sent poly aftertouch
-	static u8 position[NUM_VOICES];         // last sent position CC
-	static u8 pressure[NUM_VOICES];         // last sent pressure CC
+	static u8 note[NUM_STRINGS];             // last sent midi note
+	static u8 note_on_pressure[NUM_STRINGS]; // pressure/velocity sent on note on
+	static u8 aftertouch[NUM_STRINGS];       // last sent poly aftertouch
+	static u8 position[NUM_STRINGS];         // last sent position CC
+	static u8 pressure[NUM_STRINGS];         // last sent pressure CC
 
 	// exit if the uart is not ready
 	if (huart3.TxXferCount)
@@ -238,8 +117,8 @@ void process_all_midi_out(void) {
 	while (num_loops < 8) {
 		num_loops++;
 		//  get a bunch of parameters from the synth
-		Touch* synthf = touch_synth_getlatest(string_id);
-		Touch* prevsynthf = touch_synth_getprev(string_id);
+		Touch* synthf = get_string_touch(string_id);
+		Touch* prevsynthf = get_string_touch_prev(string_id, 2);
 		bool pres_stable = abs(prevsynthf->pres - synthf->pres) < 100;
 		bool pos_stable = abs(prevsynthf->pos - synthf->pos) < 32;
 		bool pres_significant = synthf->pres > 200;
@@ -339,45 +218,18 @@ static void process_midi_msg(u8 status, u8 d1, u8 d2) {
 		if (d1 < 32)
 			SetPreset(d1, false);
 		break;
-	case MIDI_NOTE_OFF: {
-		// find string with existing midi note
-		u8 string_id = find_midi_note(chan, d1);
-		if (string_id < 8) {
-			midi_pressure_override &= ~(1 << string_id);
-		}
-	} break;
-	case MIDI_NOTE_ON: {
-		u16 note_position;
-		// find string with existing midi note
-		u8 string_id = find_midi_note(chan, d1);
-		// none found - find empty string
-		if (string_id == 255) {
-			string_id = find_free_midi_string(d1, &note_position);
-			if (string_id < NUM_VOICES)
-				midi_positions[string_id] = note_position;
-		}
-		// set midi values
-		if (string_id < 8) {
-			midi_notes[string_id] = d1;
-			midi_channels[string_id] = chan;
-			midi_velocities[string_id] = d2;
-			midi_poly_pressure[string_id] = 0;
-			midi_pressure_override |= 1 << string_id;
-			midi_pitch_override |= 1 << string_id;
-		}
-	} break;
+	// note related: to the strings!
+	case MIDI_NOTE_OFF:
+	case MIDI_NOTE_ON:
+	case MIDI_POLY_KEY_PRESSURE:
+		strings_rcv_midi(status, d1, d2);
+		break;
 	case MIDI_PITCH_BEND:
 		midi_chan_pitchbend[chan] = (d1 + (d2 << 7)) - 0x2000;
 		break;
-	case MIDI_POLY_KEY_PRESSURE: {
-		u8 string_id = find_midi_note(chan, d1);
-		if (string_id < 8) {
-			midi_poly_pressure[string_id] = d2;
-		}
-	} break;
-	case MIDI_CHANNEL_PRESSURE: {
+	case MIDI_CHANNEL_PRESSURE:
 		midi_chan_pressure[chan] = d1;
-	} break;
+		break;
 	case MIDI_CONTROL_CHANGE: {
 		if (d1 >= NUM_14BIT_CCS && d1 < (2 * NUM_14BIT_CCS))
 			cc14_lsb[d1 - 32] = d2;
@@ -529,13 +381,9 @@ void process_usb_midi_in(void) {
 
 // panic
 static void midi_panic(void) {
-	midi_pressure_override = 0, midi_pitch_override = 0;
-	memset(midi_notes, 0, sizeof(midi_notes));
-	memset(midi_velocities, 0, sizeof(midi_velocities));
-	memset(midi_poly_pressure, 0, sizeof(midi_poly_pressure));
-	memset(midi_channels, 255, sizeof(midi_channels));
 	memset(midi_chan_pressure, 0, sizeof(midi_chan_pressure));
 	memset(midi_chan_pitchbend, 0, sizeof(midi_chan_pitchbend));
+	strings_clear_midi();
 }
 
 // from https://community.st.com/s/question/0D50X00009XkflR/haluartirqhandler-bug
