@@ -2,10 +2,8 @@
 #include "adc_dac.h"
 #include "gfx/gfx.h"
 #include "leds.h"
+#include "synth/sampler.h"
 #include "touchstrips.h"
-
-// cleanup
-extern s8 enable_audio;
 
 // this is defined in main.c
 extern DAC_HandleTypeDef hdac1;
@@ -48,7 +46,6 @@ void send_cv_pitch_lo(s32 data, bool apply_calib) {
 
 // cv calib
 void cv_calib(void) {
-	enable_audio = EA_OFF;
 	oled_clear();
 	int topscroll = 128;
 	const char* topline = "unplug all inputs. use left 4 columns to adjust pitch cv outputs. plug pitch lo output to "

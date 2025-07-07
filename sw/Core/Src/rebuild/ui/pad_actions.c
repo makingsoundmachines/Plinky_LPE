@@ -2,6 +2,7 @@
 #include "gfx/data/names.h"
 #include "hardware/touchstrips.h"
 #include "shift_states.h"
+#include "synth/sampler.h"
 #include "ui.h"
 
 // needs cleaning up
@@ -12,25 +13,12 @@ extern Preset rampreset;
 extern u32 tick;
 extern SysParams sysparams;
 extern s8 selected_preset_global; // system
-void knobsmooth_reset(ValueSmoother* s, float ival);
-float smooth_value(ValueSmoother* s, float newval, float max_scale);
 void SetPreset(u8 preset, bool force);
 // gfx
 #include "gfx/gfx.h"
 void ShowMessage(Font fnt, const char* msg, const char* submsg);
-// sampler
-extern s8 enable_audio;
-extern u8 recsliceidx;
-extern u8 cur_sample1;
-extern u8 edit_sample0;
-extern SampleInfo ramsample;
-extern u8 ramsample1_idx;
-extern u8 pending_sample1;
-extern u8 copy_request;
-void init_slice_edit(SampleInfo* s, int strip_id);
-void EditParamQuant(u8 paramidx, u8 mod, s16 data);
+// memory
 SampleInfo* GetSavedSampleInfo(u8 sample0);
-SampleInfo* getrecsample(void);
 // time
 extern int tap_count;
 extern s32 bpm10x;
@@ -39,11 +27,10 @@ extern u8 pending_loopstart_step;
 extern s8 cur_step;
 extern u8 cur_pattern;
 extern s8 step_offset;
-void recording_trigger(void);
-void recording_stop(void);
 bool isplaying(void);
 void set_cur_step(u8 newcurstep, bool triggerit);
 // parameters
+extern u8 copy_request;
 extern u8 preset_copy_source;
 extern u8 pattern_copy_source;
 extern u8 sample_copy_source;
@@ -72,8 +59,8 @@ u8 strip_is_action_pressed = 0;  // mask
 u16 long_press_frames = 0;
 u8 long_press_pad = 0;
 
-static float strip_start_pos[8];
-static int saved_param_value[8];
+// local
+static s32 saved_param_value[8];
 static ValueSmoother param_value_smoother[8];
 
 static u8 get_load_section(u8 pad_id) {
@@ -81,12 +68,6 @@ static u8 get_load_section(u8 pad_id) {
 	       : pad_id < 56 ? 1  // patterns
 	       : pad_id < 64 ? 2  // samples
 	                     : 3; // none
-}
-
-void init_slice_edit(SampleInfo* s, int strip_id) { // this belongs in sampler
-	recsliceidx = strip_id;
-	saved_param_value[strip_id] = s->splitpoints[strip_id];
-	knobsmooth_reset(&param_value_smoother[strip_id], saved_param_value[strip_id]);
 }
 
 // will this strip produce a press for the synth?
@@ -123,7 +104,6 @@ void handle_pad_actions(u8 strip_id, Touch* strip_cur) {
 			if (!(strip_is_action_pressed & strip_mask)) {
 				is_press_start = true;
 				strip_is_action_pressed |= strip_mask; // set pressed flag
-				strip_start_pos[strip_id] = strip_cur->pos;
 			}
 		}
 	}
@@ -221,7 +201,7 @@ void handle_pad_actions(u8 strip_id, Touch* strip_cur) {
 			if (VALID_PARAM_SELECTED && (selected_param != prev_selected_param || is_press_start)) {
 				// set the value smoother to the value of that param
 				saved_param_value[strip_id] = GetParam(selected_param, selected_mod_src);
-				knobsmooth_reset(&param_value_smoother[strip_id], saved_param_value[strip_id]);
+				set_smoother(&param_value_smoother[strip_id], saved_param_value[strip_id]);
 			}
 			// new valid mod source press
 			if (strip_id == 7 && pad_y != selected_mod_src) {
@@ -259,55 +239,29 @@ void handle_pad_actions(u8 strip_id, Touch* strip_cur) {
 				EditParamNoQuant(selected_param, selected_mod_src, (s16)smoothed_value);
 			}
 		} break;
-		case UI_SAMPLE_EDIT: { // this belongs in the sampler
-			SampleInfo* s = getrecsample();
-			if (shift_state == SS_NONE && is_press_start) {
-				if (enable_audio == EA_MONITOR_LEVEL) {
-					enable_audio = EA_ARMED;
+		case UI_SAMPLE_EDIT:
+			if (is_press_start && shift_state == SS_NONE)
+				switch (sampler_mode) {
+				case SM_PRE_ARMED:
+					// press while pre-armed arms the recording
+					sampler_mode = SM_ARMED;
+					break;
+				case SM_ARMED:
+					// press while armed starts the recording
+					start_recording_sample();
+					break;
+				case SM_RECORDING:
+					// press while recording registers a slice point
+					sampler_record_slice_point();
+					break;
+				default:
+					break;
 				}
-				// any press while armed starts the recording
-				else if (enable_audio == EA_ARMED) {
-					recording_trigger();
-				}
-				// a press while recording, and the recorded chunk is at least a block
-				else if (enable_audio == EA_RECORDING && s->samplelen >= BLOCK_SAMPLES) {
-					if (recsliceidx < 7) { // add slice points if there is still room
-						recsliceidx++;
-						s->splitpoints[recsliceidx] = s->samplelen - BLOCK_SAMPLES;
-					}
-					else { // when all slices are filled, a press ends the recording
-						recording_stop();
-					}
-				}
-			}
-			// long press during recording stops the recording
-			if (enable_audio == EA_RECORDING && s->samplelen >= BLOCK_SAMPLES && long_press_frames > 32) {
-				if (recsliceidx > 0)
-					recsliceidx--;
-				recording_stop();
-			}
-			// in play mode, a touch adjusts the slice point
-			if (enable_audio == EA_PLAY) {
-				if (is_press_start) {
-					init_slice_edit(s, strip_id);
-				}
-				float pos_offset = (strip_cur->pos - strip_start_pos[strip_id]);
-				pos_offset = deadzone(pos_offset, 32.f);
-				float press_value = saved_param_value[strip_id] - pos_offset * (32000.f / 2048.f);
-				float smoothed_value = smooth_value(&param_value_smoother[strip_id], press_value, 32000.f);
-				float smin = strip_id ? s->splitpoints[strip_id - 1] + 1024.f : 0.f;
-				float smax = (strip_id < 7) ? s->splitpoints[strip_id + 1] - 1024.f : s->samplelen;
-				if (smin < 0.f)
-					smin = 0.f;
-				if (smax > s->samplelen)
-					smax = s->samplelen;
-				smoothed_value = clampf(smoothed_value, smin, smax);
-				if (s->splitpoints[strip_id] != smoothed_value) {
-					s->splitpoints[strip_id] = smoothed_value;
-					ramtime[GEN_SAMPLE] = millis();
-				}
-			}
-		} break;
+			if (sampler_mode == SM_PREVIEW)
+				sampler_adjust_slice_point_from_touch(strip_id, strip_cur->pos, is_press_start);
+			if (sampler_mode == SM_RECORDING && long_press_frames > 32)
+				try_stop_recording_sample();
+			break;
 		case UI_PTN_START: // (this should live in sequencer)
 			// press inside of the pattern
 			if (((ptn_step - ptn_start_step) & 63) < rampreset.looplen_step) {
@@ -369,7 +323,7 @@ void handle_pad_actions(u8 strip_id, Touch* strip_cur) {
 					int sample_id = pad_id - 56 + 1;
 					if (is_press_start) {
 						prev_pending_sample1 = pending_sample1;
-						sample_copy_source = cur_sample1;
+						sample_copy_source = cur_sample_id1;
 						if (sample_id == sample_copy_source)
 							sample_id = 0;
 						pending_sample1 = sample_id;
@@ -409,15 +363,8 @@ void handle_pad_action_long_presses(void) {
 	// actions on long press
 	if (ui_mode == UI_LOAD && long_press_frames == LONGPRESS_THRESH) {
 		// sample pad (strip 7), load sample and enter sample edit mode (belongs in sampler)
-		if (strip_id == 7) {
-			edit_sample0 = (pad_id & 7);
-			EditParamQuant(P_SAMPLE, 0, edit_sample0 + 1);
-			memcpy(&ramsample, GetSavedSampleInfo(edit_sample0), sizeof(SampleInfo));
-			ramsample1_idx = cur_sample1 = edit_sample0 + 1;
-			pending_sample1 = 255;
-			ui_mode = UI_SAMPLE_EDIT;
-			init_slice_edit(&ramsample, 7);
-		}
+		if (strip_id == 7)
+			open_sampler(pad_id & 7);
 		// patch or pattern, request copy
 		else
 			copy_request = pad_id;

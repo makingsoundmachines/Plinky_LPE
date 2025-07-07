@@ -3,6 +3,7 @@
 #include "hardware/touchstrips.h"
 #include "pad_actions.h"
 #include "synth/params.h"
+#include "synth/sampler.h"
 #include "synth/strings.h"
 #include "ui.h"
 
@@ -10,36 +11,22 @@
 extern SysParams sysparams;          // system
 extern u32 ramtime[GEN_LAST];        // system
 extern u8 copy_request;              // system
-extern u32 record_flashaddr_base;    // system
 extern s8 selected_preset_global;    // system
 extern bool got_ui_reset;            // timing
 extern u32 tick;                     // timing
-extern s8 enable_audio;              // audio
 extern float knobbase[2];            // sequencer
 extern u8 playmode;                  // sequencer
 extern u8 recording_knobs;           // sequencer
 extern s8 cur_step;                  // sequencer
 extern bool recording;               // sequencer
 extern PatternQuarter rampattern[4]; // sequencer
-extern SampleInfo ramsample;         // sampler
-extern ValueSmoother recgain_smooth; // sampler
-extern int audiorec_gain_target;     // sampler
-extern u8 edit_sample0;              // sampler
-extern u8 recsliceidx;               // sampler
-extern int recstartpos;              // sampler
-extern int recreadpos;               // sampler
-extern int recpos;                   // sampler
-extern bool pre_erase;               // sampler
 
 // all sequencer from here
-extern void recording_trigger(void);
-extern void recording_stop(void);
 extern void OnLoop(void);
 extern void seq_step(int initial);
 extern bool isplaying(void);
 extern void set_cur_step(u8 newcurstep, bool triggerit);
 extern void check_curstep(void);
-extern void knobsmooth_reset(ValueSmoother* s, float ival);
 // - all of these need cleaning up
 
 #define SHORT_PRESS_TIME 250 // ms
@@ -62,26 +49,27 @@ void shift_set_state(ShiftState new_state) {
 	shift_last_press_time = tick;
 	shift_state_frames = 0;
 
-	// sample edit mode
 	if (ui_mode == UI_SAMPLE_EDIT) {
 		// record/play buttons have identical behavior
-		if (shift_state == SS_RECORD || shift_state == SS_PLAY) {
-			switch (enable_audio) {
-			// once arms the recording
-			case EA_MONITOR_LEVEL:
-				enable_audio = EA_ARMED;
+		if (new_state == SS_RECORD || new_state == SS_PLAY) {
+			switch (sampler_mode) {
+			// pre-armed moves to armed
+			case SM_PRE_ARMED:
+				sampler_mode = SM_ARMED;
 				break;
-			// twice starts the recording
-			case EA_ARMED:
-				recording_trigger();
+			// armed starts recoding
+			case SM_ARMED:
+				start_recording_sample();
 				break;
-			// thrice stops the recording
-			case EA_RECORDING:
-				recording_stop();
+			// recording stops recording
+			case SM_RECORDING:
+				stop_recording_sample();
+				break;
+			default:
 				break;
 			}
 		}
-		return; // done
+		return;
 	}
 
 	// == Overview of the system == //
@@ -185,23 +173,42 @@ void shift_release_state(void) {
 	bool short_press = shift_short_pressed();
 	shift_state_frames = 0;
 
-	// sample edit mode
 	if (ui_mode == UI_SAMPLE_EDIT) {
-		if (short_press) {
-			if (shift_state == SS_SHIFT_A) { // toggle sample pitch/tape modes
-				ramsample.pitched = !ramsample.pitched;
-				ramtime[GEN_SAMPLE] = millis();
+		// short presses in sample edit mode
+		if (short_press)
+			switch (shift_state) {
+			case SS_SHIFT_A:
+				sampler_toggle_play_mode();
+				break;
+			case SS_SHIFT_B:
+				sampler_iterate_loop_mode();
+				break;
+			case SS_LOAD:
+			case SS_LEFT:
+			case SS_RIGHT:
+			case SS_CLEAR:
+				// middle four buttons => general canceling command
+				switch (sampler_mode) {
+				case SM_PREVIEW:
+					// when in default (preview) mode => exit sampler
+					ui_mode = UI_DEFAULT;
+					break;
+				case SM_RECORDING:
+					// when recording => stop recording
+					stop_recording_sample();
+					break;
+				default:
+					// when in any of the other sampler modes => move to default (preview) mode
+					sampler_mode = SM_PREVIEW;
+					break;
+				}
+				break;
+			default:
+				break;
 			}
-			else if (shift_state == SS_SHIFT_B) { // iterate through sample loop modes
-				ramsample.loop = (ramsample.loop + 1) & 3;
-				ramtime[GEN_SAMPLE] = millis();
-			}
-			else if (shift_state != SS_RECORD && shift_state != SS_PLAY) { // middle four buttons stop the recording
-				recording_stop();
-			}
-		}
-		shift_state = SS_NONE; // we're no longer in a shift state
-		return;                // done
+		// we're no longer in a shift state
+		shift_state = SS_NONE;
+		return; // exit
 	}
 
 	// all other modes
@@ -295,24 +302,17 @@ void shift_release_state(void) {
 
 void shift_hold_state(void) {
 	switch (ui_mode) {
-	case UI_SAMPLE_EDIT:
-		// definitely some sampling stuff that belongs in the sampler
-		if (enable_audio == EA_PLAY && (shift_state == SS_RECORD || shift_state == SS_PLAY)
-		    && shift_state_frames > 64) {
-			knobsmooth_reset(&recgain_smooth, audiorec_gain_target);
-			record_flashaddr_base = (edit_sample0 & 7) * (2 * MAX_SAMPLE_LEN);
-			recsliceidx = 0;
-			recstartpos = 0;
-			recreadpos = 0;
-			recpos = 0;
-			enable_audio = pre_erase ? EA_PREERASE : EA_MONITOR_LEVEL;
-		}
-		break;
 	case UI_LOAD:
 		// after a delay, initalize preset
 		if ((shift_state == SS_CLEAR) && (shift_state_frames > 64 + 4) && (selected_preset_global >= 0)
 		    && (selected_preset_global < 64))
 			copy_request = selected_preset_global + 128;
+		break;
+	case UI_SAMPLE_EDIT:
+		// long-pressing record or play in sampler preview mode records a new sample
+		if (sampler_mode == SM_PREVIEW && (shift_state == SS_RECORD || shift_state == SS_PLAY)
+		    && shift_state_frames > 64)
+			start_erasing_sample_buffer();
 		break;
 	default:
 		break;

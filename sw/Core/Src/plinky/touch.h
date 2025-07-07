@@ -1,5 +1,6 @@
 #include "hardware/adc_dac.h"
 #include "hardware/touchstrips.h"
+#include "synth/sampler.h"
 #include "synth/strings.h"
 #include "ui/pad_actions.h"
 #include "ui/shift_states.h"
@@ -56,7 +57,7 @@ void OnLoop(void) {
 		set_cur_step(loopstart_step, seq_rhythm.did_a_retrig);
 		pending_loopstart_step = 255;
 	}
-	if (pending_sample1 != cur_sample1 && pending_sample1 != 255) {
+	if (pending_sample1 != cur_sample_id1 && pending_sample1 != 255) {
 		EditParamQuant(P_SAMPLE, 0, pending_sample1);
 		pending_sample1 = 255;
 	}
@@ -77,19 +78,6 @@ void delay_clear(void) {
 u16 audioin_holdtime = 0;
 s16 audioin_peak = 0;
 s16 audioin_hold = 0;
-ValueSmoother recgain_smooth;
-int audiorec_gain_target = 1 << 15;
-
-int recpos = 0;      // this cycles around inside the delay buffer (which we use for a recording buffer) while armed...
-int recstartpos = 0; // once we start recording, we note the position in the buffer here
-int recreadpos = 0;  // ...and this is where we are up to in terms of reading that out and writing it to flash
-u8 recsliceidx = 0;
-const bool pre_erase = true;
-u32 record_flashaddr_base = 0;
-
-SampleInfo* getrecsample(void) {
-	return &ramsample;
-}
 static inline u8 getwaveform4(SampleInfo* s, int x) { // x is 0-2047
 	if (x < 0 || x >= 2048)
 		return 0;
@@ -131,52 +119,7 @@ static inline void setwaveform4(SampleInfo* s, int x, int v) {
 
 void DebugSPIPage(int addr);
 
-void recording_stop_really(void) {
-	// clear out the raw audio in the delaybuf
-	reverb_clear();
-	delay_clear();
-	ramtime[GEN_SAMPLE] = millis(); // fill in the remaining split points
-	SampleInfo* s = getrecsample();
-	int startsamp = s->splitpoints[recsliceidx];
-	int endsamp = s->samplelen;
-	int n = 8 - recsliceidx;
-	for (int i = recsliceidx + 1; i < 8; ++i) {
-		int samp = startsamp + ((endsamp - startsamp) * (i - recsliceidx)) / n;
-		s->splitpoints[i] = samp;
-		EmuDebugLog("POST RECORD EVEN SET SPLITPOINT %d to %d\n", i, s->splitpoints[i]);
-	}
-	recsliceidx = 0;
-	ramtime[GEN_SAMPLE] = millis();
-	enable_audio = EA_PLAY;
-}
-
-void recording_stop(void) {
-	if (enable_audio == EA_PLAY) {
-		ui_mode = UI_DEFAULT;
-	}
-	else if (enable_audio == EA_RECORDING) {
-		enable_audio = EA_STOPPING1;
-	}
-	else if (enable_audio >= EA_STOPPING1) {
-		// do nothing
-	}
-	else
-		enable_audio = EA_PLAY;
-}
-
 void seq_step(int initial);
-
-void recording_trigger(void) {
-	recsliceidx = 0;
-	SampleInfo* s = getrecsample();
-	memset(s, 0, sizeof(SampleInfo));
-#define LEADIN 1024
-	int leadin = mini(recpos, LEADIN);
-	recreadpos = recstartpos = recpos - leadin;
-	s->samplelen = 0;
-	s->splitpoints[0] = leadin;
-	enable_audio = EA_RECORDING;
-}
 
 void arp_reset(void);
 void ShowMessage(Font fnt, const char* msg, const char* submsg);

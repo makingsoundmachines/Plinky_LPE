@@ -16,6 +16,18 @@ typedef struct Osc {
 	s32 pitch;
 } Osc;
 
+typedef struct GrainPair {
+	int fpos24;
+	int pos[2];
+	int vol24;
+	int dvol24;
+	int dpos24;
+	float grate_ratio;
+	float multisample_grate;
+	int bufadjust; // for reverse grains, we adjust the dma buffer address by this many samples
+	int outflags;
+} GrainPair;
+
 typedef struct Voice {
 	// oscillator (sampler only uses the pitch value)
 	Osc osc[OSCS_PER_VOICE];
@@ -23,7 +35,6 @@ typedef struct Voice {
 	float env1_lvl;
 	bool env1_decaying;
 	ValueSmoother lpg_smoother[2];
-	float y[4];
 	// env 2
 	float env2_lvl;
 	u16 env2_lvl16;
@@ -34,7 +45,7 @@ typedef struct Voice {
 	GrainPair grain_pair[2];
 	int playhead8;
 	u8 slice_id;
-	int touch_pos_start;
+	u16 touch_pos_start;
 	ValueSmoother touch_pos;
 } Voice;
 

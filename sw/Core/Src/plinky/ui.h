@@ -1,11 +1,12 @@
-#include "gfx/gfx.h"
-#include "ui/shift_states.h"
-#include "ui/ui.h"
 #include "gfx/data/names.h"
+#include "gfx/gfx.h"
+#include "hardware/encoder.h"
 #include "synth/pitch_tools.h"
+#include "synth/sampler.h"
 #include "synth/strings.h"
 #include "ui/pad_actions.h"
-#include "hardware/encoder.h"
+#include "ui/shift_states.h"
+#include "ui/ui.h"
 
 u8 audiohistpos = 0;
 u8 audiopeakhistory[32];
@@ -66,11 +67,11 @@ void flip(void) {
 
 void draw_recording_ui(void) {
 	oled_clear();
-	SampleInfo* s = getrecsample();
+	SampleInfo* s = get_sample_info();
 
 	int peak = maxi(0, audioin_peak / 128);
 	int hold = maxi(0, audioin_hold / 128);
-	if (enable_audio == EA_PREERASE) {
+	if (sampler_mode == SM_ERASING) {
 		draw_str(0, 0, F_32, "erasing...");
 		inverted_rectangle(0, 0, erasepos * 2, 32);
 		flip();
@@ -78,13 +79,13 @@ void draw_recording_ui(void) {
 	}
 	else {
 		draw_str(-128, 0, F_12,
-		         (enable_audio == EA_ARMED)       ? "armed!"
-		         : (enable_audio == EA_RECORDING) ? "recording"
-		                                          : "rec level" I_A);
+		         (sampler_mode == SM_ARMED)       ? "armed!"
+		         : (sampler_mode == SM_RECORDING) ? "recording"
+		                                          : "rec level " I_A);
 		fdraw_str(-128, 32 - 12, F_12, (hold >= 254) ? "CLIP! %dms" : "%dms", s->samplelen / 32);
 	}
 	int full = s->samplelen / (MAX_SAMPLE_LEN / 128);
-	if (enable_audio != EA_RECORDING)
+	if (sampler_mode != SM_RECORDING)
 		full = 0;
 	for (int i = 0; i < full; ++i) {
 		u16 avgpeak = getwaveform4zoom(s, i * 16, 4);
@@ -95,7 +96,7 @@ void draw_recording_ui(void) {
 		vline(i, 16 + avg, 16 + peak, 2);
 	}
 	vline(full, 0, 32, 1);
-	int srcpos = recpos;
+	int srcpos = buf_write_pos;
 	for (int i = 127; i > full; --i) {
 		int pmx = 0, pmn = 0;
 		for (int j = 0; j < 256; ++j) {
@@ -209,7 +210,7 @@ void DrawSamplePlayback(SampleInfo* s) {
 		if (vvol > 8)
 			for (int g = 0; g < 4; ++g) {
 				if (!(gr->outflags & (1 << (g & 1)))) {
-					int pos = grainpos[i * 4 + g] & (MAX_SAMPLE_LEN - 1);
+					int pos = grain_pos[i * 4 + g] & (MAX_SAMPLE_LEN - 1);
 					int vol = gr->vol24 >> (24 - 4);
 					if (g & 1)
 						vol = 15 - vol;
@@ -262,9 +263,12 @@ void DrawSamplePlayback(SampleInfo* s) {
 	}
 }
 
+const bool pre_erase = true;
+u32 record_flashaddr_base = 0;
+
 void samplemode_ui(void) {
-	SampleInfo* s = getrecsample();
-	if (enable_audio == EA_PREERASE) {
+	SampleInfo* s = get_sample_info();
+	if (sampler_mode == SM_ERASING) {
 		erasepos = 0;
 		draw_recording_ui();
 		while (spistate)
@@ -281,10 +285,10 @@ void samplemode_ui(void) {
 		ramtime[GEN_SAMPLE] = millis();
 		// done!
 		spistate = 0;
-		enable_audio = EA_MONITOR_LEVEL;
+		sampler_mode = SM_PRE_ARMED;
 	}
-	if (enable_audio == EA_PLAY) {
-		if (shift_state_frames > 4 && (shift_state == SS_RECORD) && enable_audio == EA_PLAY) {
+	if (sampler_mode == SM_PREVIEW) {
+		if (shift_state_frames > 4 && (shift_state == SS_RECORD) && sampler_mode == SM_PREVIEW) {
 			oled_clear();
 			draw_str(0, 0, F_32, "record?");
 			inverted_rectangle(0, 0, shift_state_frames * 2, 32);
@@ -298,12 +302,12 @@ void samplemode_ui(void) {
 			draw_str(0, 16, F_16, "hold " I_RECORD " to record");
 		}
 		else {
-			DrawSample(s, recsliceidx);
+			DrawSample(s, cur_slice_id);
 			gfx_text_color = 2;
 			draw_str(-128 + 16, 32 - 12, F_12, (s->loop & 2) ? "all" : "slc");
 			draw_icon(128 - 16, 32 - 14, ((s->loop & 1) ? I_FEEDBACK[0] : I_RIGHT[0]) - 0x80, gfx_text_color);
 			if (s->pitched)
-				draw_str(0, 32 - 12, F_12, notename(s->notes[recsliceidx & 7]));
+				draw_str(0, 32 - 12, F_12, notename(s->notes[cur_slice_id & 7]));
 			else
 				draw_str(0, 32 - 12, F_12, "tape");
 			gfx_text_color = 1;
@@ -319,7 +323,7 @@ void samplemode_ui(void) {
 				u8 h = avgpeak & 15;
 				leds[x][y] = led_add_gamma(h * 32);
 			}
-			if (x == recsliceidx) {
+			if (x == cur_slice_id) {
 				leds[x][0] = triangle(millis());
 			}
 			leds[8][x] = 0;
@@ -331,20 +335,21 @@ void samplemode_ui(void) {
 		return;
 	}
 
-	if (enable_audio >= EA_RECORDING) {
+	// block of data handling - belongs in memory module
+	if (sampler_mode >= SM_RECORDING) {
 
-		int locrecpos = recpos;
+		int locrecpos = buf_write_pos;
 		while (spistate)
 			;
 		spistate = 0xff; // prevent spi reads for a while!
-		while (recreadpos + 256 / 2 <= locrecpos && s->samplelen < MAX_SAMPLE_LEN) {
-			s16* src = delaybuf + (recreadpos & DLMASK);
+		while (buf_read_pos + 256 / 2 <= locrecpos && s->samplelen < MAX_SAMPLE_LEN) {
+			s16* src = delaybuf + (buf_read_pos & DLMASK);
 			s16* dst = (s16*)(spibigtx + 4);
-			int flashaddr = (recreadpos - recstartpos) * 2;
-			recreadpos += 256 / 2;
+			int flashaddr = (buf_read_pos - buf_start_pos) * 2;
+			buf_read_pos += 256 / 2;
 			if (!pre_erase && (flashaddr & 65535) == 0)
 				spi_erase64k(flashaddr + record_flashaddr_base, /*draw_recording_ui*/ 0);
-			// find peak and copy to fx buf
+			// find peak and copy to delay buf
 			int peak = 0;
 			s16* delaybufend = delaybuf + DLMASK + 1;
 			for (int i = 0; i < 256 / 2; ++i) {
@@ -358,21 +363,23 @@ void samplemode_ui(void) {
 			if (spi_write256(flashaddr + record_flashaddr_base) != 0) {
 				DebugLog("flash write fail\n");
 			}
-			s->samplelen = recreadpos - recstartpos;
+			s->samplelen = buf_read_pos - buf_start_pos;
 			ramtime[GEN_SAMPLE] = millis();
+			// sample full => stop recording
 			if (s->samplelen >= MAX_SAMPLE_LEN) {
-				///  FINISHED RECORDING
-				recording_stop();
+				stop_recording_sample();
 				break;
 			}
 		} // spi write loop
+
 		spistate = 0;
-		if (enable_audio == EA_STOPPING4) {
-			recording_stop_really();
+		if (sampler_mode == SM_STOPPING4) {
+			finish_recording_sample();
 		}
 	}
-	int bufsize = recpos - recreadpos;
-	if (bufsize < 4096 || enable_audio != EA_RECORDING) {
+
+	int bufsize = buf_write_pos - buf_read_pos;
+	if (bufsize < 4096 || sampler_mode != SM_RECORDING) {
 		draw_recording_ui();
 	}
 	/////////// update leds
@@ -390,13 +397,13 @@ void samplemode_ui(void) {
 			k += clampi(barpos3 - yy, 0, 31);
 			leds[x][y] = led_add_gamma(k * 2);
 		}
-		if (x == recsliceidx && enable_audio == EA_RECORDING) {
+		if (x == cur_slice_id && sampler_mode == SM_RECORDING) {
 			for (int y = 0; y < 8; ++y)
 				leds[x][y] = maxi(leds[x][y], (triangle(millis()) * 4) / (y + 4));
 		}
 		leds[8][x] = 0;
 	}
-	leds[8][SS_RECORD] = (enable_audio == EA_RECORDING) ? 255 : triangle(millis() / 2);
+	leds[8][SS_RECORD] = (sampler_mode == SM_RECORDING) ? 255 : triangle(millis() / 2);
 }
 
 const static float life_damping = 0.91f; //  0.9f;
@@ -688,9 +695,8 @@ void edit_mode_ui(void) {
 	else
 		switch (ui_mode) {
 		case UI_DEFAULT:
-			if (ramsample.samplelen) {
-				DrawSamplePlayback(&ramsample);
-			}
+			if (using_sampler())
+				DrawSamplePlayback(get_sample_info());
 			else {
 				for (int x = 0; x < 128; ++x) {
 					u32 m = scope[x];
@@ -715,7 +721,7 @@ void edit_mode_ui(void) {
 			int xtab = 0;
 			if (pending_preset != 255 && pending_preset != sysparams.curpreset)
 				xtab = fdraw_str(0, 0, F_20_BOLD, "%c%d->%d", preseticon, sysparams.curpreset + 1, pending_preset + 1);
-			else if (synth_max_pres > 1 && !(ramsample.samplelen && !ramsample.pitched)) {
+			else if (synth_max_pres > 1 && !(using_sampler() && !get_sample_info()->pitched)) {
 				xtab = fdraw_str(0, 0, F_20_BOLD, "%s", notename((high_string_pitch + 1024) / 2048));
 			}
 			else
@@ -849,7 +855,7 @@ draw_parameter:
 					draw_str(xtab + 2, 8, F_8, kpresetcats[rampreset.category]);
 
 				fdraw_str(0, 16, F_20_BOLD, I_SEQ "Pat %d ", cur_pattern + 1);
-				fdraw_str(-128, 16, F_20_BOLD, cur_sample1 ? I_WAVE "%d" : I_WAVE "Off", cur_sample1);
+				fdraw_str(-128, 16, F_20_BOLD, cur_sample_id1 ? I_WAVE "%d" : I_WAVE "Off", cur_sample_id1);
 			}
 			break;
 		default:
@@ -886,8 +892,8 @@ draw_parameter:
 		root += scale_steps_at_string(scale, fi, synthf);
 
 		///////////////////////////////////////////////////////
-		int sp0 = ramsample.splitpoints[fi];
-		int sp1 = (fi < 7) ? ramsample.splitpoints[fi + 1] : ramsample.samplelen;
+		int sp0 = get_sample_info()->splitpoints[fi];
+		int sp1 = (fi < 7) ? get_sample_info()->splitpoints[fi + 1] : get_sample_info()->samplelen;
 
 		for (int y = 0; y < 8; ++y) {
 
@@ -981,10 +987,10 @@ bargraph:
 				if (ui_edit_param < P_LAST && (ui_edit_param == pA || ui_edit_param == pA + 6) && fi > 0 && fi < 7)
 					k = flickery;
 				{
-					if (ramsample.samplelen && !ramsample.pitched) {
+					if (using_sampler() && !get_sample_info()->pitched) {
 						int samp = sp0 + (((sp1 - sp0) * y) >> 3);
 						const static int zoom = 3;
-						u16 avgpeak = getwaveform4zoom(&ramsample, samp / 1024, zoom) & 15;
+						u16 avgpeak = getwaveform4zoom(get_sample_info(), samp / 1024, zoom) & 15;
 						k = maxi(k, avgpeak * (96 / 16));
 					}
 					else {
@@ -1026,7 +1032,7 @@ bargraph:
 					k = 255;
 				if (pending_sample1 && rotstep == (pending_sample1 - 1) + 32 + 24)
 					k = flickeryfast;
-				if (cur_sample1 && rotstep == (cur_sample1 - 1) + 32 + 24)
+				if (cur_sample_id1 && rotstep == (cur_sample_id1 - 1) + 32 + 24)
 					k = 255;
 				break;
 			default: // suppres warning

@@ -2,6 +2,7 @@
 #include "gfx/data/icons.h"
 #include "gfx/gfx.h"
 #include "synth/params.h"
+#include "synth/sampler.h"
 #include "ui/pad_actions.h"
 #include "ui/ui.h"
 
@@ -9,13 +10,10 @@
 #include <math.h>
 extern void ShowMessage(Font fnt, const char* msg, const char* submsg);
 extern Preset const init_params;
-extern u8 recsliceidx;
-extern u32 ramtime[GEN_LAST];
 extern int GetParam(u8 paramidx, u8 mod);
 extern void EditParamNoQuant(u8 paramidx, u8 mod, s16 data);
 extern void toggle_latch(void);
 extern void toggle_arp(void);
-extern SampleInfo* getrecsample(void);
 // -- needs cleanup
 
 volatile s8 encoder_value = 0;
@@ -166,28 +164,10 @@ void encoder_tick(void) {
 			}
 			break;
 		case UI_SAMPLE_EDIT:
-			if (recsliceidx >= 0 && recsliceidx < 8) {
-				SampleInfo* s = getrecsample();
-				// set pitches for sample slices
-				if (s->pitched) {
-					int newnote = clampi(s->notes[recsliceidx] + enc_diff, 0, 96);
-					if (newnote != s->notes[recsliceidx]) {
-						s->notes[recsliceidx] = newnote;
-						ramtime[GEN_SAMPLE] = millis();
-					}
-				}
-				// set slice points for samples
-				else {
-					float smin = recsliceidx ? s->splitpoints[recsliceidx - 1] + 1024.f : 0.f;
-					float smax = (recsliceidx < 7) ? s->splitpoints[recsliceidx + 1] - 1024.f : s->samplelen;
-
-					float sp = clampf(s->splitpoints[recsliceidx] + enc_diff * 512, smin, smax);
-					if (sp != s->splitpoints[recsliceidx]) {
-						s->splitpoints[recsliceidx] = sp;
-						ramtime[GEN_SAMPLE] = millis();
-					}
-				}
-			}
+			if (get_sample_info()->pitched)
+				sampler_adjust_cur_slice_pitch(enc_diff);
+			else
+				sampler_adjust_cur_slice_point(enc_diff * 512);
 			break;
 		default:
 			break;

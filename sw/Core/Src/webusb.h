@@ -328,10 +328,10 @@ statedone:
 			else if (wu_hdr.cmd == 1) {
 				// they asked to set!
 				if (wu_hdr.idx >= 64 && wu_hdr.idx < 64 + 8) {
-					cur_sample1 = wu_hdr.idx - 64 + 1;
+					cur_sample_id1 = wu_hdr.idx - 64 + 1;
 					CopySampleToRam(false);
-					ramsample1_idx = cur_sample1;
-					SetWUState(WU_RECVDATA, ((u8*)&ramsample) + wu_hdr_offset(), wu_hdr_len());
+					ramsample1_idx = cur_sample_id1;
+					SetWUState(WU_RECVDATA, ((u8*)get_sample_info()) + wu_hdr_offset(), wu_hdr_len());
 				}
 				else {
 					SetPreset(wu_hdr.idx, false);
@@ -429,14 +429,14 @@ send_more_data: {
 		while (spistate != 0 && spistate != 255)
 			;
 		spistate = 255;
-		// enable_audio = EA_OFF;
+		// sampler_mode = SM_DISABLED;
 		memset(spibigrx, -2, sizeof(spibigrx));
 		spi_read256(ofs + idx * 4 * 1024 * 1024);
 		SetWUState(WU_SENDDATA, spibigrx + 4, len);
 	}
 	else if (wu_hdr.cmd == 1) {
 		if (wu_hdr.idx == ((ramsample1_idx - 1) & 7) + 64)
-			data = (u8*)&ramsample;
+			data = (u8*)get_sample_info();
 		else if (wu_hdr.idx >= 64 && wu_hdr.idx < 64 + 8)
 			data = (u8*)GetSavedSampleInfo(wu_hdr.idx - 64);
 		else
@@ -449,7 +449,7 @@ send_more_data: {
 			if (wu_hdr.cmd == 3) {
 				if (wu_hdr.len_32 <= 0) {
 					spistate = 0;
-					// enable_audio = EA_PLAY;
+					// sampler_mode = SM_PREVIEW;
 				}
 				else {
 					goto send_more_data;

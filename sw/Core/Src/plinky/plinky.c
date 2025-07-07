@@ -55,6 +55,8 @@ extern TIM_HandleTypeDef htim5;
 #include "hardware/midi.h"
 #include "low_level/codec.h"
 #include "low_level/spi.h"
+#include "synth/audio.h"
+#include "synth/sampler.h"
 #include "synth/synth.h"
 #include "testing/tick_counter.h"
 #include "ui/ui.h"
@@ -66,10 +68,6 @@ static inline float lin2db(float lin) {
 }
 static inline float db2lin(float db) {
 	return exp2f(db * (1.f / TWENTY_OVER_LOG2_10));
-}
-
-void knobsmooth_reset(ValueSmoother* s, float ival) {
-	s->y1 = s->y2 = ival;
 }
 
 TickCounter _tc_budget;
@@ -170,8 +168,6 @@ u32 scope[128];
 static inline u32 ticks(void) {
 	return tick;
 }
-
-s8 enable_audio = EA_OFF;
 
 // these includes are sensitive to how they are ordered
 // turning off formatting so that they don't get reordered alphabetically
@@ -392,21 +388,6 @@ inline s32 trifold(u32 x) {
 	return (s32)(x >> 4);
 }
 
-static inline int doloop(int playhead, u8 slice_id) {
-	if (!(ramsample.loop & 1))
-		return playhead;
-	int loopstart = calcloopstart(slice_id);
-	int loopend = calcloopend(slice_id);
-	int looplen = loopend - loopstart;
-	if (looplen > 0 && (playhead < loopstart || playhead >= loopstart + looplen)) {
-		playhead = (playhead - loopstart) % looplen;
-		if (playhead < 0)
-			playhead += looplen;
-		playhead += loopstart;
-	}
-	return playhead;
-}
-
 #ifdef EMU
 float arpdebug[1024];
 int arpdebugi;
@@ -600,44 +581,6 @@ void MONITORPEAK(float* mon, u32 stereoin) {
 #define MONITORPEAK(mon, stereoin)
 #endif
 
-void DoRecordModeAudio(u32* dst, u32* audioin) {
-	// recording or level testing
-	int newaudiorec_gain = 65535 - adc_get_raw(ADC_A_KNOB);
-	if (abs(newaudiorec_gain - audiorec_gain_target) > 256) // hysteresis
-		audiorec_gain_target = newaudiorec_gain;
-	smooth_value(&recgain_smooth, audiorec_gain_target, 65536.f);
-	int audiorec_gain = (int)(recgain_smooth.y2) / 2;
-
-	cur_sample1 = edit_sample0 + 1;
-	CopySampleToRam(false);
-	if (enable_audio == EA_ARMED) {
-		if (audioin_peak > 1024) {
-			recording_trigger();
-		}
-	}
-	if (enable_audio > EA_PREERASE && enable_audio < EA_STOPPING4) {
-		s16* dldst = delaybuf + (recpos & DLMASK);
-		const s16* asrc = (const s16*)audioin;
-		s16* adst = (s16*)dst;
-		if (enable_audio >= EA_STOPPING1) {
-			memset(dldst, 0, BLOCK_SAMPLES * 2);
-			enable_audio++;
-		}
-		else {
-			for (int i = 0; i < BLOCK_SAMPLES; ++i) {
-				s16 smp = *dldst++ = SATURATE16((((int)(asrc[0] + asrc[1])) * audiorec_gain) >> 14);
-#ifdef EMU
-				smp = 0; // disable loopback
-#endif
-				adst[0] = adst[1] = smp;
-				adst += 2;
-				asrc += 2;
-			}
-		}
-		recpos += BLOCK_SAMPLES;
-	}
-}
-
 s16 audioin_is_stereo = 0;
 s16 noisegate = 0;
 #ifdef DEBUG
@@ -697,7 +640,7 @@ void PreProcessAudioIn(u32* audioin) {
 	else
 		noisetest += (newpeak - noisetest) * 0.01f;
 #endif
-	int audiorec_gain = (int)(recgain_smooth.y2) / 2;
+	int audiorec_gain = (int)(ext_gain_smoother.y2) / 2;
 
 	newpeak = SATURATE16((newpeak * audiorec_gain) >> 14);
 	audioin_peak = maxi((audioin_peak * 220) >> 8, newpeak);
@@ -714,34 +657,14 @@ void DoAudio(u32* dst, u32* audioin) {
 	tc_start(&_tc_audio);
 	memset(dst, 0, 4 * BLOCK_SAMPLES);
 	PreProcessAudioIn(audioin); // dc remover; peak detector
-	                            //	enable_audio = EA_PASSTHRU;
-	if (enable_audio <= 0) {
-		if (enable_audio == EA_PASSTHRU) {
-			for (int i = 0; i < BLOCK_SAMPLES; ++i) {
-				float t = (i - BLOCK_SAMPLES / 2) * (2.f / BLOCK_SAMPLES);
-				if (t < 0)
-					t = -t;
-				t = EvalSin(t, 0);
-				s16 ss = t * 32767.f;
-				t = (((i * 2) & (BLOCK_SAMPLES - 1)) - BLOCK_SAMPLES / 2) * (2.f / BLOCK_SAMPLES);
-				if (t < 0)
-					t = -t;
-				t = EvalSin(t, 0);
-				s16 tt = t * 32767.f;
-				dst[i] = STEREOPACK(tt, ss);
-			}
-		}
-		return;
-	}
 
-	if (enable_audio > EA_PLAY) {
-		DoRecordModeAudio(dst, audioin);
-		return;
+	handle_ext_gain();
+
+	// in the process of recording a new sample
+	if (sampler_mode > SM_PREVIEW) {
+		handle_sampler_audio(dst, audioin);
+		return; // skip all other synth functionality
 	}
-	int ainlvl = param_eval_int(P_MIXINPUT, any_rnd, env16, pressure16);
-	int audiorec_gain_target =
-	    ainlvl; // we want to update recgain_smooth as it is used to maintain the pretty audio gain history
-	smooth_value(&recgain_smooth, audiorec_gain_target, 65536.f);
 
 	//////////////////////////////////////////////////////////
 	// PLAYMODE
@@ -774,10 +697,12 @@ void DoAudio(u32* dst, u32* audioin) {
 	int seqdivi = param_eval_int(P_SEQDIV, any_rnd, env16, pressure16);
 	seqdiv = (seqdivi == DIVISIONS_MAX) ? -1 : divisions[clampi(seqdivi, 0, DIVISIONS_MAX - 1)] - 1;
 
-	cur_sample1 = param_eval_int(P_SAMPLE, any_rnd, env16, pressure16);
-	cur_pattern = param_eval_int(P_SEQPAT, any_rnd, env16, pressure16);
 	step_offset = param_eval_int(P_SEQSTEP, any_rnd, env16, pressure16);
 	check_curstep();
+
+	// memory stuff
+	cur_sample_id1 = param_eval_int(P_SAMPLE, any_rnd, env16, pressure16);
+	cur_pattern = param_eval_int(P_SEQPAT, any_rnd, env16, pressure16);
 	CopySampleToRam(false);
 	CopyPatternToRam(false);
 
@@ -787,65 +712,11 @@ void DoAudio(u32* dst, u32* audioin) {
 
 	tc_stop(&_tc_audio);
 
-	if (ramsample.samplelen > 0) {
-		// decide on a priority for 8 voices
-		int gprio[8];
-		u32 sampleaddr = ((cur_sample1 - 1) & 7) * MAX_SAMPLE_LEN;
+	if (using_sampler())
+		sort_sample_voices();
+	else if (spistate == 0)
+		spi_update_dac(0); // just update dac when not in sampler mode
 
-		for (int i = 0; i < 8; ++i) {
-			GrainPair* g = voices[i].grain_pair;
-			int glen0 =
-			    ((abs(g[0].dpos24) * (BLOCK_SAMPLES / 2) + g[0].fpos24 / 2 + 1) >> 23) + 2; // +2 for interpolation
-			int glen1 =
-			    ((abs(g[1].dpos24) * (BLOCK_SAMPLES / 2) + g[1].fpos24 / 2 + 1) >> 23) + 2; // +2 for interpolation
-
-			// TODO - if pos at end of next fetch will be out of bounds, negate dpos24 and grate_ratio so we ping pong
-			// back for the rest of the grain!
-			int glen = maxi(glen0, glen1);
-			glen = clampi(glen, 0, AVG_GRAINBUF_SAMPLE_SIZE * 2);
-			g[0].bufadjust = (g[0].dpos24 < 0) ? maxi(glen - 2, 0) : 0;
-			g[1].bufadjust = (g[1].dpos24 < 0) ? maxi(glen - 2, 0) : 0;
-			grainpos[i * 4 + 0] = (int)(g[0].pos[0]) - g[0].bufadjust + sampleaddr;
-			grainpos[i * 4 + 1] = (int)(g[0].pos[1]) - g[0].bufadjust + sampleaddr;
-			grainpos[i * 4 + 2] = (int)(g[1].pos[0]) - g[1].bufadjust + sampleaddr;
-			grainpos[i * 4 + 3] = (int)(g[1].pos[1]) - g[1].bufadjust + sampleaddr;
-			glen += 2; // 2 extra 'samples' for the SPI header
-			gprio[i] = ((int)(voices[i].env1_lvl * 65535.f) << 12) + i + (glen << 3);
-		}
-		sort8(gprio, gprio);
-		u8 lengths[8];
-		int pos = 0, i;
-#if defined DEBUG
-#define MAX_SAMPLE_VOICES 1
-#else
-#define MAX_SAMPLE_VOICES 6
-#endif
-		for (i = 7; i >= 0; --i) {
-			int prio = gprio[i];
-			int fi = prio & 7;
-			int len = (prio >> 3) & 255;
-			// we only budget for MAX_SPI_STATE transfers. so after that, len goes to 0. also helps CPU load
-			if (i < 8 - MAX_SAMPLE_VOICES)
-				len = 0;
-			else if (voices[fi].env1_lvl <= 0.01f && !(string_touched & (1 << fi)))
-				len = 0; // if your finger is up and the volume is 0, we can just skip this one.
-			lengths[fi] = (pos + len * 4 > GRAINBUF_BUDGET) ? 0 : len;
-			pos += len * 4;
-		}
-		// cumulative sum
-		pos = 0;
-		for (int i = 0; i < 32; ++i) {
-			pos += lengths[i / 4];
-			grainbufend[i] = pos;
-		}
-		if (spistate == 0)
-			spi_readgrain_dma(0); // kick off the dma for next time
-	}
-	else {
-		// just update dac when not in sampler mode
-		if (spistate == 0)
-			spi_update_dac(0);
-	}
 	tc_start(&_tc_fx);
 	// /// ////////////////////////////////////////////////////////////////////////
 	// half rate fx
@@ -964,6 +835,7 @@ void DoAudio(u32* dst, u32* audioin) {
 	int wetlvl = 65536 - maxi(-wetdry, 0);
 	int drylvl = 65536 - maxi(wetdry, 0);
 
+	int ainlvl = param_eval_int(P_MIXINPUT, any_rnd, env16, pressure16);
 	int ainwetlvl = 65536 - maxi(-ainwetdry, 0);
 	int aindrylvl = 65536 - maxi(ainwetdry, 0);
 
@@ -1364,7 +1236,6 @@ void test_jig(void) {
 	draw_str(0, 0, F_32_BOLD, "TEST JIG");
 	oled_flip();
 	HAL_Delay(100);
-	enable_audio = EA_PASSTHRU;
 	send_cv_trigger(false);
 	send_cv_clock(false);
 	send_cv_gate(0);
@@ -1746,7 +1617,7 @@ void EMSCRIPTEN_KEEPALIVE plinky_init(void) {
 #endif
 	InitParamsOnBoot();
 
-	enable_audio = EA_PLAY;
+	sampler_mode = SM_PREVIEW;
 }
 
 #include "ui.h"

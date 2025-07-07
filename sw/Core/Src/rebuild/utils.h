@@ -113,6 +113,10 @@ static inline float deadzone(float f, float zone) {
 	return f;
 }
 
+static inline void set_smoother(ValueSmoother* s, float new_val) {
+	s->y1 = s->y2 = new_val;
+}
+
 static inline float smooth_value(ValueSmoother* s, float new_val, float max_scale) {
 	// inspired by  https ://cytomic.com/files/dsp/DynamicSmoothing.pdf
 	float band = fabsf(s->y2 - s->y1);
@@ -125,6 +129,7 @@ static inline float smooth_value(ValueSmoother* s, float new_val, float max_scal
 
 // TEMP - these will get organised into their appropriate modules
 
+// params
 #define FULL 1024
 #define HALF (FULL / 2)
 
@@ -165,21 +170,6 @@ typedef struct Preset {
 // static_assert((sizeof(Preset) & 15) == 0, "?");
 // static_assert(sizeof(Preset) + sizeof(SysParams) + sizeof(PageFooter) <= 2048, "?");
 
-// audio stuff
-enum {
-	EA_OFF = 0,
-	EA_PASSTHRU = -1,
-	EA_PLAY = 1,
-	EA_PREERASE = 2,
-	EA_MONITOR_LEVEL = 3,
-	EA_ARMED = 4,
-	EA_RECORDING = 5,
-	EA_STOPPING1 = 6, // we stop for 4 cycles to write 0s at the end
-	EA_STOPPING2 = 7,
-	EA_STOPPING3 = 8,
-	EA_STOPPING4 = 9,
-};
-
 // these are sequencer modes
 enum {
 	PLAY_STOPPED, // not playing
@@ -202,19 +192,6 @@ typedef struct SysParams {
 // save/load
 enum { GEN_PRESET, GEN_PAT0, GEN_PAT1, GEN_PAT2, GEN_PAT3, GEN_SYS, GEN_SAMPLE, GEN_LAST };
 
-// sampler
-typedef struct SampleInfo {
-	u8 waveform4_b[1024]; // 4 bits x 2048 points, every 1024 samples
-	int splitpoints[8];
-	int samplelen; // must be after splitpoints, so that splitpoints[8] is always the length.
-	s8 notes[8];
-	u8 pitched;
-	u8 loop; // bottom bit: loop; next bit: slice vs all
-	u8 paddy[2];
-} SampleInfo;
-// static_assert(sizeof(SampleInfo) + sizeof(SysParams) + sizeof(PageFooter) <= 2048, "?");
-// static_assert((sizeof(SampleInfo) & 15) == 0, "?");
-
 typedef struct FingerRecord { // sequencer
 	u8 pos[4];
 	u8 pres[8];
@@ -232,56 +209,7 @@ enum {
 	FLAGS_LATCH = 2,
 };
 
-typedef struct GrainPair {
-	int fpos24;
-	int pos[2];
-	int vol24;
-	int dvol24;
-	int dpos24;
-	float grate_ratio;
-	float multisample_grate;
-	int bufadjust; // for reverse grains, we adjust the dma buffer address by this many samples
-	int outflags;
-} GrainPair;
-
-#define MAX_SAMPLE_LEN (1024 * 1024 * 2) // max sample length in samples
 #define BLOCK_SAMPLES 64
 #define FLAG_MASK 127
-#define AVG_GRAINBUF_SAMPLE_SIZE 68 // 2 extra for interpolation, 2 extra for SPI address at the start
-#define GRAINBUF_BUDGET (AVG_GRAINBUF_SAMPLE_SIZE * 32)
 
 #include "low_level/audiointrin.h"
-
-extern SampleInfo ramsample;
-
-static inline int sample_slice_pos8(int pos16) {
-	pos16 = clampi(pos16, 0, 65535);
-	int i = pos16 >> 13;
-	int p0 = ramsample.splitpoints[i];
-	int p1 = ramsample.splitpoints[i + 1];
-	return (p0 << 8) + (((p1 - p0) * (pos16 & 0x1fff)) >> (13 - 8));
-}
-
-static inline int calcloopstart(u8 slice_id) {
-	int all = ramsample.loop & 2;
-	return (all) ? 0 : ramsample.splitpoints[slice_id];
-}
-static inline int calcloopend(u8 slice_id) {
-	int all = ramsample.loop & 2;
-	return (all || slice_id >= 7) ? ramsample.samplelen - 192 : ramsample.splitpoints[slice_id + 1];
-}
-
-static inline int doloop8(int playhead, u8 slice_id) {
-	if (!(ramsample.loop & 1))
-		return playhead;
-	int loopstart = calcloopstart(slice_id) << 8;
-	int loopend = calcloopend(slice_id) << 8;
-	int looplen = loopend - loopstart;
-	if (looplen > 0 && (playhead < loopstart || playhead >= loopstart + looplen)) {
-		playhead = (playhead - loopstart) % looplen;
-		if (playhead < 0)
-			playhead += looplen;
-		playhead += loopstart;
-	}
-	return playhead;
-}

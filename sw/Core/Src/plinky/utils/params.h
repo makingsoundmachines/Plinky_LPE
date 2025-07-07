@@ -1,6 +1,7 @@
 #include "data/tables.h"
 #include "synth/params.h"
 #include "synth/pitch_tools.h"
+#include "synth/sampler.h"
 
 // clang-format off
 static inline u8 lfohashi(u16 step) {
@@ -108,7 +109,6 @@ enum {
 // preset version 1: ??
 // preset version 2: add SAW lfo shape
 #define CUR_PRESET_VERSION 2
-SampleInfo ramsample;
 Preset rampreset;
 PatternQuarter rampattern[4];
 SysParams sysparams;
@@ -124,11 +124,9 @@ u8 prev_pending_preset = 255;
 u8 prev_pending_pattern = 255;
 u8 prev_pending_sample1 = 255;
 
-u8 cur_sample1; // this is the one we are playing, derived from param, can modulate. 0 means off, 1-8 is sample
 u8 cur_pattern; // this is the current pattern, derived from param, can modulate.
 s8 cur_step = 0; // current step
 s8 step_offset = 0; // derived from param
-u8 edit_sample0 = 0; // this is the one we are editing. no modulation. sample 0-7. not 1 based!
 u8 copy_request = 255;
 u8 preset_copy_source = 0;
 u8 pattern_copy_source = 0;
@@ -260,14 +258,14 @@ bool CopyPresetToRam(bool force) {
 	return true;
 }
 bool CopySampleToRam(bool force) {
-	if (ramsample1_idx == cur_sample1 && !force)
+	if (ramsample1_idx == cur_sample_id1 && !force)
 		return true; // nothing to do
 	if (updating_bank2 || IsGenDirty(GEN_SAMPLE)) return false; // not copied yet
-	if (cur_sample1 == 0)
-		memset(&ramsample, 0, sizeof(ramsample));
+	if (cur_sample_id1 == 0)
+		memset(get_sample_info(), 0, sizeof(SampleInfo));
 	else
-		memcpy(&ramsample, GetSavedSampleInfo(cur_sample1 - 1), sizeof(ramsample));
-	ramsample1_idx = cur_sample1;
+		memcpy(get_sample_info(), GetSavedSampleInfo(cur_sample_id1 - 1), sizeof(SampleInfo));
+	ramsample1_idx = cur_sample_id1;
 	return true;
 }
 bool CopyPatternToRam(bool force) {
@@ -333,7 +331,6 @@ void InitParamsOnBoot(void) {
 	rampattern_idx = -1;
 	ramsample1_idx = -1;
 	rampreset_idx = -1;
-	edit_sample0 = 0;
 	// relocate the first preset and pattern into ram
 	copy_request = 255;
 	for (int i = 0; i < GEN_LAST; ++i) {
@@ -459,7 +456,7 @@ bool NeedWrite(int gen, u32 now) {
 		// the current preset is not equal to the ram preset, but the ram preset is dirty! WE GOTTA WRITE IT NOW!
 		return true;
 	}
-	if (gen == GEN_SAMPLE && cur_sample1 != ramsample1_idx) {
+	if (gen == GEN_SAMPLE && cur_sample_id1 != ramsample1_idx) {
 		// the current sample is not equal to the ram preset, but the ram sample is dirty! WE GOTTA WRITE IT NOW!
 		return true;
 	}
@@ -490,7 +487,7 @@ void WriteSample(u32 now) {
 		flashtime[GEN_SYS] = ramtime[GEN_SYS];
 		flashtime[GEN_SAMPLE] = ramtime[GEN_SAMPLE];
 		if (ramsample1_idx > 0)
-			ProgramPage(&ramsample, sizeof(SampleInfo), FIRST_SAMPLE_IDX + ramsample1_idx - 1);
+			ProgramPage(get_sample_info(), sizeof(SampleInfo), FIRST_SAMPLE_IDX + ramsample1_idx - 1);
 	}
 }
 
@@ -507,7 +504,7 @@ void WritePreset(u32 now) {
 
 
 void PumpFlashWrites(void) {
-	if (enable_audio != EA_PLAY)
+	if (sampler_mode != SM_PREVIEW)
 		return;
 	u32 now = millis();
 
@@ -528,7 +525,7 @@ void PumpFlashWrites(void) {
 				ramtime[GEN_PAT3] = now;
 			}
 			else {
-				memset(&ramsample, 0, sizeof(ramsample));
+				memset(get_sample_info(), 0, sizeof(SampleInfo));
 				ramtime[GEN_SAMPLE] = now;
 			}
 		}

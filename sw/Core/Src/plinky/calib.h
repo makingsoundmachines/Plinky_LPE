@@ -65,13 +65,12 @@ bool flash_writecalib(int which) {
 	return 0;
 }
 
-extern s8 enable_audio;
+extern SamplerMode sampler_mode;
 
 void reflash(void);
 extern volatile u8 gotclkin;
 
 void led_test(void) {
-	enable_audio = EA_PASSTHRU;
 	for (int y = 0; y < 9; ++y)
 		for (int x = 0; x < 8; ++x)
 			leds[y][x] = 255;
@@ -121,7 +120,6 @@ again:
 	return;
 #endif
 
-	enable_audio = EA_OFF;
 	reset_touches();
 
 	HAL_Delay(20);

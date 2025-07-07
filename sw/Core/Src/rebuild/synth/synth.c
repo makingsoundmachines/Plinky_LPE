@@ -21,7 +21,6 @@ extern u16 any_rnd;
 extern int env16;
 extern int pressure16;
 extern Preset rampreset;
-extern SampleInfo ramsample;
 extern bool arpretrig;
 
 int param_eval_finger(u8 paramidx, int voice_id, Touch* s_touch);
@@ -411,10 +410,10 @@ static void run_voice(u8 voice_id, u32* dst) {
 	drive *= 2.f / (resonance + 2.f);
 
 	// apply low pass gate and noise
-	if (!ramsample.samplelen)
-		apply_subtractive_lpg_noise(voice_id, voice, s_touch, goal_lpg, noise_diff, drive, resonance, dst);
-	else
+	if (using_sampler())
 		apply_sample_lpg_noise(voice_id, voice, s_touch, goal_lpg, noise_diff, drive, dst);
+	else
+		apply_subtractive_lpg_noise(voice_id, voice, s_touch, goal_lpg, noise_diff, drive, resonance, dst);
 }
 
 // send cv values resulting from oscillator generation

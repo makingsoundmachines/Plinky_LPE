@@ -1,10 +1,8 @@
 // clang-format off
 #include "utils.h"
+#include "synth/sampler.h"
 #define MAX_SPI_STATE 32
 
-int grainpos[32];
-s16 grainbuf[GRAINBUF_BUDGET];
-s16 grainbufend[32]; // for each of the 32 grain fetches, where does it end in the grainbuf?
 u8 spibigtx[256 + 4];
 u8 spibigrx[256 + 4];
 #define EXPANDER_ZERO 0x800
@@ -129,15 +127,15 @@ int spi_readgrain_dma(int gi) {
 		startspi = RDTSC();
 	++spistate;
 	int start = 0;
-	if (gi) start = grainbufend[gi - 1];
-	int len = grainbufend[gi] - start;
-	u32 addr = grainpos[gi];
+	if (gi) start = grain_buf_end[gi - 1];
+	int len = grain_buf_end[gi] - start;
+	u32 addr = grain_pos[gi];
 	
 	//for (int i = 0; i < len; ++i)
-	//	grainbuf[start + i] = ((addr + i - 2) * 256);
+	//	grain_buf[start + i] = ((addr + i - 2) * 256);
 
 	if (len>2)
-		memcpy(((u8*)&grainbuf[start])+4,_flashram+(addr&(MAX_SAMPLE_LEN*8-1)),len*2-4);
+		memcpy(((u8*)&grain_buf[start])+4,_flashram+(addr&(MAX_SAMPLE_LEN*8-1)),len*2-4);
 	spi_read_done();
 	return 0;
 }
@@ -380,7 +378,7 @@ int spi_readgrain_dma(int gi) {
 	spi_release_cs();
 	u32 addr;
 again:
-	addr = grainpos[gi] * 2;
+	addr = grain_pos[gi] * 2;
 	spibigtx[0] = 3;
 	spibigtx[1] = addr >> 16;
 	spibigtx[2] = addr >> 8;
@@ -390,8 +388,8 @@ again:
 		startspi = RDTSC();
 	++spistate;
 	int start = 0;
-	if (gi) start = grainbufend[gi - 1];
-	int len = grainbufend[gi] - start;
+	if (gi) start = grain_buf_end[gi - 1];
+	int len = grain_buf_end[gi] - start;
 
 	if (len<=2) {
 		if (spistate==MAX_SPI_STATE) {
@@ -407,7 +405,7 @@ again:
 	if (0) {
 		for (int i=0;i<len;++i)
 
-			grainbuf[start+i]=((addr/2+i-2)*256);
+			grain_buf[start+i]=((addr/2+i-2)*256);
 		if (spistate==MAX_SPI_STATE) {
 			spi_update_dac(0);
 //			resetspistate();
@@ -418,7 +416,7 @@ again:
 	spi_setchip(addr);
 	spi_assert_cs();
 
-	setup_spi_alex_dma((uint32_t) spibigtx, (uint32_t) (grainbuf+start), len * 2);
+	setup_spi_alex_dma((uint32_t) spibigtx, (uint32_t) (grain_buf+start), len * 2);
 
 	return 0;
 }
