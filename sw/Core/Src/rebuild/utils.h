@@ -25,6 +25,7 @@ typedef int32_t s32;
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
+typedef uint64_t u64;
 #ifndef __cplusplus
 typedef char bool;
 #define true 1
@@ -92,6 +93,11 @@ static inline float lerp(float a, float b, float t) {
 static inline u8 triangle(u8 x) {
 	return (x < 128) ? x * 2 : (511 - x * 2);
 }
+// modulo that accounts for negative x values
+static inline u32 modi(s32 x, u32 y) {
+	s32 m = x % y;
+	return (m < 0) ? m + y : m;
+}
 static inline bool ispow2(s16 x) {
 	return (x & (x - 1)) == 0;
 }
@@ -127,11 +133,21 @@ static inline float smooth_value(ValueSmoother* s, float new_val, float max_scal
 	return s->y2;
 }
 
-// TEMP - these will get organised into their appropriate modules
-
-// params
-#define FULL 1024
-#define HALF (FULL / 2)
+static inline int rand_range(int mn, int mx) {
+	return mn + (((rand() & 255) * (mx - mn)) >> 8);
+}
+static inline u8 pres_compress(s16 pressure) {
+	return clampi((pressure + 12) / 24, 0, 255);
+}
+static inline u16 pres_decompress(u8 pressure) {
+	return maxi(rand_range(24 * pressure - 12, 24 * pressure + 12), 0);
+}
+static inline u8 pos_compress(u16 position) {
+	return clampi((position + 4) / 8, 0, 255);
+}
+static inline u16 pos_decompress(u8 position) {
+	return maxi(rand_range(8 * position - 4, 8 * position + 4), 0);
+}
 
 // clang-format off
 #define SWAP(a,b) if (a>b) { int t=a; a=b; b=t; }
@@ -149,19 +165,18 @@ static inline void sort8(int *dst, const int *src) {
 #undef SWAP
 // clang-format on
 
-typedef struct euclid_state {
-	int trigcount;
-	bool did_a_retrig;
-	bool supress;
+// TEMP - these will get organised into their appropriate modules
 
-} euclid_state;
+// params
+#define FULL 1024
+#define HALF (FULL / 2)
 
 // save/load
 typedef struct Preset {
 	s16 params[96][8];
 	u8 flags;
-	s8 loopstart_step_no_offset;
-	s8 looplen_step;
+	u8 seq_start;
+	u8 seq_len;
 	u8 paddy[3];
 	u8 version;
 	u8 category;
@@ -169,16 +184,6 @@ typedef struct Preset {
 } Preset;
 // static_assert((sizeof(Preset) & 15) == 0, "?");
 // static_assert(sizeof(Preset) + sizeof(SysParams) + sizeof(PageFooter) <= 2048, "?");
-
-// these are sequencer modes
-enum {
-	PLAY_STOPPED, // not playing
-	PLAY_PREVIEW, // default mode after pressing play, if you release it quickly (short-press) the mode turns into
-	              // PLAYING and continues on. during play_preview, the sequencer only previews the current step
-	PLAY_WAITING_FOR_CLOCK_START, // this is never triggered
-	PLAY_WAITING_FOR_CLOCK_STOP,  // the sequencer is finishing the step an will stop afterwards
-	PLAYING,                      // playing
-};
 
 // save/load
 typedef struct SysParams {
@@ -192,24 +197,12 @@ typedef struct SysParams {
 // save/load
 enum { GEN_PRESET, GEN_PAT0, GEN_PAT1, GEN_PAT2, GEN_PAT3, GEN_SYS, GEN_SAMPLE, GEN_LAST };
 
-typedef struct FingerRecord { // sequencer
-	u8 pos[4];
-	u8 pres[8];
-} FingerRecord;
-
-typedef struct PatternQuarter { // sequecer
-	FingerRecord steps[16][8];
-	s8 autoknob[16 * 8][2];
-} PatternQuarter;
-// static_assert(sizeof(PatternQuarter) + sizeof(SysParams) + sizeof(PageFooter) <= 2048, "?");
-// static_assert((sizeof(PatternQuarter) & 15) == 0, "?");
-
 enum {
 	FLAGS_ARP = 1,
 	FLAGS_LATCH = 2,
 };
 
-#define BLOCK_SAMPLES 64
-#define FLAG_MASK 127
-
 #include "low_level/audiointrin.h"
+
+#define NUM_KNOBS 2
+#define NUM_QUARTERS 4

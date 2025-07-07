@@ -4,6 +4,7 @@
 #include "hardware/adc_dac.h"
 #include "params.h"
 #include "strings.h"
+#include "time.h"
 #include "ui/pad_actions.h"
 #include "ui/ui.h"
 
@@ -92,21 +93,21 @@ void handle_sampler_audio(u32* dst, u32* audioin) {
 		s16* dldst = delaybuf + (buf_write_pos & DLMASK);
 		// stopping recording => write zeroes (why don't we just write these all at once?)
 		if (sampler_mode >= SM_STOPPING1) {
-			memset(dldst, 0, BLOCK_SAMPLES * 2);
+			memset(dldst, 0, SAMPLES_PER_TICK * 2);
 			sampler_mode++;
 		}
 		// armed or recording => monitor audio (write in-buffer to out-buffer)
 		else {
 			const s16* asrc = (const s16*)audioin;
 			s16* adst = (s16*)dst;
-			for (int i = 0; i < BLOCK_SAMPLES; ++i) {
+			for (int i = 0; i < SAMPLES_PER_TICK; ++i) {
 				s16 smp = *dldst++ = SATURATE16((((int)(asrc[0] + asrc[1])) * (int)(ext_gain_smoother.y2 / 2)) >> 14);
 				adst[0] = adst[1] = smp;
 				adst += 2;
 				asrc += 2;
 			}
 		}
-		buf_write_pos += BLOCK_SAMPLES;
+		buf_write_pos += SAMPLES_PER_TICK;
 	}
 }
 
@@ -147,16 +148,16 @@ void apply_sample_lpg_noise(u8 voice_id, Voice* voice, Touch* s_touch, float goa
 			int mypitch = (voice->osc[1].pitch + voice->osc[2].pitch) / 2;
 			int mysemi = (mypitch) >> 9;
 			static u8 multisampletime[8];
-			static u8 trigcount = 0;
-			trigcount++;
+			static u8 trig_count = 0;
+			trig_count++;
 			for (int i = 0; i < 8; ++i) {
-				int dist = abs(mysemi - cur_sample_info.notes[i]) * 256 - (u8)(trigcount - multisampletime[i]);
+				int dist = abs(mysemi - cur_sample_info.notes[i]) * 256 - (u8)(trig_count - multisampletime[i]);
 				if (dist < bestdist) {
 					bestdist = dist;
 					best = i;
 				}
 			}
-			multisampletime[best] = trigcount; // for round robin
+			multisampletime[best] = trig_count; // for round robin
 			voice->slice_id = best;
 			if (grate < 0.f)
 				ypos = 8;
@@ -186,7 +187,7 @@ void apply_sample_lpg_noise(u8 voice_id, Voice* voice, Touch* s_touch, float goa
 	else { // not trigger - just advance playhead
 		float ms2 = (voice->grain_pair[0].multisample_grate
 		             + voice->grain_pair[1].multisample_grate); // double multisample rate
-		int delta_playhead8 = (int)(grate * ms2 * timestretch * (BLOCK_SAMPLES * 0.5f * 256.f) + 0.5f);
+		int delta_playhead8 = (int)(grate * ms2 * timestretch * (SAMPLES_PER_TICK * 0.5f * 256.f) + 0.5f);
 
 		int new_playhead = voice->playhead8 + delta_playhead8;
 
@@ -240,16 +241,16 @@ void apply_sample_lpg_noise(u8 voice_id, Voice* voice, Touch* s_touch, float goa
 		int dpos24 = g->dpos24;
 		int fpos24 = g->fpos24;
 		float vol = voice->env1_lvl;
-		float dvol = (goal_lpg - vol) * (1.f / BLOCK_SAMPLES);
+		float dvol = (goal_lpg - vol) * (1.f / SAMPLES_PER_TICK);
 		outofrange0 |= g1start - g0start <= 2;
 		outofrange1 |= g2start - g1start <= 2;
 		g->outflags = (outofrange0 ? 1 : 0) + (outofrange1 ? 2 : 0);
 		if ((g1start - g0start <= 2 && g2start - g1start <= 2)) {
 			// fast mode :) emulate side effects without doing any work
-			vol += dvol * BLOCK_SAMPLES;
-			noise += noise_diff * BLOCK_SAMPLES;
-			gvol24 -= dgvol24 * BLOCK_SAMPLES;
-			fpos24 += dpos24 * BLOCK_SAMPLES;
+			vol += dvol * SAMPLES_PER_TICK;
+			noise += noise_diff * SAMPLES_PER_TICK;
+			gvol24 -= dgvol24 * SAMPLES_PER_TICK;
+			fpos24 += dpos24 * SAMPLES_PER_TICK;
 			int id = fpos24 >> 24;
 			g->pos[0] += id;
 			g->pos[1] += id;
@@ -263,7 +264,7 @@ void apply_sample_lpg_noise(u8 voice_id, Voice* voice, Touch* s_touch, float goa
 				while (spistate && spistate <= grainidx + 2)
 					;
 			}
-			for (int i = 0; i < BLOCK_SAMPLES; ++i) {
+			for (int i = 0; i < SAMPLES_PER_TICK; ++i) {
 				int o0, o1;
 				u32 ab0 = *(u32*)(src0); // fetch a pair of 16 bit samples to interpolate between
 				u32 mix = (fpos24 << (16 - 9)) & 0x7fff0000;
@@ -319,7 +320,7 @@ void apply_sample_lpg_noise(u8 voice_id, Voice* voice, Touch* s_touch, float goa
 			}
 			g->vol24 = ((1 << 24) - 1);
 			int grainsize = ((rand() & 127) * sizejit + 128.f) * (gsize * gsize) + 0.5f;
-			grainsize *= BLOCK_SAMPLES;
+			grainsize *= SAMPLES_PER_TICK;
 			int jitpos = (rand() & 255) * posjit;
 			ph += ((grainsize + 8192) * jitpos) >> 8;
 			g->dvol24 = g->vol24 / grainsize;
@@ -369,8 +370,10 @@ void sort_sample_voices(void) {
 
 	for (int i = 0; i < 8; ++i) {
 		GrainPair* g = voices[i].grain_pair;
-		int glen0 = ((abs(g[0].dpos24) * (BLOCK_SAMPLES / 2) + g[0].fpos24 / 2 + 1) >> 23) + 2; // +2 for interpolation
-		int glen1 = ((abs(g[1].dpos24) * (BLOCK_SAMPLES / 2) + g[1].fpos24 / 2 + 1) >> 23) + 2; // +2 for interpolation
+		int glen0 =
+		    ((abs(g[0].dpos24) * (SAMPLES_PER_TICK / 2) + g[0].fpos24 / 2 + 1) >> 23) + 2; // +2 for interpolation
+		int glen1 =
+		    ((abs(g[1].dpos24) * (SAMPLES_PER_TICK / 2) + g[1].fpos24 / 2 + 1) >> 23) + 2; // +2 for interpolation
 
 		// TODO - if pos at end of next fetch will be out of bounds, negate dpos24 and grate_ratio so we ping pong
 		// back for the rest of the grain!
@@ -436,11 +439,11 @@ void start_recording_sample(void) {
 
 // register a slice point while recording
 void sampler_record_slice_point(void) {
-	if (cur_sample_info.samplelen >= BLOCK_SAMPLES) {
+	if (cur_sample_info.samplelen >= SAMPLES_PER_TICK) {
 		// add slice point if there is still room
 		if (cur_slice_id < 7) {
 			cur_slice_id++;
-			cur_sample_info.splitpoints[cur_slice_id] = cur_sample_info.samplelen - BLOCK_SAMPLES;
+			cur_sample_info.splitpoints[cur_slice_id] = cur_sample_info.samplelen - SAMPLES_PER_TICK;
 		}
 		// when all slices are filled, press ends the recording
 		else
@@ -449,7 +452,7 @@ void sampler_record_slice_point(void) {
 }
 
 void try_stop_recording_sample(void) {
-	if (cur_sample_info.samplelen >= BLOCK_SAMPLES) {
+	if (cur_sample_info.samplelen >= SAMPLES_PER_TICK) {
 		if (cur_slice_id > 0)
 			cur_slice_id--;
 		stop_recording_sample();

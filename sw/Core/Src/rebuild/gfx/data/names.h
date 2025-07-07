@@ -1,5 +1,7 @@
 #include "icons.h"
+#include "synth/arp.h"
 #include "synth/params.h"
+#include "synth/sequencer.h"
 
 const static char* const pagenames[PG_LAST] = {
 
@@ -139,4 +141,31 @@ const static char* const paramnames[P_LAST] = {
 const static char* const modnames[M_LAST] = {
     [M_BASE] = I_SLIDERS "Base", [M_RND] = I_RANDOM "Random", [M_ENV] = I_ENV "Env", [M_PRESSURE] = I_TOUCH "Pressure",
     [M_A] = I_A "Knob/LFO",      [M_B] = I_B "Knob/LFO",      [M_X] = I_X "CV/LFO",  [M_Y] = I_Y "CV/LFO",
+};
+
+const static char* const arp_modenames[NUM_ARP_ORDERS] = {
+    [ARP_UP] = "Up",
+    [ARP_DOWN] = "Down",
+    [ARP_UPDOWN] = "Up/Down",
+    [ARP_UPDOWN_REP] = "Up/Down\nRepeat",
+    [ARP_PEDAL_UP] = "Pedal    \nUp",
+    [ARP_PEDAL_DOWN] = "Pedal    \nDown",
+    [ARP_PEDAL_UPDOWN] = "Pedal\nUp/Down",
+    [ARP_RANDOM] = "Rnd",
+    [ARP_RANDOM2] = "2xRnd",
+    [ARP_CHORD] = "Chord",
+    [ARP_UP8] = "Up\n8 Steps",
+    [ARP_DOWN8] = "Down\n8 Steps",
+    [ARP_UPDOWN8] = "Up/Down\n8 Steps",
+    [ARP_RANDOM8] = "Rnd\n8 Steps",
+    [ARP_RANDOM28] = "2xRnd\n8 Steps",
+};
+
+const static char* const seqmodenames[NUM_SEQ_ORDERS] = {
+    [SEQ_ORD_PAUSE] = "Pause",
+    [SEQ_ORD_FWD] = "Forward",
+    [SEQ_ORD_BACK] = "Reverse",
+    [SEQ_ORD_PINGPONG] = "Pingpong",
+    [SEQ_ORD_PINGPONG_REP] = "PingPong Rep",
+    [SEQ_ORD_RANDOM] = "Random",
 };

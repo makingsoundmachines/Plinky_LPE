@@ -27,6 +27,7 @@
 #include "hardware/touchstrips.h"
 #include "plinky/core.h"
 #include "rebuild/hardware/encoder.h"
+#include "rebuild/synth/time.h"
 #include <stdlib.h>
 #include <string.h>
 /* USER CODE END Includes */
@@ -121,15 +122,6 @@ static void MX_USB_OTG_FS_PCD_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-extern volatile u8 gotclkin;
-
-// void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
-//	gotclkin++;
-// }
-
-void ClockIRQ(void) {
-	gotclkin++;
-}
 
 int16_t accel_raw[3];
 float accel_lpf[2];
@@ -249,7 +241,6 @@ int main(void) {
 	//	DebugLog("plinky black 0.1\r\n");
 	void plinky_init(void);
 	plinky_init();
-	gotclkin = 0;
 	encoder_init();
 	/* USER CODE END 2 */
 

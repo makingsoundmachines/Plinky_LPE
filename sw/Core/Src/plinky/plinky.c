@@ -55,9 +55,13 @@ extern TIM_HandleTypeDef htim5;
 #include "hardware/midi.h"
 #include "low_level/codec.h"
 #include "low_level/spi.h"
+#include "synth/arp.h"
 #include "synth/audio.h"
+#include "synth/pattern.h"
 #include "synth/sampler.h"
+#include "synth/sequencer.h"
 #include "synth/synth.h"
+#include "synth/time.h"
 #include "testing/tick_counter.h"
 #include "ui/ui.h"
 
@@ -77,57 +81,6 @@ TickCounter _tc_audio;
 TickCounter _tc_touch;
 TickCounter _tc_led;
 TickCounter _tc_filter;
-
-u32 tick = 0; // increments every 64 samples
-
-s32 bpm10x = 120 * 10;
-
-u8 playmode = PLAY_STOPPED;
-bool recording = false;
-u8 pending_loopstart_step = 255; // set when we want to jump on next loop
-extern bool isplaying(void);
-inline bool isplaying(void) {
-	return playmode == PLAYING || playmode == PLAY_WAITING_FOR_CLOCK_STOP;
-}
-
-u32 bpm_clock_phase = 0;
-int ticks_since_clock = 0;
-int ticks_since_arp = 0;
-int last_clock_period = 0;
-int last_step_period = 0;
-int last_arp_period = 0;
-int ticks_since_step = 0; // this counts up, along with the seq_divide_counter, even when not playing, in order to give
-                          // a sense of time eg for recording
-bool external_clock_enable = false;
-
-int seq_divide_counter = 0;
-int arp_divide_counter = 0;
-int seqdiv = 0; // what we count up to , to get seq division
-uint64_t seq_used_bits = 0;
-u8 seq_dir = 0;
-
-int calcseqsubstep(int tick_offset, int maxsubsteps) { // where are we within a recorded step?
-	if (last_step_period <= 0)
-		return 0;
-	if (ticks_since_step + tick_offset >= last_step_period)
-		return maxsubsteps - 1;
-	if (ticks_since_step + tick_offset <= 0)
-		return 0;
-	int s = ((ticks_since_step + tick_offset) * maxsubsteps) / last_step_period;
-	if (s < 0)
-		s = 0;
-	s = mini(maxsubsteps - 1, s);
-	return s;
-}
-static inline int calcarpsubstep(int tick_offset, int maxsubsteps) { // where are we within a recorded step?
-	if (last_arp_period <= 0)
-		return 0;
-	if (ticks_since_arp + tick_offset >= last_arp_period)
-		return maxsubsteps - 1;
-	if (ticks_since_arp + tick_offset <= 0)
-		return 0;
-	return mini(maxsubsteps - 1, ((ticks_since_arp + tick_offset) * maxsubsteps) / last_arp_period);
-}
 
 // u8 ui_edit_param_prev[2][4] = { {P_LAST,P_LAST,P_LAST,P_LAST},{P_LAST,P_LAST,P_LAST,P_LAST} }; // push to front
 // history
@@ -165,10 +118,6 @@ kick fetch for this pos
 
 u32 scope[128];
 
-static inline u32 ticks(void) {
-	return tick;
-}
-
 // these includes are sensitive to how they are ordered
 // turning off formatting so that they don't get reordered alphabetically
 
@@ -178,7 +127,6 @@ static inline u32 ticks(void) {
 #include "utils/params.h"
 #include "touch.h"
 #include "calib.h"
-#include "arp.h"
 #include "edit.h"
 
 #include "../webusb.h"
@@ -303,20 +251,19 @@ void update_params(int fingertrig, int fingerdown) {
 	if (lfohp != prevlfohp)
 		lfo_history[lfohp][0] = lfo_history[lfohp][1] = lfo_history[lfohp][2] = lfo_history[lfohp][3] = 0;
 	// compute new mod_cur for each mod source
-	int phase0 = calcseqsubstep(0, 65536);
+	int phase0 = seq_substep(65536);
 	int phase1 = phase0 + (65536 / 8);
-	int nextstep = cur_step;
+	int nextstep = cur_seq_step;
 	if (phase1 >= 65536) {
 		phase1 &= 65535;
 		nextstep++;
-		u8 loopstart_step = (rampreset.loopstart_step_no_offset + step_offset) & 63;
-		if (nextstep >= loopstart_step + rampreset.looplen_step)
-			nextstep -= rampreset.looplen_step;
+		if (nextstep >= cur_seq_start + rampreset.seq_len)
+			nextstep -= rampreset.seq_len;
 		nextstep &= 63;
 	}
-	int q1 = (cur_step >> 4) & 3;
+	int q1 = (cur_seq_step >> 4) & 3;
 	int q2 = (nextstep >> 4) & 3;
-	s8* autoknob1 = rampattern[q1].autoknob[(cur_step & 15) * 8 + (phase0 >> 13)];
+	s8* autoknob1 = rampattern[q1].autoknob[(cur_seq_step & 15) * 8 + (phase0 >> 13)];
 	s8* autoknob2 = rampattern[q2].autoknob[(nextstep & 15) * 8 + (phase1 >> 13)];
 	float autoknobinterp = (phase0 & (65536 / 8 - 1)) * (1.f / (65536 / 8));
 
@@ -597,7 +544,7 @@ void PreProcessAudioIn(u32* audioin) {
 	static float dcl, dcr;
 	int ng = mini(256, noisegate);
 	// dc remover from audio in, and peak detector while we're there.
-	for (int i = 0; i < BLOCK_SAMPLES; ++i) {
+	for (int i = 0; i < SAMPLES_PER_TICK; ++i) {
 		u32 inp = audioin[i];
 		STEREOUNPACK(inp);
 		dcl += (inpl - dcl) * 0.0001f;
@@ -653,9 +600,9 @@ static s16 scopex = 0;
 
 int audiotime = 0;
 void DoAudio(u32* dst, u32* audioin) {
-	audiotime += BLOCK_SAMPLES;
+	audiotime += SAMPLES_PER_TICK;
 	tc_start(&_tc_audio);
-	memset(dst, 0, 4 * BLOCK_SAMPLES);
+	memset(dst, 0, 4 * SAMPLES_PER_TICK);
 	PreProcessAudioIn(audioin); // dc remover; peak detector
 
 	handle_ext_gain();
@@ -677,28 +624,17 @@ void DoAudio(u32* dst, u32* audioin) {
 	process_serial_midi_in();
 #endif
 	process_usb_midi_in();
+
 	// do the clock first so we can update the sequencer step etc
-	bool gotclock = update_clock();
+	clock_tick();
+
+	seq_tick();
 
 	generate_string_touches();
 
-	// arp / sequencer stuff
-	bool latchon = ((rampreset.flags & FLAGS_LATCH));
+	arp_tick();
 
-	if (!isplaying() && !read_from_seq && !latchon && write_string_touched_copy != 0
-	    && write_string_touched_1back == 0) {
-		// they have put their finger down after no arp playing, trigger it immediately!
-		arp_reset_partial();
-		seq_reset(); // so that gate length works
-	}
-
-	update_arp(gotclock);
 	update_params(string_touch_start, string_touched);
-	int seqdivi = param_eval_int(P_SEQDIV, any_rnd, env16, pressure16);
-	seqdiv = (seqdivi == DIVISIONS_MAX) ? -1 : divisions[clampi(seqdivi, 0, DIVISIONS_MAX - 1)] - 1;
-
-	step_offset = param_eval_int(P_SEQSTEP, any_rnd, env16, pressure16);
-	check_curstep();
 
 	// memory stuff
 	cur_sample_id1 = param_eval_int(P_SAMPLE, any_rnd, env16, pressure16);
@@ -718,8 +654,9 @@ void DoAudio(u32* dst, u32* audioin) {
 		spi_update_dac(0); // just update dac when not in sampler mode
 
 	tc_start(&_tc_fx);
-	// /// ////////////////////////////////////////////////////////////////////////
-	// half rate fx
+
+	// delay params
+
 	static u16 delaypos = 0;
 	static u32 wetlr;
 	const float k_target_fb = param_eval_float(P_DLFB, any_rnd, env16, pressure16) * (0.35f); // 3/4
@@ -731,14 +668,15 @@ void DoAudio(u32* dst, u32* audioin) {
 		k_target_delaytime = (k_target_delaytime * (DLMASK - 64)) >> 16;
 	}
 	else {
-		k_target_delaytime = divisions[clampi((-k_target_delaytime * 13) >> 16, 0, 12)]; // results in a number 1-32
+		k_target_delaytime =
+		    sync_divs_32nds[clampi((-k_target_delaytime * 13) >> 16, 0, 12)]; // results in a number 1-32
 		// figure out how samples we can have, max, in a beat synced scenario
-		int max_delay = (32000 * 600 * 4) / (maxi(150, bpm10x));
+		int max_delay = (32000 * 600 * 4) / (maxi(150, bpm_10x));
 		while (max_delay > DLMASK - 64)
 			max_delay >>= 1;
 		k_target_delaytime = (max_delay * k_target_delaytime) >> 5;
 	}
-	k_target_delaytime = clampi(k_target_delaytime, BLOCK_SAMPLES, DLMASK - 64) << 12;
+	k_target_delaytime = clampi(k_target_delaytime, SAMPLES_PER_TICK, DLMASK - 64) << 12;
 	int k_delaysend = (param_eval_int(P_DLSEND, any_rnd, env16, pressure16) >> 9);
 
 	static int wobpos = 0;
@@ -749,12 +687,13 @@ void DoAudio(u32* dst, u32* audioin) {
 		int newwobtarget = ((rand() & 8191) * wobamount) >> 8;
 		if (newwobtarget > k_target_delaytime / 2)
 			newwobtarget = k_target_delaytime / 2;
-		wobcount = ((rand() & 8191) + 8192) & (~(BLOCK_SAMPLES - 1));
+		wobcount = ((rand() & 8191) + 8192) & (~(SAMPLES_PER_TICK - 1));
 		dwobpos = (newwobtarget - wobpos + wobcount / 2) / wobcount;
 	}
-	wobcount -= BLOCK_SAMPLES;
+	wobcount -= SAMPLES_PER_TICK;
 
-	///////////////// ok lets do hpf earlier!
+	// hpf params
+
 	static float peak = 0.f;
 	peak *= 0.99f;
 	static float power = 0.f;
@@ -778,7 +717,7 @@ void DoAudio(u32* dst, u32* audioin) {
 #endif
 
 	if (ENABLE_HPF)
-		for (int i = 0; i < BLOCK_SAMPLES; ++i) {
+		for (int i = 0; i < SAMPLES_PER_TICK; ++i) {
 			u32 input = STEREOSIGMOID(dst[i]);
 			STEREOUNPACK(input);
 			static float ic1l, ic2l, ic1r, ic2r;
@@ -806,6 +745,8 @@ void DoAudio(u32* dst, u32* audioin) {
 
 	u32* src = (u32*)dst;
 
+	// reverb params
+
 	float f = 1.f - clampf(param_eval_float(P_RVTIME, any_rnd, env16, pressure16), 0.f, 1.f);
 	f *= f;
 	f *= f;
@@ -814,6 +755,8 @@ void DoAudio(u32* dst, u32* audioin) {
 	k_reverb_wob = (param_eval_float(P_RVWOB, any_rnd, env16, pressure16));
 	// k_reverb_color=(param_eval_float(P_RVCOLOR, any_rnd, env16, pressure16));
 	k_reverbsend = (param_eval_int(P_RVSEND, any_rnd, env16, pressure16));
+
+	// mixer params
 
 	int synthlvl_ = param_eval_int(P_MIXSYNTH, any_rnd, env16, pressure16);
 	int synthwidth = param_eval_int(P_MIX_WIDTH, any_rnd, env16, pressure16);
@@ -845,7 +788,7 @@ void DoAudio(u32* dst, u32* audioin) {
 	ainlvl = ((ainlvl >> 4) * (aindrylvl >> 4)) >> 8; // prescale by fx dry level
 
 	int delayratio = param_eval_int(P_DLRATIO, any_rnd, env16, pressure16) >> 8;
-	static int delaytime = BLOCK_SAMPLES << 12;
+	static int delaytime = SAMPLES_PER_TICK << 12;
 	int scopescale = (65536 * 24) / maxi(16384, (int)peak);
 
 	if (g_disable_fx == 1)
@@ -855,8 +798,14 @@ void DoAudio(u32* dst, u32* audioin) {
 #else
 #define ENABLE_FX 1
 #endif
+
+	// fx processing
+
 	if (ENABLE_FX && g_disable_fx == 0)
-		for (int i = 0; i < BLOCK_SAMPLES / 2; ++i) {
+		for (int i = 0; i < SAMPLES_PER_TICK / 2; ++i) {
+
+			// delay
+
 			int targetdt = k_target_delaytime + 2048 - (int)wobpos;
 			wobpos += dwobpos;
 			delaytime += (targetdt - delaytime) >> 10;
@@ -866,7 +815,8 @@ void DoAudio(u32* dst, u32* audioin) {
 			u32 drylr0 = STEREOSIGMOID(src[0]);
 			u32 drylr1 = STEREOSIGMOID(src[1]);
 
-			/////////////////////////////////// COMPRESSOR
+			// compressor
+
 			u32 drylr01 = STEREOADDAVERAGE(drylr0, drylr1); // this is gonna have absolute max +-32768
 			STEREOUNPACK(drylr01);
 			static float peaktrack = 1.f;
@@ -884,7 +834,6 @@ void DoAudio(u32* dst, u32* audioin) {
 #ifdef EMU
 			m_compressor = synthlvl_ * recip / 65536.f;
 #endif
-			///////////////////////////////////////////////////////////////////////////////////////////
 			drylr0 = MIDSIDESCALE(drylr0, lvl_mid, lvl_side);
 			drylr1 = MIDSIDESCALE(drylr1, lvl_mid, lvl_side);
 
@@ -900,6 +849,8 @@ void DoAudio(u32* dst, u32* audioin) {
 
 			MONITORPEAK(&m_dry2wet, dry2wetlr);
 
+			// delay
+
 			int delaysend = (int)((delayreturnl + (delayreturnr >> 1)) * k_fb);
 			delaysend += (((s16)(dry2wetlr) + (s16)(dry2wetlr >> 16)) * k_delaysend) >> 8;
 			static float lpf = 0.f, dc = 0.f;
@@ -911,10 +862,9 @@ void DoAudio(u32* dst, u32* audioin) {
 
 			MONITORPEAK(&m_delaysend, delaysend);
 
-			{
-				// adjust feedback up again
-				k_fb += (k_target_fb - k_fb) * 0.001f;
-			}
+			// adjust feedback up again
+			k_fb += (k_target_fb - k_fb) * 0.001f;
+
 			delaypos &= DLMASK;
 			delaybuf[delaypos] = delaysend;
 			delaypos++;
@@ -937,6 +887,9 @@ void DoAudio(u32* dst, u32* audioin) {
 			}
 			prevprevli = prevli;
 			prevli = li;
+
+			// scope generation
+
 			if (scopex < 256 && scopex >= 0) {
 				int x = scopex / 2;
 				if (!(scopex & 1))
@@ -951,9 +904,11 @@ void DoAudio(u32* dst, u32* audioin) {
 			u32 newwetlr = STEREOPACK(delayreturnl, delayreturnr);
 			MONITORPEAK(&m_delayreturn, newwetlr);
 
-		// reverb
 #ifndef DEBUG
 			if (1) {
+
+				// reverb
+
 				u32 reverbin = STEREOADDAVERAGE(newwetlr, dry2wetlr);
 				MONITORPEAK(&m_reverbin, reverbin);
 				u32 reverbout = Reverb2(reverbin, reverbbuf);
@@ -972,6 +927,8 @@ void DoAudio(u32* dst, u32* audioin) {
 			MONITORPEAK(&m_audioin, audioin0);
 			MONITORPEAK(&m_audioin, audioin1);
 
+			// write to output
+
 			src[0] = STEREOADDSAT(STEREOADDSAT(STEREOSCALE(drylr0, drylvl), audioin0), midwetlr);
 			src[1] = STEREOADDSAT(STEREOADDSAT(STEREOSCALE(drylr1, drylvl), audioin1), newwetlr);
 
@@ -982,7 +939,7 @@ void DoAudio(u32* dst, u32* audioin) {
 		}
 
 #ifdef EMU
-	powerout = power / (BLOCK_SAMPLES * 2.f * 32768.f * 32768.f);
+	powerout = power / (SAMPLES_PER_TICK * 2.f * 32768.f * 32768.f);
 	gainhistoryrms[ghi] = lin2db(powerout + 1.f / 65536.f) * 0.5f;
 	ghi = (ghi + 1) & 511;
 #endif
@@ -1267,22 +1224,22 @@ void test_jig(void) {
 	    100, 100,           // pitch
 	    150, 150, 150, 150, // outputs
 	};
-	const char* const names[11][2] = {{"gnd", 0},
-	                                  {"2.5v", 0},
-	                                  {"3.3v", 0},
-	                                  {"5v", 0},
-	                                  {"1v from 12v", 0},
-	                                  {"plo (1v)", "plo (4v)"},
-	                                  {"phi (1v)", "phi (4v)"},
-	                                  {"clk (0v)", "clk (4.6v)"},
-	                                  {"trig (0v)", "trig (4.6v)"},
-	                                  {"gate (0v)", "gate (4.6v)"},
-	                                  {"pressure (0v)", "pressure (4.6v)"}};
+	// const char* const names[11][2] = {{"gnd", 0},
+	//                                   {"2.5v", 0},
+	//                                   {"3.3v", 0},
+	//                                   {"5v", 0},
+	//                                   {"1v from 12v", 0},
+	//                                   {"plo (1v)", "plo (4v)"},
+	//                                   {"phi (1v)", "phi (4v)"},
+	//                                   {"clk (0v)", "clk (4.6v)"},
+	//                                   {"trig (0v)", "trig (4.6v)"},
+	//                                   {"gate (0v)", "gate (4.6v)"},
+	//                                   {"pressure (0v)", "pressure (4.6v)"}};
 	while (1) {
 		DebugLog("mux in:  pitch     gate      x        y        a        b   | mux:\r\n");
 		int errorcount = 0;
 		int rangeok = 0, zerook = 0;
-		gotclkin = 0;
+		// reset_ext_clock();
 #ifndef EMU
 		if (!update_accelerometer_raw()) {
 			draw_str(0, 0, F_32_BOLD, "BAD ACCEL");
@@ -1297,8 +1254,8 @@ void test_jig(void) {
 			send_cv_clock(true);
 			HAL_Delay(3);
 		}
-		if (gotclkin != 4)
-			ERROR("expected clkin of 4, got %d", gotclkin);
+		// if (ext_clock_counter != 4)
+		// 	ERROR("expected clkin of 4, got %d", ext_clock_counter);
 		for (int mux = 0; mux < 11; ++mux) {
 			set_test_mux(mux);
 			int numlohi = (mux < 5) ? 1 : 2;
@@ -1390,7 +1347,8 @@ void test_jig(void) {
 					}
 					DebugLog("%6dmv%c ", mvolts, ok ? ' ' : '*');
 				}
-				DebugLog("| %s. clocks=%d\r\n", names[mux][lohi], gotclkin);
+				// rj: logging should be re-implemented with custom clock counter
+				// DebugLog("| %s. clocks=%d\r\n", names[mux][lohi], ext_clock_counter);
 			}
 		}
 		DebugLog("zero: ");
@@ -1501,7 +1459,7 @@ void EMSCRIPTEN_KEEPALIVE wasm_settouch(int idx, int pos, int pressure) {
 void EMSCRIPTEN_KEEPALIVE plinky_frame_wasm(void) {
 	plinky_frame();
 }
-u32 wasmbuf[BLOCK_SAMPLES];
+u32 wasmbuf[SAMPLES_PER_TICK];
 uint8_t* EMSCRIPTEN_KEEPALIVE get_wasm_audio_buf(void) {
 	return (uint8_t*)wasmbuf;
 }
@@ -1510,7 +1468,7 @@ uint8_t* EMSCRIPTEN_KEEPALIVE get_wasm_preset_buf(void) {
 }
 void EMSCRIPTEN_KEEPALIVE wasm_audio(void) {
 	static u8 half = 0;
-	u32 audioin[BLOCK_SAMPLES] = {0};
+	u32 audioin[SAMPLES_PER_TICK] = {0};
 	uitick(wasmbuf, audioin, half);
 	half = 1 - half;
 }

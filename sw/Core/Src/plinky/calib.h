@@ -1,6 +1,8 @@
 #include "gfx/gfx.h"
 #include "hardware/cv.h"
 #include "hardware/encoder.h"
+#include "synth/time.h"
+
 #ifdef HALF_FLASH
 const static int calib_sector = -1;
 #else
@@ -68,7 +70,6 @@ bool flash_writecalib(int which) {
 extern SamplerMode sampler_mode;
 
 void reflash(void);
-extern volatile u8 gotclkin;
 
 void led_test(void) {
 	for (int y = 0; y < 9; ++y)
@@ -91,8 +92,8 @@ void led_test(void) {
 		}
 		if (encoder_down_count > 100)
 			reflash();
-		fdraw_str(0, 2, F_12, "TEST %d %d %d %d %02x", adc_buffer[ADC_PITCH] / 256, adc_buffer[ADC_GATE] / 256,
-		          adc_buffer[ADC_X_CV] / 256, adc_buffer[ADC_Y_CV] / 256, gotclkin);
+		fdraw_str(0, 2, F_12, "TEST %d %d %d %d", adc_buffer[ADC_PITCH] / 256, adc_buffer[ADC_GATE] / 256,
+		          adc_buffer[ADC_X_CV] / 256, adc_buffer[ADC_Y_CV] / 256);
 		fdraw_str(0, 18, F_12, "%d %d %d %d %d %d", adc_buffer[ADC_A_CV] / 256, adc_buffer[ADC_B_CV] / 256,
 		          adc_buffer[ADC_A_KNOB] / 256, adc_buffer[ADC_B_KNOB] / 256, encoder_value >> 2, encoder_pressed);
 		oled_flip();

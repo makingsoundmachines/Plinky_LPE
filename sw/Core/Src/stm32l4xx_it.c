@@ -22,6 +22,7 @@
 #include "stm32l4xx_it.h"
 #include "hardware/encoder.h"
 #include "main.h"
+#include "synth/time.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 /* USER CODE END Includes */
@@ -53,7 +54,6 @@
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void ClockIRQ(void);
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
@@ -200,7 +200,7 @@ void SysTick_Handler(void) {
  */
 void EXTI2_IRQHandler(void) {
 	/* USER CODE BEGIN EXTI2_IRQn 0 */
-	ClockIRQ();
+	trigger_cv_clock();
 	/* USER CODE END EXTI2_IRQn 0 */
 	HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_2);
 	/* USER CODE BEGIN EXTI2_IRQn 1 */

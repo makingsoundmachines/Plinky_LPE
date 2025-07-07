@@ -1,23 +1,20 @@
 #include "midi.h"
 #include "gfx/gfx.h"
 #include "midi_defs.h"
+#include "synth/arp.h"
+#include "synth/sequencer.h"
 #include "synth/strings.h"
+#include "synth/time.h"
 #include "touchstrips.h"
 #include "tusb.h"
 
 // needs cleaning up
 extern Preset rampreset;
-extern bool got_ui_reset;
-extern u8 playmode;
-extern volatile u8 gotclkin;
-extern s8 arpmode;
-extern u8 arpbits;
 
 extern int GetParam(u8 paramidx, u8 mod);
 extern void SetPreset(u8 preset, bool force);
 extern void EditParamNoQuant(u8 paramidx, u8 mod, s16 data);
 extern void ShowMessage(Font fnt, const char* msg, const char* submsg);
-extern void OnLoop(void);
 // -- needs cleaning up
 
 // midi uart, lives in main.c
@@ -129,7 +126,7 @@ void process_all_midi_out(void) {
 		// take out some undesired note/pressure values
 		if (!target_note)
 			target_pressure = 0;
-		if (arpmode >= 0 && !(arpbits & (1 << string_id)))
+		if (arp_active() && !arp_touched(string_id))
 			target_pressure = 0;
 		if (!target_pressure)
 			target_note = 0;
@@ -245,7 +242,7 @@ static void process_midi_msg(u8 status, u8 d1, u8 d2) {
 				val = val * 2 - FULL;
 			EditParamNoQuant(param, M_BASE, val); // set parameter
 
-			if (param == P_ARPONOFF) { // this should be moved to arp/ui
+			if (param == P_ARPONOFF) { // this should be moved to memory
 				if (val > 64) {
 					rampreset.flags = rampreset.flags | FLAGS_ARP;
 				}
@@ -254,7 +251,7 @@ static void process_midi_msg(u8 status, u8 d1, u8 d2) {
 				}
 				ShowMessage(F_32_BOLD, ((rampreset.flags & FLAGS_ARP)) ? "arp on" : "arp off", 0);
 			}
-			if (param == P_LATCHONOFF) { // this should be moved to latch/ui
+			if (param == P_LATCHONOFF) { // this should be moved to memory
 				if (val > 64) {
 					rampreset.flags = rampreset.flags | FLAGS_LATCH;
 				}
@@ -267,29 +264,18 @@ static void process_midi_msg(u8 status, u8 d1, u8 d2) {
 		break;
 	}
 	case MIDI_SYSTEM_COMMON_MSG: { // system msgs, use full status
-		static u8 clock_24ppqn;
 		switch (status) {
 		case MIDI_START:
-			got_ui_reset = true;
-			clock_24ppqn = 5; // 2020-02-26: Used to be 0, changed to 5:
-			                  // https://discord.com/channels/784856175937585152/784884878994702387/814951459581067264
-			playmode = PLAYING;
+			seq_play_from_start();
 			break;
 		case MIDI_CONTINUE:
-			playmode = PLAYING;
+			seq_play();
 			break;
 		case MIDI_STOP:
-			clock_24ppqn = 0;
-			playmode = PLAY_STOPPED;
-			OnLoop();
+			seq_stop();
 			break;
 		case MIDI_TIMING_CLOCK:
-			// midi clock! 24ppqn, we want 4, so divide by 6.
-			clock_24ppqn++;
-			if (clock_24ppqn == 6) {
-				gotclkin++;
-				clock_24ppqn = 0;
-			}
+			trigger_midi_clock();
 			break;
 		}
 		break;

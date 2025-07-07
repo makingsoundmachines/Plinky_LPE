@@ -9,19 +9,17 @@
 #include "pitch_tools.h"
 #include "sampler.h"
 #include "strings.h"
+#include "synth/arp.h"
 #include "testing/tick_counter.h"
+#include "time.h"
 #include "ui/ui.h"
 
 // cleanup
 int param_eval_int(u8 paramidx, int rnd, int env16, int pressure16);
-extern s8 arpoctave;
-extern s8 arpmode;
-extern u8 arpbits;
 extern u16 any_rnd;
 extern int env16;
 extern int pressure16;
 extern Preset rampreset;
-extern bool arpretrig;
 
 int param_eval_finger(u8 paramidx, int voice_id, Touch* s_touch);
 
@@ -76,7 +74,7 @@ void generate_oscs(u8 string_id, Voice* voice, Touch* s_touch) {
 
 	s32 base_pitch = 12 *
 	                 // pitch from arp and the octave parameter
-	                 (((arpoctave + param_eval_finger(P_OCT, string_id, s_touch)) << 9)
+	                 (((arp_oct_offset + param_eval_finger(P_OCT, string_id, s_touch)) << 9)
 	                  // pitch from the pitch parameter
 	                  + (param_eval_finger(P_PITCH, string_id, s_touch) >> 7));
 	// pitch from interval parameter
@@ -152,7 +150,7 @@ void generate_oscs(u8 string_id, Voice* voice, Touch* s_touch) {
 		low_string_pitch = summed_pitch;
 		got_low_pitch = true;
 	}
-	if (arpmode < 0 || (arpbits & (1 << string_id))) {
+	if (!arp_active() || arp_touched(string_id)) {
 		high_string_pitch = summed_pitch;
 		got_high_pitch = true;
 	}
@@ -177,14 +175,13 @@ static float update_envelope(u8 voice_id, Voice* voice, Touch* s_touch) {
 	    is_sample_preview ? 1.f : squaref(param_eval_finger(P_S, voice_id, s_touch) * (1.f / 65536.f));
 	const float release = is_sample_preview ? 0.5f : lpf_k((param_eval_finger(P_R, voice_id, s_touch)));
 
-	// arp - needs some cleanup after arp reorganization
 	u8 mask = 1 << voice_id;
-	if ((arpmode >= 0) && !(arpbits & mask))
-		goal_lpg = 0.f;
+	if (arp_active() && !arp_touched(voice_id))
+		goal_lpg = 0.f; // this suppresses touches when arp is active
 	float env_lvl = voice->env1_lvl;
 
-	// new touch or touch by arp: start new envelope
-	if (arpretrig || (string_touch_start & mask)) {
+	// new touch: start new envelope
+	if (string_touch_start & mask) {
 		env_lvl *= sustain;
 		voice->env1_decaying = false;
 		cv_trig_high = true; // send cv trigger
@@ -214,7 +211,7 @@ static float update_envelope(u8 voice_id, Voice* voice, Touch* s_touch) {
 
 static void apply_subtractive_lpg_noise(u8 voice_id, Voice* voice, Touch* s_touch, float goal_lpg, float noise_diff,
                                         float drive, float resonance, u32* dst) {
-	float glide = lpf_k(param_eval_finger(P_GLIDE, voice_id, s_touch) >> 2) * (0.5f / BLOCK_SAMPLES);
+	float glide = lpf_k(param_eval_finger(P_GLIDE, voice_id, s_touch) >> 2) * (0.5f / SAMPLES_PER_TICK);
 
 	// oscillator shape
 	s32 osc_shape_raw = rampreset.params[P_PWM][0]; // unmodulated
@@ -236,7 +233,7 @@ static void apply_subtractive_lpg_noise(u8 voice_id, Voice* voice, Touch* s_touc
 		noise = voice->noise_lvl;
 		int rand_table_pos = rand() & 16383;
 		float osc_lpg = voice->env1_lvl;
-		float osc_lpg_diff = (goal_lpg - osc_lpg) * (1.f / BLOCK_SAMPLES);
+		float osc_lpg_diff = (goal_lpg - osc_lpg) * (1.f / SAMPLES_PER_TICK);
 
 		Osc* osc = &voice->osc[osc_id];
 
@@ -252,7 +249,7 @@ static void apply_subtractive_lpg_noise(u8 voice_id, Voice* voice, Touch* s_touc
 				osc[2].goal_phase_diff = avg_phase_diff;
 				if (osc_shape < 0) {
 					s32 phase0_fix =
-					    (s32)(osc[2].phase - osc[0].phase - (osc_shape << 16) + (1 << 31)) / (BLOCK_SAMPLES);
+					    (s32)(osc[2].phase - osc[0].phase - (osc_shape << 16) + (1 << 31)) / (SAMPLES_PER_TICK);
 					osc[0].phase_diff += phase0_fix;
 					osc[0].goal_phase_diff += phase0_fix;
 				}
@@ -279,7 +276,7 @@ static void apply_subtractive_lpg_noise(u8 voice_id, Voice* voice, Touch* s_touc
 			sub_wave = sub_wave | ((8191 - sub_wave) << 16);
 			u8 table_id = osc_shape >> 12;
 			const s16* table1 = wavetable[table_id] + wavetable_octave_offset[shift1];
-			for (u8 i = 0; i < BLOCK_SAMPLES; ++i) {
+			for (u8 i = 0; i < SAMPLES_PER_TICK; ++i) {
 				u32 i1;
 				u32 i2;
 				s32 s0;
@@ -317,7 +314,7 @@ static void apply_subtractive_lpg_noise(u8 voice_id, Voice* voice, Touch* s_touc
 		// == SUPERSAW & PULSE WAVE == //
 
 		else {
-			for (u8 i = 0; i < BLOCK_SAMPLES; ++i) {
+			for (u8 i = 0; i < SAMPLES_PER_TICK; ++i) {
 				phase1_diff += dd_phase1;
 				phase1 += phase1_diff;
 				u32 newsample1 = phase1;
@@ -404,7 +401,7 @@ static void run_voice(u8 voice_id, u32* dst) {
 	goal_noise *= goal_noise;
 	if (drive_lvl > 0)
 		goal_noise *= fdrive;
-	float noise_diff = (goal_noise - voice->noise_lvl) * (1.f / BLOCK_SAMPLES);
+	float noise_diff = (goal_noise - voice->noise_lvl) * (1.f / SAMPLES_PER_TICK);
 	int resonancei = 65536 - param_eval_finger(P_MIXRESO, voice_id, s_touch);
 	float resonance = 2.1f - (table_interp(pitches, resonancei) * (2.1f / pitches[1024]));
 	drive *= 2.f / (resonance + 2.f);

@@ -9,10 +9,9 @@
 #define NUM_STRINGS 8
 
 // which of these can we keep local?
-extern u8 string_touched;               // sampler & params
-extern u8 write_string_touched_copy;    // arp & ui.h
-extern u8 write_string_touched_1back;   // arp
-extern u8 string_touch_start;           // arp
+extern u8 string_touched;            // sampler & params
+extern u8 write_string_touched_copy; // arp & ui.h
+extern u8 string_touch_start;        // arp
 
 extern u8 midi_note[NUM_STRINGS];
 extern u8 midi_channel[NUM_STRINGS];

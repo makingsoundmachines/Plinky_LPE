@@ -1,6 +1,8 @@
 #include "gfx/data/names.h"
 #include "gfx/gfx.h"
 #include "hardware/encoder.h"
+#include "synth/arp.h"
+#include "synth/pattern.h"
 #include "synth/pitch_tools.h"
 #include "synth/sampler.h"
 #include "synth/strings.h"
@@ -524,9 +526,9 @@ const char* getparamstr(int p, int mod, int v, char* valbuf, char* decbuf) {
 			}
 			break;
 		case P_SEQDIV: {
-			if (vscale >= DIVISIONS_MAX)
+			if (vscale >= NUM_SYNC_DIVS)
 				return "(Gate CV)";
-			int n = sprintf(valbuf, "%d", divisions[vscale] /* >> divisor*/);
+			int n = sprintf(valbuf, "%d", sync_divs_32nds[vscale] /* >> divisor*/);
 			if (!decbuf)
 				decbuf = valbuf + n;
 			sprintf(decbuf, /*divisornames[divisor]*/ "/32");
@@ -540,8 +542,8 @@ const char* getparamstr(int p, int mod, int v, char* valbuf, char* decbuf) {
 				displaymax = 1000;
 				break;
 			}
-			vscale = (mini(v, FULL - 1) * DIVISIONS_MAX) / FULL;
-			int n = sprintf(valbuf, "%d", divisions[vscale] /*>> divisor*/);
+			vscale = (mini(v, FULL - 1) * NUM_SYNC_DIVS) / FULL;
+			int n = sprintf(valbuf, "%d", sync_divs_32nds[vscale] /*>> divisor*/);
 			if (!decbuf)
 				decbuf = valbuf + n;
 			sprintf(decbuf, /*divisornames[divisor]*/ "/32");
@@ -558,9 +560,9 @@ const char* getparamstr(int p, int mod, int v, char* valbuf, char* decbuf) {
 			return valbuf;
 		}
 		case P_ARPMODE:
-			return arpmodenames[clampi(vscale, 0, ARP_LAST - 1)];
+			return arp_modenames[clampi(vscale, 0, NUM_ARP_ORDERS - 1)];
 		case P_SEQMODE:
-			return seqmodenames[clampi(vscale, 0, SEQ_LAST - 1)];
+			return seqmodenames[clampi(vscale, 0, NUM_SEQ_ORDERS - 1)];
 		case P_CV_QUANT:
 			return cvquantnames[clampi(vscale, 0, CVQ_LAST - 1)];
 		case P_SCALE:
@@ -576,8 +578,8 @@ const char* getparamstr(int p, int mod, int v, char* valbuf, char* decbuf) {
 			break;
 		case P_TEMPO:
 			v += FULL;
-			if (external_clock_enable)
-				v = (bpm10x * FULL) / 1200;
+			if (!using_internal_clock)
+				v = (bpm_10x * FULL) / 1200;
 			displaymax = 1200;
 			break;
 		case P_DLTIME:
@@ -585,7 +587,7 @@ const char* getparamstr(int p, int mod, int v, char* valbuf, char* decbuf) {
 				if (v <= -1024)
 					v++;
 				v = (-v * 13) / FULL;
-				int n = sprintf(valbuf, "%d", divisions[v]);
+				int n = sprintf(valbuf, "%d", sync_divs_32nds[v]);
 				if (!decbuf)
 					decbuf = valbuf + n;
 				sprintf(decbuf, "/32 sync");
@@ -646,7 +648,7 @@ void edit_mode_ui(void) {
 			target *= damping;
 			if (curfinger->pos >> 8 == y) {
 				float pressure = curfinger->pres * (1.f / 2048.f);
-				if ((rampreset.flags & FLAGS_ARP) && !(arpbits & (1 << x)))
+				if ((rampreset.flags & FLAGS_ARP) && !arp_touched(x))
 					pressure = 0.f;
 
 				target = lerp(target, life_input_power, clampf(pressure * 2.f, 0.f, 1.f));
@@ -669,13 +671,13 @@ void edit_mode_ui(void) {
 		ui_edit_param = ep; // as it may change in the background
 	}
 	u8 ui_edit_mod = selected_mod_src;
-	u8 loopstart_step = (rampreset.loopstart_step_no_offset + step_offset) & 63;
+	u8 start_step = cur_seq_start;
 
 	const char* pagename = 0;
 	if (shift_state == SS_RECORD) {
 		if (shift_short_pressed())
-			draw_str(0, 4, F_20_BOLD, recording ? I_RECORD "record >off" : I_RECORD "record >on");
-		else if (recording) {
+			draw_str(0, 4, F_20_BOLD, seq_recording() ? I_RECORD "record >off" : I_RECORD "record >on");
+		else if (seq_recording()) {
 			if (recording_knobs == 0)
 				draw_str(0, 4, F_20_BOLD, "record " I_A I_B "?");
 			else if (recording_knobs == 1)
@@ -809,12 +811,12 @@ draw_parameter:
 			}
 			break;
 		case UI_PTN_START:
-			fdraw_str(0, 0, F_20_BOLD, I_PREV "Start %d", loopstart_step + 1);
-			fdraw_str(0, 16, F_20_BOLD, I_PLAY "Current %d", cur_step + 1);
+			fdraw_str(0, 0, F_20_BOLD, I_PREV "Start %d", start_step + 1);
+			fdraw_str(0, 16, F_20_BOLD, I_PLAY "Current %d", cur_seq_step + 1);
 			break;
 		case UI_PTN_END:
-			fdraw_str(0, 0, F_20_BOLD, I_NEXT "End %d", ((rampreset.looplen_step + loopstart_step) & 63) + 1);
-			fdraw_str(0, 16, F_20_BOLD, I_INTERVAL "Length %d", rampreset.looplen_step);
+			fdraw_str(0, 0, F_20_BOLD, I_NEXT "End %d", ((rampreset.seq_len + start_step) & 63) + 1);
+			fdraw_str(0, 16, F_20_BOLD, I_INTERVAL "Length %d", rampreset.seq_len);
 			break;
 		case UI_LOAD:
 			if (shift_state_frames > 4 && shift_state == SS_CLEAR) {
@@ -863,18 +865,17 @@ draw_parameter:
 		}
 
 	flip();
-	bool playing = playmode == PLAYING;
-	int clockglow = maxi(96, 255 - calcseqsubstep(0, 256 - 96));
+	int clockglow = maxi(96, 255 - seq_substep(256 - 96));
 	int flickery = triangle(millis() / 2);
 	int flickeryfast = triangle(millis() * 8);
 	int loopbright = 96;
-	int phase0 = calcseqsubstep(0, 8);
+	int phase0 = seq_substep(8);
 
 	int cvpitch = adc_get_smooth(ADC_S_PITCH);
 
 	for (int fi = 0; fi < 8; ++fi) {
 		Touch* synthf = get_string_touch(fi);
-		FingerRecord* fr = readpattern(fi);
+		PatternStringStep* fr = get_string_step(fi);
 
 		///////////////////////////////////// ROOT NOTE DISPLAY
 		/// per finger
@@ -908,7 +909,7 @@ draw_parameter:
 			if (fr && fr->pos[phase0 / 2] / 32 == y)
 				k = maxi(k, fr->pres[phase0]);
 
-			bool inloop = ((step - loopstart_step) & 63) < rampreset.looplen_step;
+			bool inloop = ((step - start_step) & 63) < rampreset.seq_len;
 #ifdef NEW_LAYOUT
 			int pA = (fi > 0 && fi < 7) ? (fi - 1) + (y) * 12 : P_LAST;
 #else
@@ -1010,14 +1011,14 @@ bargraph:
 				// show looping region faintly; show current playpos brightly
 				if (inloop)
 					k = maxi(k, loopbright);
-				if (step == loopstart_step && ui_mode == UI_PTN_START)
+				if (step == start_step && ui_mode == UI_PTN_START)
 					k = 255;
-				if (((step + 1) & 63) == ((loopstart_step + rampreset.looplen_step) & 63) && ui_mode == UI_PTN_END)
+				if (((step + 1) & 63) == ((start_step + rampreset.seq_len) & 63) && ui_mode == UI_PTN_END)
 					k = 255;
 				// playhead
-				if (step == cur_step)
+				if (step == cur_seq_step)
 					k = maxi(k, clockglow);
-				if (step == pending_loopstart_step && playing)
+				if (step == cued_ptn_start && seq_playing())
 					k = maxi(k, (clockglow * 4) & 255);
 				break;
 			case UI_LOAD:
@@ -1052,10 +1053,10 @@ bargraph:
 		}
 	}
 	{
-		leds[8][SS_PLAY] = playing ? led_add_gamma(clockglow) : 0;
+		leds[8][SS_PLAY] = seq_playing() ? led_add_gamma(clockglow) : 0;
 		leds[8][SS_LEFT] = (ui_mode == UI_PTN_START) ? 255 : 0;
 		leds[8][SS_RIGHT] = (ui_mode == UI_PTN_END) ? 255 : 0;
-		leds[8][SS_RECORD] = recording ? 255 : 0;
+		leds[8][SS_RECORD] = seq_recording() ? 255 : 0;
 		leds[8][SS_CLEAR] = 0;
 		leds[8][SS_LOAD] = (ui_mode == UI_LOAD) ? 255 : 0;
 		;

@@ -1,8 +1,8 @@
 #pragma once
 #include "utils.h"
 
+#define FLAG_MASK 127
 #define FLAG_SIGNED 128
-#define DIVISIONS_MAX 22
 
 enum EPages {
 	PG_SOUND1,
@@ -144,7 +144,7 @@ enum EParams {
 const static u8 param_flags[P_LAST] = {
 
     [P_PWM] = FLAG_SIGNED,
-    [P_ARPMODE] = 15, // ARP_LAST,
+    [P_ARPMODE] = 15, // NUM_ARP_ORDERS,
     [P_ARPDIV] = FLAG_SIGNED,
     [P_ARPPROB] = 0,
     [P_ARPLEN] = 17 + FLAG_SIGNED,
@@ -162,8 +162,8 @@ const static u8 param_flags[P_LAST] = {
     [P_MIXWETDRY] = FLAG_SIGNED,
     [P_MIXINWETDRY] = FLAG_SIGNED,
 
-    [P_SEQMODE] = 6, // SEQ_LAST,
-    [P_SEQDIV] = DIVISIONS_MAX + 1,
+    [P_SEQMODE] = 6, // NUM_SEQ_ORDERS,
+    [P_SEQDIV] = 23, // NUM_SYNC_DIVS + 1,
     [P_SEQPROB] = FLAG_SIGNED,
     [P_SEQLEN] = 17 + FLAG_SIGNED,
     [P_SEQPAT] = 24,

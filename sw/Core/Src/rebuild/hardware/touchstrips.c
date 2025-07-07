@@ -1,6 +1,7 @@
 #include "touchstrips.h"
 #include "sensor_defs.h"
 #include "synth/sampler.h"
+#include "synth/time.h"
 #include "ui/pad_actions.h"
 #include "ui/shift_states.h"
 #include "ui/ui.h"
@@ -9,7 +10,6 @@
 
 // cleanup
 extern CalibResult calibresults[18];
-extern u32 tick;
 extern u8 copy_request;
 // -- cleanup
 

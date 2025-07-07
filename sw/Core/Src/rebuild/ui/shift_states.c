@@ -4,29 +4,16 @@
 #include "pad_actions.h"
 #include "synth/params.h"
 #include "synth/sampler.h"
+#include "synth/sequencer.h"
 #include "synth/strings.h"
+#include "synth/time.h"
 #include "ui.h"
 
 // all of these need cleaning up
-extern SysParams sysparams;          // system
-extern u32 ramtime[GEN_LAST];        // system
-extern u8 copy_request;              // system
-extern s8 selected_preset_global;    // system
-extern bool got_ui_reset;            // timing
-extern u32 tick;                     // timing
-extern float knobbase[2];            // sequencer
-extern u8 playmode;                  // sequencer
-extern u8 recording_knobs;           // sequencer
-extern s8 cur_step;                  // sequencer
-extern bool recording;               // sequencer
-extern PatternQuarter rampattern[4]; // sequencer
-
-// all sequencer from here
-extern void OnLoop(void);
-extern void seq_step(int initial);
-extern bool isplaying(void);
-extern void set_cur_step(u8 newcurstep, bool triggerit);
-extern void check_curstep(void);
+extern SysParams sysparams;       // system
+extern u32 ramtime[GEN_LAST];     // system
+extern u8 copy_request;           // system
+extern s8 selected_preset_global; // system
 // - all of these need cleaning up
 
 #define SHORT_PRESS_TIME 250 // ms
@@ -41,12 +28,12 @@ static bool param_from_mem = false;
 // we'd prefer not exposing these
 u32 shift_state_frames = 0;
 bool shift_short_pressed(void) {
-	return (shift_state == SS_NONE) || ((tick - shift_last_press_time) < SHORT_PRESS_TIME);
+	return (shift_state == SS_NONE) || ((synth_tick - shift_last_press_time) < SHORT_PRESS_TIME);
 }
 
 void shift_set_state(ShiftState new_state) {
 	shift_state = new_state;
-	shift_last_press_time = tick;
+	shift_last_press_time = synth_tick;
 	shift_state_frames = 0;
 
 	if (ui_mode == UI_SAMPLE_EDIT) {
@@ -127,11 +114,15 @@ void shift_set_state(ShiftState new_state) {
 		selected_preset_global = sysparams.curpreset;
 		break;
 	case SS_LEFT:
-		// activate set pattern start screen
+		// if playing, jump to start of pattern
+		if (seq_playing()) {
+			seq_jump_to_start();
+			// resync if we're using the internal clock
+			if (using_internal_clock)
+				seq_resync();
+		}
+		// edit start of sequencer pattern
 		ui_mode = UI_PTN_START;
-		// this is a timing/sequencer thing, needs to move there
-		if (isplaying())
-			got_ui_reset = true;
 		break;
 	case SS_RIGHT:
 		// activate set pattern end screen
@@ -141,28 +132,16 @@ void shift_set_state(ShiftState new_state) {
 		// pressing Clear stops latched notes playing
 		clear_latch();
 		break;
-	case SS_RECORD:
-		// this belongs in the sequencer
-		// also recording_knobs is currently not implented
-		knobbase[0] = adc_get_smooth(ADC_S_A_KNOB);
-		knobbase[1] = adc_get_smooth(ADC_S_B_KNOB);
-		recording_knobs = 0;
-		break;
 	case SS_PLAY:
-		// this logic should live in the sequencer
-		switch (playmode) {
-		case PLAY_STOPPED:
-			playmode = PLAY_PREVIEW;
-			seq_step(1);
-			break;
-		case PLAYING:
-			playmode = PLAY_WAITING_FOR_CLOCK_STOP;
-			break;
-		case PLAY_WAITING_FOR_CLOCK_STOP:
-			playmode = PLAY_STOPPED;
-			OnLoop();
-			break;
-		}
+		if (seq_flags.stop_at_next_step)
+			// cued to stop? => stop immediately
+			seq_stop();
+		else if (seq_flags.playing)
+			// playing but not cued to stop? => cue to stop
+			seq_cue_to_stop();
+		else
+			// not playing? => initiate preview
+			seq_start_previewing();
 		break;
 	default:
 		break;
@@ -234,67 +213,55 @@ void shift_release_state(void) {
 		break;
 	case SS_LEFT:
 		if (!action_pressed_during_shift && short_press) {
-			// this belongs in sequencer
-			if (!isplaying())
-				set_cur_step(cur_step - 1, !isplaying()); // short left press moves one step back
-			// return to default mode
+			// a short press left only steps left in the sequencer when it's not playing
+			if (!seq_playing()) {
+				seq_dec_step();
+				seq_force_play_step();
+				// resync if we're using the internal clock
+				if (using_internal_clock)
+					seq_resync();
+			}
 			ui_mode = UI_DEFAULT;
 		}
 		if (action_pressed_during_shift || prev_ui_mode == ui_mode)
 			ui_mode = UI_DEFAULT;
 		break;
 	case SS_RIGHT:
+		// short press right steps the sequencer right one step
 		if (!action_pressed_during_shift && short_press) {
-			// this belongs in sequencer
-			set_cur_step(cur_step + 1, !isplaying()); // short right press moves one step forward
-			// return to default mode
+			seq_inc_step();
+			// resync if we're using the internal clock
+			if (using_internal_clock)
+				seq_resync();
+			// sound it out if we're not playing
+			if (!seq_playing())
+				seq_force_play_step();
 			ui_mode = UI_DEFAULT;
 		}
 		if (action_pressed_during_shift || prev_ui_mode == ui_mode)
 			ui_mode = UI_DEFAULT;
 		break;
-	case SS_CLEAR: // belongs in sequencer
-		if (!isplaying() && recording && ui_mode == UI_DEFAULT) {
-			// pressing clear in step-record mode clears sequencer step
-			bool dirty = false;
-			int q = (cur_step >> 4) & 3;
-			FingerRecord* strip_right = &rampattern[q].steps[cur_step & 15][0];
-			for (int fi = 0; fi < 8; ++fi, ++strip_right) {
-				for (int k = 0; k < 8; ++k) {
-					if (strip_right->pres[k] > 0)
-						dirty = true;
-					strip_right->pres[k] = 0;
-					if (fi < 2) {
-						s8* d = &rampattern[q].autoknob[(cur_step & 15) * 8 + k][fi];
-						if (*d) {
-							*d = 0;
-							dirty = true;
-						}
-					}
-				}
-			}
-			if (dirty) // save
-				ramtime[GEN_PAT0 + ((cur_step >> 4) & 3)] = millis();
-			set_cur_step(cur_step + 1, false); // and move next step
+	case SS_CLEAR:
+		// pressing clear in step-record mode clears sequencer step
+		if (ui_mode == UI_DEFAULT && seq_state() == SEQ_STEP_RECORDING) {
+			seq_clear_step();
+			// move to next step after clearing
+			seq_inc_step();
 		}
 		break;
 	case SS_RECORD:
-		// this belongs in sequencer
-		if (short_press && recording_knobs == 0)
-			recording = !recording; // short press toggles recording
-		recording_knobs = 0;
+		if (short_press)
+			seq_toggle_rec();
 		break;
 	case SS_PLAY:
-		// this belongs in sequencer
-		if (playmode == PLAY_PREVIEW)
-			// short pres plays the sequencer, long press is a preview and stops after release
-			playmode = short_press ? PLAYING : PLAY_STOPPED;
+		// - a short press ends previewing and resumes playing normally
+		// - a long press means this is the end of a preview and we should stop playing
+		if (seq_flags.previewing)
+			short_press ? seq_end_previewing() : seq_stop();
 		break;
 	default:
 		break;
 	}
-	// this belongs in sequencer
-	check_curstep();
 
 	// we're no longer in a shift state
 	shift_state = SS_NONE;

@@ -39,10 +39,13 @@ SRCS = \
 	../Core/Src/rebuild/hardware/leds.c \
 	../Core/Src/rebuild/hardware/midi.c \
 	../Core/Src/rebuild/hardware/touchstrips.c \
+	../Core/Src/rebuild/synth/arp.c \
 	../Core/Src/rebuild/synth/audio.c \
 	../Core/Src/rebuild/synth/sampler.c \
+	../Core/Src/rebuild/synth/sequencer.c \
 	../Core/Src/rebuild/synth/strings.c \
 	../Core/Src/rebuild/synth/synth.c \
+	../Core/Src/rebuild/synth/time.c \
 	../Core/Src/rebuild/ui/pad_actions.c \
 	../Core/Src/rebuild/ui/shift_states.c \
 	../Core/Src/rebuild/ui/ui.c \

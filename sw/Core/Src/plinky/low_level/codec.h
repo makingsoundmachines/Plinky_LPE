@@ -1,5 +1,6 @@
 
 
+#include "synth/time.h"
 #include <math.h>
 
 uint8_t wmcodec_write( uint8_t reg, uint16_t data )
@@ -307,8 +308,8 @@ uint8_t wmcodec_write( uint8_t reg, uint16_t data )
 uint8_t wmcodec_write( uint8_t reg, uint16_t data );
 void uitick(u32 *dst, const u32 *src, int half);
 
-static short txbuf[BLOCK_SAMPLES*4];
-static short rxbuf[BLOCK_SAMPLES*4];
+static short txbuf[SAMPLES_PER_TICK*4];
+static short rxbuf[SAMPLES_PER_TICK*4];
 short* getrxbuf(void) { return rxbuf; }
 
 #ifndef EMU
@@ -316,7 +317,7 @@ short* getrxbuf(void) { return rxbuf; }
 
 
 void HAL_SAI_RxCpltCallback (SAI_HandleTypeDef * hi2s) {
-	uitick(((u32*)txbuf)+BLOCK_SAMPLES, ((u32*)rxbuf)+BLOCK_SAMPLES, 1);
+	uitick(((u32*)txbuf)+SAMPLES_PER_TICK, ((u32*)rxbuf)+SAMPLES_PER_TICK, 1);
 }
 void HAL_SAI_RxHalfCpltCallback (SAI_HandleTypeDef * hi2s) {
 	uitick((u32*)txbuf, ((u32*)rxbuf), 0);

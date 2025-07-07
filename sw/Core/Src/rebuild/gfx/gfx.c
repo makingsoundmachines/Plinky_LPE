@@ -429,7 +429,7 @@ void gfx_debug(u8 row, const char* fmt, ...) {
 	static u32 ref_time[2] = {0, 0};
 	row %= 2;
 	// auto-throttle
-	if (do_every(250, &ref_time[row])) {
+	if (do_every(100, &ref_time[row])) {
 		va_list args;
 		va_start(args, fmt);
 		oled_open_debug_buffer(row);

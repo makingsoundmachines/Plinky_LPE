@@ -2,6 +2,7 @@
 #include "synth/params.h"
 #include "synth/pitch_tools.h"
 #include "synth/sampler.h"
+#include "synth/sequencer.h"
 
 // clang-format off
 static inline u8 lfohashi(u16 step) {
@@ -110,7 +111,7 @@ enum {
 // preset version 2: add SAW lfo shape
 #define CUR_PRESET_VERSION 2
 Preset rampreset;
-PatternQuarter rampattern[4];
+PatternQuarter rampattern[NUM_QUARTERS];
 SysParams sysparams;
 u8 ramsample1_idx=255;
 u8 rampreset_idx=255;
@@ -125,8 +126,6 @@ u8 prev_pending_pattern = 255;
 u8 prev_pending_sample1 = 255;
 
 u8 cur_pattern; // this is the current pattern, derived from param, can modulate.
-s8 cur_step = 0; // current step
-s8 step_offset = 0; // derived from param
 u8 copy_request = 255;
 u8 preset_copy_source = 0;
 u8 pattern_copy_source = 0;
@@ -281,7 +280,7 @@ bool CopyPatternToRam(bool force) {
 
 
 u8 next_free_page=0;
-u32 next_seq = 0;
+static u32 next_seq = 0;
 void InitParamsOnBoot(void) {
 	u8 dummypage = 0;
 	memset(latestpagesidx, dummypage, sizeof(latestpagesidx));
@@ -588,7 +587,7 @@ void PumpFlashWrites(void) {
 }
 
 Preset const init_params = {
-	.looplen_step=8,
+	.seq_len=8,
 	.version=CUR_PRESET_VERSION,
 	.params=
 	{
@@ -614,15 +613,15 @@ Preset const init_params = {
 		[P_SMP_TIME] = {HALF},
 		
 
-		//		[P_ARPMODE]={QUANT(ARP_UP,ARP_LAST)},
-				[P_ARPDIV] = {QUANT(2,DIVISIONS_MAX) },
+		//		[P_ARPMODE]={QUANT(ARP_UP,NUM_ARP_ORDERS)},
+				[P_ARPDIV] = {QUANT(2,NUM_SYNC_DIVS) },
 				[P_ARPPROB] = {FULL},
 				[P_ARPLEN] = {QUANT(8,17)},
 				[P_ARPOCT] = {QUANT(0,4)},
 				[P_GLIDE] = {0},
 
-				[P_SEQMODE] = {QUANT(SEQ_FWD,SEQ_LAST)},
-				[P_SEQDIV] = {QUANT(6,DIVISIONS_MAX+1)},
+				[P_SEQMODE] = {QUANT(SEQ_ORD_FWD,NUM_SEQ_ORDERS)},
+				[P_SEQDIV] = {QUANT(6,NUM_SYNC_DIVS+1)},
 				[P_SEQPROB] = {FULL},
 				[P_SEQLEN] = {QUANT(8,17)},
 				[P_SEQPAT] = {QUANT(0,24)},

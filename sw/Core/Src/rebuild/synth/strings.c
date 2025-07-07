@@ -5,24 +5,15 @@
 #include "hardware/midi_defs.h"
 #include "hardware/touchstrips.h"
 #include "pitch_tools.h"
+#include "sequencer.h"
+#include "synth/arp.h"
+#include "synth/sequencer.h"
+#include "synth/time.h"
 #include "ui/pad_actions.h"
 #include "ui/shift_states.h"
 #include "ui/ui.h"
 
-extern bool read_from_seq;
-extern s8 cur_step;
-extern bool recording;
 extern Preset rampreset;
-extern PatternQuarter rampattern[4];
-extern u8 rampattern_idx;
-extern u8 cur_pattern;
-extern u32 ramtime[GEN_LAST];
-extern euclid_state seq_rhythm;
-bool isplaying(void);
-void set_cur_step(u8 newcurstep, bool triggerit);
-int calcseqsubstep(int tick_offset, int maxsubsteps);
-FingerRecord* readpattern(int string_id);
-int param_eval_finger(u8 paramidx, int fingeridx, Touch* f);
 // -- needs cleaning up
 
 // current frame in string_touch
@@ -49,11 +40,6 @@ u8 write_string_touched_copy = 0; // direct copy of the above
 u8 write_string_touched_1back = 0;
 static u8 strings_phys_touched = 0;
 
-// pressure
-static s32 total_string_pressure = 0;
-static s32 total_string_pressure_1back = 0;
-static s32 total_string_pressure_2back = 0;
-
 // midi
 u8 midi_note[NUM_STRINGS];
 static u8 midi_velocity[NUM_STRINGS];
@@ -63,12 +49,6 @@ u8 midi_channel[NUM_STRINGS] = {255, 255, 255, 255, 255, 255, 255, 255};
 u8 midi_pressure_override = 0; // true if midi note is pressed
 u8 midi_pitch_override = 0;    // true if midi note is sounded out, includes release phase
 u8 midi_suppress = 0;          // true if midi is suppressed by touch / latch / seq
-
-// rj: this is a general tool, but it's only used to generate random touch variations from TouchMemCompressed - we might
-// look at saving uncompressed touches, which would make rand_range redundant
-static int rand_range(int mn, int mx) {
-	return mn + (((rand() & 255) * (mx - mn)) >> 8);
-}
 
 // latching
 
@@ -81,18 +61,6 @@ static TouchMemCompressed latch_touch[8];
 
 void clear_latch(void) {
 	memset(latch_touch, 0, sizeof(latch_touch));
-}
-static inline u8 pres_compress(s16 pressure) {
-	return clampi((pressure + 12) / 24, 0, 255);
-}
-static inline u16 pres_decompress(u8 pressure) {
-	return maxi(rand_range(24 * pressure - 12, 24 * pressure + 12), 0);
-}
-static inline u8 pos_compress(u16 position) {
-	return clampi((position + 4) / 8, 0, 255);
-}
-static inline u16 pos_decompress(u8 position) {
-	return maxi(rand_range(8 * position - 4, 8 * position + 4), 0);
 }
 
 // -- latching
@@ -113,18 +81,13 @@ Touch* sorted_string_touch_ptr(u8 string_id) {
 // this combines inputs from touchstrips, latch, arp & sequencer, and saves the resulting Touch in
 // string_touch[string_id]
 static void generate_string_touch(u8 string_id) {
-	static u8 last_edited_step_global = 255;
-	static u8 last_edited_substep_global = 255;
-	static u8 last_edited_step[8] = {255, 255, 255, 255, 255, 255, 255, 255};
-	static int record_to_substep;
 	static bool suppress_latch = false;
 	// helpers
 	u8 mask = 1 << string_id;
 	bool is_read = touch_read_this_frame(string_id);
 	s16 pres_2back =
 	    get_touch_prev(string_id, is_read ? 2 : 3)->pres; // this is because we only update every other frame?
-	u8 sub_step = calcseqsubstep(0, 8);
-	bool pres_increasing;
+	bool pres_increasing = false;
 	// fundamental
 	Touch* touch = get_touch_prev(string_id, is_read ? 0 : 1); // the touch we're processing
 	Touch* s_touch =
@@ -158,7 +121,7 @@ static void generate_string_touch(u8 string_id) {
 				}
 				// in step record mode, trying to start a new latch temporarily turns off latching
 				// trying to start a new latch outside of step record mode turns it on again
-				suppress_latch = recording && !isplaying();
+				suppress_latch = seq_state() == SEQ_STEP_RECORDING;
 			}
 			// save latch values
 			if (!suppress_latch) {
@@ -210,99 +173,12 @@ static void generate_string_touch(u8 string_id) {
 		// position = rand_range(avgpos-range,avgpos+range);
 	}
 
-	// === SEQ RECORDING === //
+	// record touch to sequencer
+	seq_try_rec_touch(string_id, pressure, position, pres_increasing);
 
-	// RJ: because of the way data is stored in the sequencer, it is currently not possible to record
-	// midi data into it without imposing some serious restrictions on the range of midi notes that
-	// can be played. So we're only doing this for touches for now
-
-	u8 seq_quarter = (cur_step >> 4) & 3;
-	FingerRecord* seq_record = &rampattern[seq_quarter].steps[cur_step & 15][string_id];
-	bool data_saved = false;
-	// We're recording into the loaded pattern
-	if (recording && rampattern_idx == cur_pattern) {
-		// holding clear sets the pressure to zero, which will effectively clear the sequencer at this point
-		u8 seq_pres = shift_state == SS_CLEAR ? 0 : pres_compress(pressure);
-		u8 seq_pos = shift_state == SS_CLEAR ? 0 : pos_compress(position);
-
-		// holding a note or clearing during playback
-		if ((seq_pres > 0 && pres_increasing) || shift_state == SS_CLEAR) {
-			// live recording
-			if (isplaying()) {
-				record_to_substep = sub_step;
-			}
-			// step recording
-			else {
-				// editing a new step, and waited for sub_step to reset to zero
-				if (cur_step != last_edited_step_global && sub_step == 0) {
-					// we have not edited any sub_step
-					last_edited_substep_global = 255;
-					// we have not edited this step for any finger
-					memset(last_edited_step, 255, sizeof(last_edited_step));
-					// start at sub_step 0
-					record_to_substep = 0;
-					// this skips the first increment of record_to_substep, right below
-					last_edited_substep_global = 0;
-					// we're now editing the current step
-					last_edited_step_global = cur_step;
-				}
-				// editing a new sub_step
-				if (sub_step != last_edited_substep_global) {
-					// are we in the step?
-					if (record_to_substep < 8) {
-						// move one sub_step forward
-						record_to_substep++;
-					}
-					// are we at the end of the step?
-					else {
-						// push all data one sub_step backward
-						for (u8 i = 0; i < 7; i++) {
-							seq_record->pres[i] = seq_record->pres[i + 1];
-							if (!(sub_step & 1) && !(i & 1))
-								seq_record->pos[i / 2] = seq_record->pos[i / 2 + 1];
-						}
-					}
-					last_edited_substep_global = sub_step;
-				}
-				// first finger edit on this step
-				if (cur_step != last_edited_step[string_id]) {
-					// clear the step for this finger
-					memset(seq_record->pres, 0, sizeof(seq_record->pres));
-					memset(seq_record->pos, 0, sizeof(seq_record->pos));
-					// we're now editing this step with this finger
-					last_edited_step[string_id] = cur_step;
-				}
-			}
-			// record!
-			seq_record->pres[mini(record_to_substep, 7)] = seq_pres;
-			seq_record->pos[mini(record_to_substep, 7) / 2] = seq_pos;
-			data_saved = true;
-		}
-		if (data_saved)
-			ramtime[GEN_PAT0 + seq_quarter] = millis();
-	}
-	// not recording
-	else {
-		// clear this for next recording
-		last_edited_step_global = 255;
-	}
-
-	// === SEQ PLAYING === //
-
-	// no pressure generated by touch or latch and sequencer wants to play
-	if (pressure <= 0 && (isplaying() || seq_rhythm.did_a_retrig)) {
-		FingerRecord* seq_record = readpattern(string_id);
-		if (seq_record) {
-			int gatelen = param_eval_finger(P_GATE_LENGTH, string_id, s_touch) >> 8;
-			int small_substep = calcseqsubstep(0, 256);
-			if (seq_record->pres[sub_step] && !seq_rhythm.supress && small_substep <= gatelen
-			    && shift_state != SS_CLEAR) {
-				read_from_seq = true;
-				pressure = pres_decompress(seq_record->pres[sub_step]);
-				position = pos_decompress(seq_record->pos[sub_step / 2]);
-			}
-		}
-	}
+	// retrieve touch from sequencer
+	if (pressure <= 0)
+		seq_try_get_touch(string_id, s_touch, &pressure, &position);
 
 	// === MIDI INPUT === //
 
@@ -329,31 +205,23 @@ static void generate_string_touch(u8 string_id) {
 
 	// === FINISHING UP === //
 
-	// save input results to global variables to be used by other code
-	s_touch->pres = pressure;
-	s_touch->pos = position;
-	total_string_pressure += maxi(0, s_touch->pres);
-	if (s_touch->pres > 0) {
-		write_string_touched |= mask;
-	}
-	else {
-		write_string_touched &= ~mask;
-	}
-
-	// new finger touch, slightly randomize touch-values in history to avoid static touch values
-	static s16 pres_1back[8];
+	// new finger touch => fill (non-pressed) history with slightly randomized variant of current position
+	static s16 pres_1back[NUM_STRINGS];
 	if (pres_1back[string_id] <= 0 && s_touch->pres > 0) {
 		Touch* st = string_touch[string_id];
-		int new_pres = s_touch->pos;
-		for (int h = 0; h < 8; ++h, st++) {
-			if (h != strings_write_frame) {
-				if (st->pres <= 0) {
-					st->pos = (st->pos & 3) ^ new_pres;
-				}
-			}
-		}
+		for (u8 string_id = 0; string_id < NUM_STRINGS; ++string_id, st++)
+			if (string_id != strings_write_frame && st->pres <= 0)
+				st->pos = position ^ (st->pos & 3);
 	}
 	pres_1back[string_id] = s_touch->pres;
+
+	// save resulting touch to main array
+	s_touch->pres = pressure;
+	s_touch->pos = position;
+	if (s_touch->pres > 0)
+		write_string_touched |= mask;
+	else
+		write_string_touched &= ~mask;
 
 	// sort string's frames by position
 	sort8((int*)string_touch_sorted[string_id], (int*)string_touch[string_id]);
@@ -362,26 +230,25 @@ static void generate_string_touch(u8 string_id) {
 // manage generating the string_touch array
 void generate_string_touches(void) {
 	static bool do_second_half = false;
+	static u8 strings_phys_touch_1back = 0;
 
-	// start of a full update of all strings
-	if (!do_second_half) {
-		total_string_pressure = 0;
-		read_from_seq = false;
-	}
 	// update half of the strings (0 - 3 / 4 - 7)
 	for (u8 string_id = 0; string_id < NUM_STRINGS / 2; ++string_id)
 		generate_string_touch(string_id + do_second_half * NUM_STRINGS / 2);
 	// end of a full update of all strings
 	if (do_second_half) {
-		// you've released your fingers, you're recording in step mode - let's advance!
-		if (total_string_pressure <= 0 && total_string_pressure_1back <= 0 && total_string_pressure_2back > 0
-		    && recording && !isplaying()) {
-			// this probably belongs in sequencer
-			set_cur_step(cur_step + 1, false);
+		// lift the last finger in step record mode: auto-step forward
+		if (seq_state() == SEQ_STEP_RECORDING && !strings_phys_touched && strings_phys_touch_1back)
+			seq_inc_step();
+		strings_phys_touch_1back = strings_phys_touched;
+
+		// new (virtual) touch: restart arp
+		if (arp_order != ARP_NONE && write_string_touched_copy && !write_string_touched_1back) {
+			arp_reset();
+			// if the sequencer is not playing, resync the clock so the arp gets a trigger immediately
+			if (!seq_playing())
+				clock_resync();
 		}
-		// backup two frames of total pressure
-		total_string_pressure_2back = total_string_pressure_1back;
-		total_string_pressure_1back = total_string_pressure;
 
 		// processing the strings happens at a significantly higher framerate than reading out the touchstrips
 		// u8 touch_frame tracks which frame in the touches array is currently being written to

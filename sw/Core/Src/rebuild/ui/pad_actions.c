@@ -3,6 +3,7 @@
 #include "hardware/touchstrips.h"
 #include "shift_states.h"
 #include "synth/sampler.h"
+#include "synth/time.h"
 #include "ui.h"
 
 // needs cleaning up
@@ -10,7 +11,6 @@
 // system
 extern u32 ramtime[GEN_LAST];
 extern Preset rampreset;
-extern u32 tick;
 extern SysParams sysparams;
 extern s8 selected_preset_global; // system
 void SetPreset(u8 preset, bool force);
@@ -19,16 +19,6 @@ void SetPreset(u8 preset, bool force);
 void ShowMessage(Font fnt, const char* msg, const char* submsg);
 // memory
 SampleInfo* GetSavedSampleInfo(u8 sample0);
-// time
-extern int tap_count;
-extern s32 bpm10x;
-// sequencer
-extern u8 pending_loopstart_step;
-extern s8 cur_step;
-extern u8 cur_pattern;
-extern s8 step_offset;
-bool isplaying(void);
-void set_cur_step(u8 newcurstep, bool triggerit);
 // parameters
 extern u8 copy_request;
 extern u8 preset_copy_source;
@@ -40,6 +30,7 @@ extern u8 pending_sample1;
 extern u8 prev_pending_preset;
 extern u8 prev_pending_pattern;
 extern u8 prev_pending_sample1;
+extern u8 cur_pattern;
 int GetParam(u8 paramidx, u8 mod);
 void EditParamQuant(u8 paramidx, u8 mod, s16 data);
 void EditParamNoQuant(u8 paramidx, u8 mod, s16 data);
@@ -117,7 +108,7 @@ void handle_pad_actions(u8 strip_id, Touch* strip_cur) {
 				s8 load_section = get_load_section(long_press_pad);
 				switch (load_section) {
 				case 0: // presets
-					if (pending_preset == prev_pending_preset || !isplaying()) {
+					if (pending_preset == prev_pending_preset || !seq_playing()) {
 						if (pending_preset != 255) {
 							SetPreset(pending_preset, false);
 							pending_preset = 255;
@@ -125,7 +116,7 @@ void handle_pad_actions(u8 strip_id, Touch* strip_cur) {
 					}
 					break;
 				case 1: // patterns
-					if (pending_pattern == prev_pending_pattern || !isplaying()) {
+					if (pending_pattern == prev_pending_pattern || !seq_playing()) {
 						if (pending_pattern != 255) {
 							EditParamQuant(P_SEQPAT, M_BASE, pending_pattern);
 							pending_pattern = 255;
@@ -133,7 +124,7 @@ void handle_pad_actions(u8 strip_id, Touch* strip_cur) {
 					}
 					break;
 				case 2: // samples
-					if (pending_sample1 == prev_pending_sample1 || !isplaying()) {
+					if (pending_sample1 == prev_pending_sample1 || !seq_playing()) {
 						if (pending_sample1 != 255) {
 							EditParamQuant(P_SAMPLE, M_BASE, pending_sample1);
 							pending_sample1 = 255;
@@ -149,11 +140,6 @@ void handle_pad_actions(u8 strip_id, Touch* strip_cur) {
 
 	if ((strip_is_action_pressed & strip_mask) && (strip_holds_valid_action & strip_mask)) {
 		action_pressed_during_shift = true;
-
-		// these belong in sequencer
-		u8 ptn_step = pad_y * 8 + strip_id;
-		u8 ptn_start_step = (rampreset.loopstart_step_no_offset + step_offset) & 63;
-
 		switch (ui_mode) {
 		case UI_DEFAULT:
 		case UI_EDITING_A:
@@ -172,28 +158,16 @@ void handle_pad_actions(u8 strip_id, Touch* strip_cur) {
 
 				// parameters that do something the moment they are pressed
 				if (is_press_start) {
-					// fake the arp and latch toggles
-					if (selected_param == P_ARPONOFF)
+					switch (selected_param) {
+					case P_ARPONOFF:
 						toggle_arp();
-					else if (selected_param == P_LATCHONOFF)
+						break;
+					case P_LATCHONOFF:
 						toggle_latch();
-
-					// tap tempo! (this should live in time module)
-					if (selected_param == P_TEMPO) {
-						static u32 start_tap;
-						static u32 last_tap;
-						if (tick - last_tap > 1000) // tap tempo can't be slower than 1 sec beats
-							tap_count = 0;
-						if (!tap_count)
-							start_tap = tick;
-						last_tap = tick;
-						tap_count++;
-						if (tap_count > 1) {
-							float taps_per_minute =
-							    (32000.f * (tap_count - 1) * 60.f) / ((tick - start_tap) * BLOCK_SAMPLES);
-							bpm10x = clampi((int)(taps_per_minute * 10.f + 0.5f), 300, 2400);
-							EditParamNoQuant(P_TEMPO, 0, ((bpm10x - 1200) * FULL) / 1200);
-						}
+						break;
+					case P_TEMPO:
+						trigger_tap_tempo();
+						break;
 					}
 				}
 			}
@@ -262,42 +236,13 @@ void handle_pad_actions(u8 strip_id, Touch* strip_cur) {
 			if (sampler_mode == SM_RECORDING && long_press_frames > 32)
 				try_stop_recording_sample();
 			break;
-		case UI_PTN_START: // (this should live in sequencer)
-			// press inside of the pattern
-			if (((ptn_step - ptn_start_step) & 63) < rampreset.looplen_step) {
-				// set current pattern step to pressed step
-				if (is_press_start)
-					set_cur_step(ptn_step, false);
-			}
-			// press outside of the pattern
-			else {
-				// we were about to move to this step or we're not playing: set loop start and move step immediately
-				if ((is_press_start && pending_loopstart_step == ptn_step) || !isplaying()) {
-					if (ptn_start_step != ptn_step) {
-						u8 newstep = cur_step - ptn_start_step + ptn_step; // move curstep into new loop
-						ptn_start_step = ptn_step;
-						rampreset.loopstart_step_no_offset = (ptn_step - step_offset) & 63;
-						ramtime[GEN_PRESET] = millis();
-						set_cur_step(newstep, false); // reset our cur ptn_step, based on the new loop
-					}
-					pending_loopstart_step = 255;
-				}
-				// otherwise, tell sequencer to set the first step on the next end-of-step
-				else
-					pending_loopstart_step = ptn_step;
-			}
+		case UI_PTN_START:
+			if (is_press_start)
+				seq_try_set_start(pad_y * 8 + strip_id);
 			break;
-		case UI_PTN_END: // (this should live in sequencer)
-			// set the end of the loop (always immediately)
-			{
-				u8 prev_step = rampreset.looplen_step;
-				rampreset.looplen_step = (ptn_step - ptn_start_step) + 1;
-				if (rampreset.looplen_step <= 0)
-					rampreset.looplen_step += 64;
-				if (rampreset.looplen_step != prev_step)
-					ramtime[GEN_PRESET] = millis(); // only write if changed
-				set_cur_step(cur_step, false);      // reset our cur ptn_step, based on the new loop
-			}
+		case UI_PTN_END:
+			if (is_press_start)
+				seq_set_end(pad_y * 8 + strip_id);
 			break;
 		case UI_LOAD: { // belongs in load/save module
 			selected_preset_global = pad_id;
