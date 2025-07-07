@@ -1,6 +1,7 @@
 #pragma once
 #include "data/tables.h"
 #include "gfx/gfx.h"
+#include "synth/params.h"
 #ifdef DEBUG
 // #define DEBUG_WU
 #endif

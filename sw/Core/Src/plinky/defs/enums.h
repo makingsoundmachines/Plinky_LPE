@@ -1,8 +1,5 @@
 #pragma once
 
-#include "gfx/data/icons.h"
-#include "hardware/cv.h"
-#include "synth/params.h"
 // clang-format off
 
 enum ECats {
@@ -32,23 +29,4 @@ const char* const kpresetcats[CAT_LAST] = {
 "Weird",
 };
 
-enum ELFOShape {
-	LFO_TRI, LFO_SIN, LFO_SMOOTHNOISE, LFO_STEPNOISE, LFO_BISQUARE, LFO_SQUARE, LFO_SANDCASTLE, LFO_SAW, LFO_BITRIGS, LFO_TRIGS, LFO_ENV, LFO_LAST,
-};
-
-const char* const lfonames[LFO_LAST] = {
-		[LFO_TRI] = "Triangle",[LFO_SIN] = "Sine",[LFO_SMOOTHNOISE] = "SmthRnd",
-		[LFO_STEPNOISE] = "StepRnd",[LFO_BISQUARE] = "BiSquare",
-		[LFO_SQUARE] = "Square",[LFO_SANDCASTLE] = "Castle",
-		[LFO_BITRIGS] = "BiTrigs",[LFO_TRIGS] = "Trigs",
-		[LFO_ENV] = "Env", [LFO_SAW] = "Saw"
-};
-
-const char* const cvquantnames[CVQ_LAST] = {
-	[CVQ_OFF] = "Off",
-	[CVQ_ON] = "On",
-	[CVQ_SCALE] = "Scale",
-};
-
-//static const char* const divisornames[6] = { "32nd","16th","8th", "quarter", "half","whole" };
 

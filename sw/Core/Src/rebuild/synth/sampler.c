@@ -17,11 +17,9 @@ extern u8 pending_sample1;
 
 extern u8 ramsample1_idx;
 
-int param_eval_finger(u8 paramidx, int voice_id, Touch* f);
 int spi_readgrain_dma(int gi);
 void reverb_clear(void);
 void delay_clear(void);
-void EditParamQuant(u8 paramidx, u8 mod, s16 data);
 SampleInfo* GetSavedSampleInfo(u8 sample0);
 bool CopySampleToRam(bool force);
 // -- cleanup
@@ -61,7 +59,7 @@ int using_sampler(void) {
 
 void open_sampler(u8 with_sample_id) {
 	edit_sample_id0 = with_sample_id;
-	EditParamQuant(P_SAMPLE, 0, edit_sample_id0 + 1);
+	save_param(P_SAMPLE, SRC_BASE, edit_sample_id0 + 1);
 	memcpy(&cur_sample_info, GetSavedSampleInfo(edit_sample_id0), sizeof(SampleInfo));
 	ramsample1_idx = cur_sample_id1 = edit_sample_id0 + 1;
 	pending_sample1 = 255;
@@ -111,8 +109,7 @@ void handle_sampler_audio(u32* dst, u32* audioin) {
 	}
 }
 
-void apply_sample_lpg_noise(u8 voice_id, Voice* voice, Touch* s_touch, float goal_lpg, float noise_diff, float drive,
-                            u32* dst) {
+void apply_sample_lpg_noise(u8 voice_id, Voice* voice, float goal_lpg, float noise_diff, float drive, u32* dst) {
 	// sampler parameters
 	float timestretch = 1.f;
 	float posjit = 0.f;
@@ -122,18 +119,19 @@ void apply_sample_lpg_noise(u8 voice_id, Voice* voice, Touch* s_touch, float goa
 	float gratejit = 0.f;
 	int smppos = 0;
 	if (ui_mode != UI_SAMPLE_EDIT) {
-		timestretch = param_eval_finger(P_SMP_TIME, voice_id, s_touch) * (2.f / 65536.f);
-		gsize = param_eval_finger(P_SMP_GRAINSIZE, voice_id, s_touch) * (1.414f / 65536.f);
-		grate = param_eval_finger(P_SMP_RATE, voice_id, s_touch) * (2.f / 65536.f);
-		smppos = (param_eval_finger(P_SMP_POS, voice_id, s_touch) * cur_sample_info.samplelen) >> 16;
-		posjit = param_eval_finger(P_JIT_POS, voice_id, s_touch) * (1.f / 65536.f);
-		sizejit = param_eval_finger(P_JIT_GRAINSIZE, voice_id, s_touch) * (1.f / 65536.f);
-		gratejit = param_eval_finger(P_JIT_RATE, voice_id, s_touch) * (1.f / 65536.f);
+		timestretch = param_val_poly(P_SMP_STRETCH, voice_id) * (2.f / 65536.f);
+		gsize = param_val_poly(P_SMP_GRAINSIZE, voice_id) * (1.414f / 65536.f);
+		grate = param_val_poly(P_SMP_SPEED, voice_id) * (2.f / 65536.f);
+		smppos = (param_val_poly(P_SMP_SCRUB, voice_id) * cur_sample_info.samplelen) >> 16;
+		posjit = param_val_poly(P_SMP_SCRUB_JIT, voice_id) * (1.f / 65536.f);
+		sizejit = param_val_poly(P_SMP_GRAINSIZE_JIT, voice_id) * (1.f / 65536.f);
+		gratejit = param_val_poly(P_SMP_SPEED_JIT, voice_id) * (1.f / 65536.f);
 	}
 	int trig = string_touch_start & (1 << voice_id);
 
 	int prevsliceidx = voice->slice_id;
 	bool gp = ui_mode == UI_SAMPLE_EDIT;
+	u16 touch_pos = get_string_touch(voice_id)->pos;
 
 	// decide on the sample for the NEXT frame
 	if (trig) { // on trigger frames, we FADE out the old grains! then the next dma fetch will be the new sample and
@@ -164,13 +162,13 @@ void apply_sample_lpg_noise(u8 voice_id, Voice* voice, Touch* s_touch, float goa
 		}
 		else {
 			voice->slice_id = voice_id;
-			ypos = (s_touch->pos / 256);
+			ypos = (touch_pos / 256);
 			if (gp)
 				ypos = 0;
 			if (grate < 0.f)
 				ypos++;
 		}
-		voice->touch_pos_start = gp ? 128 : s_touch->pos;
+		voice->touch_pos_start = gp ? 128 : touch_pos;
 		// calculate playhead position
 		int pos16 = clampi(((voice->slice_id * 8) + ypos) << 10, 0, 65535);
 		int i = pos16 >> 13;
@@ -208,7 +206,7 @@ void apply_sample_lpg_noise(u8 voice_id, Voice* voice, Touch* s_touch, float goa
 
 		float gdeadzone = clampf(minf(1.f - posjit, timestretch * 2.f), 0.f,
 		                         1.f); // if playing back normally and not jittering, add a deadzone
-		float fpos = deadzone(s_touch->pos - voice->touch_pos_start, gdeadzone * 32.f);
+		float fpos = deadzone(touch_pos - voice->touch_pos_start, gdeadzone * 32.f);
 		if (gp)
 			fpos = 0.f;
 		smooth_value(&voice->touch_pos, fpos, 2048.f);

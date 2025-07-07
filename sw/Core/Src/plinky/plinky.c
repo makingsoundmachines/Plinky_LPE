@@ -82,7 +82,8 @@ TickCounter _tc_touch;
 TickCounter _tc_led;
 TickCounter _tc_filter;
 
-// u8 ui_edit_param_prev[2][4] = { {P_LAST,P_LAST,P_LAST,P_LAST},{P_LAST,P_LAST,P_LAST,P_LAST} }; // push to front
+// u8 ui_edit_param_prev[2][4] = {
+// {NUM_PARAMS,NUM_PARAMS,NUM_PARAMS,NUM_PARAMS},{NUM_PARAMS,NUM_PARAMS,NUM_PARAMS,NUM_PARAMS} }; // push to front
 // history
 static float surf[2][8][8];
 
@@ -127,201 +128,10 @@ u32 scope[128];
 #include "utils/params.h"
 #include "touch.h"
 #include "calib.h"
-#include "edit.h"
 
 #include "../webusb.h"
 
 // clang-format on
-
-float param_eval_float(u8 paramidx, int rnd, int env16, int pressure16) {
-	return param_eval_int(paramidx, rnd, env16, pressure16) * (1.f / 65536.f);
-}
-
-int param_eval_finger(u8 paramidx, int fingeridx, Touch* f) {
-	return param_eval_int(paramidx, finger_rnd[fingeridx], voices[fingeridx].env2_lvl16, f->pres * 32);
-}
-
-extern int16_t accel_raw[3];
-extern float accel_lpf[2];
-extern float accel_smooth[2];
-s16 accel_sens = 0;
-
-void update_params(int fingertrig, int fingerdown) {
-
-	// update envelopes
-#ifdef NEW_LAYOUT
-	param_eval_premod(P_ENV_LEVEL);
-	param_eval_premod(P_A2);
-	param_eval_premod(P_D2);
-	param_eval_premod(P_S2);
-	param_eval_premod(P_R2);
-#else
-	param_eval_premod(P_ENV_RATE);
-	param_eval_premod(P_ENV_WARP);
-	param_eval_premod(P_ENV_LEVEL);
-	param_eval_premod(P_ENV_REPEAT);
-#endif
-	for (int vi = 0; vi < 8; ++vi) {
-		int bit = 1 << vi;
-		Voice* v = &voices[vi];
-		Touch* f = get_string_touch(vi);
-#ifdef NEW_LAYOUT
-		if (fingertrig & bit) {
-			v->env2_lvl = 0.f;
-			v->env2_decaying = false;
-		}
-		int down = (fingerdown & bit);
-		float target =
-		    down ? (v->env2_decaying) ? 2.f * (param_eval_finger(P_S2, vi, f) * (1.f / 65536.f)) : 2.2f : 0.f;
-		float dlevel = target - v->env2_lvl;
-		float k = lpf_k(param_eval_finger((dlevel > 0.f) ? P_A2 : (v->env2_decaying && down) ? P_D2 : P_R2, vi, f));
-		// update v->env2_lvl
-		v->env2_lvl += (target - v->env2_lvl) * k;
-		if (v->env2_lvl >= 2.f && down)
-			v->env2_decaying = true;
-		v->env2_lvl16 = SATURATE17(v->env2_lvl * param_eval_finger(P_ENV_LEVEL, vi, f));
-#else
-		if (fingertrig & bit) {
-			v->env_phase = (uint64_t)(65536.f * 65536.f * 2.f * (0.5f - 0.4999f));
-			v->env2_lvl = 2.f; // so that it clips!
-		}
-		int lfofreq = param_eval_finger(P_ENV_RATE, vi, f);
-		u32 dlfo = (u32)(table_interp(pitches, 32768 + (lfofreq >> 1)) * (1 << 24));
-		float lfowarp = param_eval_finger(P_ENV_WARP, vi, f) * (0.4999f / 65536.f) + 0.5f;
-		u32 prev_cycle = v->env_phase >> 32;
-		float lfoval = lfo_eval((u32)((v->env_phase) >> 16), lfowarp, LFO_ENV);
-		v->env_phase += dlfo;
-		u32 cur_cycle = v->env_phase >> 32;
-		if (cur_cycle != prev_cycle)
-			v->env2_lvl *= param_eval_finger(P_ENV_REPEAT, vi, f) * (1.f / 65536.f);
-		lfoval *= v->env2_lvl;
-		lfoval *= param_eval_finger(P_ENV_LEVEL, vi, f);
-		v->env2_lvl16 = SATURATE17((int)lfoval);
-#endif
-	}
-	// update average tilt + pressure
-	int totw = 256;
-	int tottilt = tilt16 * 256;
-	int maxp = 0;
-	int maxenv = 0;
-	for (int fi = 0; fi < 8; ++fi) {
-		Touch* f = get_string_touch(fi);
-		int p = f->pres;
-		if (p < 0)
-			p = 0;
-		totw += p;
-		maxp = maxi(maxp, p);
-		maxenv = maxf(maxenv, voices[fi].env2_lvl16);
-		tottilt += index_to_tilt16(fi) * p;
-		if (fingertrig & (1 << fi)) {
-			finger_rnd[fi] += 4813;
-		}
-	}
-	if (fingertrig)
-		any_rnd += 4813;
-	tilt16 = tottilt / totw;
-	env16 = maxenv;
-	pressure16 = maxp * (65536 / 2048);
-
-	//	accelerometer
-	static int accel_counter;
-	float accel_sens_f = (2.f / 16384.f / 32768.f) * abs(accel_sens);
-	accel_counter++;
-	int axisswap = accel_raw[2] > 4000; // run 2 plinkys have the accelerometer rotated 90 degrees and upside down from
-	                                    // the addon... detect it via z direction
-	for (int j = 0; j < 2; ++j) {
-		float f = accel_raw[j ^ axisswap] * accel_sens_f;
-		if (!j) {
-			if (!axisswap)
-				f = -f; // reverse x
-		}
-		else if (accel_sens < 0)
-			f = -f; // reverse y if accel sens negative
-		accel_lpf[j] += (f - accel_lpf[j]) * 0.0001f;
-		accel_smooth[j] += (f - accel_smooth[j]) * 0.1f;
-		if (accel_counter < 1000)
-			accel_lpf[j] = accel_smooth[j] = f;
-	}
-
-	adc_smooth_values();
-
-	u8 prevlfohp = (lfo_history_pos >> 4) & 15;
-	lfo_history_pos++;
-	u8 lfohp = (lfo_history_pos >> 4) & 15;
-	if (lfohp != prevlfohp)
-		lfo_history[lfohp][0] = lfo_history[lfohp][1] = lfo_history[lfohp][2] = lfo_history[lfohp][3] = 0;
-	// compute new mod_cur for each mod source
-	int phase0 = seq_substep(65536);
-	int phase1 = phase0 + (65536 / 8);
-	int nextstep = cur_seq_step;
-	if (phase1 >= 65536) {
-		phase1 &= 65535;
-		nextstep++;
-		if (nextstep >= cur_seq_start + rampreset.seq_len)
-			nextstep -= rampreset.seq_len;
-		nextstep &= 63;
-	}
-	int q1 = (cur_seq_step >> 4) & 3;
-	int q2 = (nextstep >> 4) & 3;
-	s8* autoknob1 = rampattern[q1].autoknob[(cur_seq_step & 15) * 8 + (phase0 >> 13)];
-	s8* autoknob2 = rampattern[q2].autoknob[(nextstep & 15) * 8 + (phase1 >> 13)];
-	float autoknobinterp = (phase0 & (65536 / 8 - 1)) * (1.f / (65536 / 8));
-
-	// ABXY mod source stuff
-	for (int i = 0; i < 4; ++i) {      // four mod sources
-		float adc = adc_get_smooth(i); // CV A, B, X, Y
-		float adcknob = 0.f;
-		if (i < 2) { // knob A and B
-			adcknob = adc_get_smooth(ADC_S_A_KNOB + i);
-			if (!(recording_knobs & (1 << i))) // recording knob stuff (not implemented)
-				adcknob += (autoknob1[i] + (autoknob2[i] - autoknob1[i]) * autoknobinterp) * (1.f / 127.f);
-		}
-		else // accel values
-			adcknob = accel_smooth[i - 2] - accel_lpf[i - 2];
-
-		int i6 = i * 6;                            // page offset
-		mod_cur[M_A + i] = (int)((adc) * 65536.f); // modulate yourself with the raw input!
-		param_eval_premod(P_AFREQ + i6);           // apply A / B / X / Y modulation to mod params
-		param_eval_premod(P_AWARP + i6);
-		param_eval_premod(P_ASHAPE + i6);
-		param_eval_premod(P_ADEPTH + i6);
-		param_eval_premod(P_AOFFSET + i6);
-		param_eval_premod(P_ASCALE + i6);
-
-		int lfofreq = param_eval_int(P_AFREQ + i6, any_rnd, env16, pressure16);
-		u32 dlfo = (u32)(table_interp(pitches, 32768 + (lfofreq >> 1)) * (1 << 24));
-		float lfowarp = param_eval_float(P_AWARP + i6, any_rnd, env16, pressure16) * 0.49f + 0.5f;
-		int lfoshape = param_eval_int(P_ASHAPE + i6, any_rnd, env16, pressure16);
-		float lfoval = lfo_eval((u32)((lfo_pos[i] += dlfo) >> 16), lfowarp, lfoshape);
-
-		lfoval *= param_eval_float(P_ADEPTH + i6, any_rnd, env16, pressure16);
-
-		int cvval = param_eval_int(P_AOFFSET + i6, any_rnd, env16, pressure16);
-		cvval += (int)(adc * (param_eval_int(P_ASCALE + i6, any_rnd, env16, pressure16) << 1));
-		cvval += (int)(adcknob * 65536.f); // knob is not scaled by the cv bias/scale parameters. I think thats useful.
-		mod_cur[M_A + i] = ((int)(lfoval * 65536.f)) + cvval; // the four mod source values
-
-		// map for expander
-		float expander_val = mod_cur[M_A + i] * (EXPANDER_GAIN * EXPANDER_RANGE / 65536.f);
-		expander_out[i] = clampi(EXPANDER_ZERO - (int)(expander_val), 0, EXPANDER_MAX);
-
-		// save for displaying on oled
-		int scopey = (-(mod_cur[M_A + i] * 7 + (1 << 16)) >> 17) + 4;
-		if (scopey >= 0 && scopey < 8)
-			lfo_history[lfohp][i] |= 1 << scopey;
-	}
-
-	for (int i = 0; i < P_LAST; ++i) {
-		int pg = i / 6;
-		if (pg == PG_A || pg == PG_B || pg == PG_X || pg == PG_Y) {
-			i += 5;
-			continue;
-		}
-		param_eval_premod(i);
-	}
-
-	accel_sens = clampi(param_eval_int(P_ACCEL_SENS, any_rnd, env16, pressure16) / 2, -32767, 32767);
-}
 
 static inline void putscopepixel(unsigned int x, unsigned int y) {
 	if (y >= 32)
@@ -506,8 +316,6 @@ s16 MONOSIGMOID(int in) {
 	return sigmoid[(u16)in];
 }
 
-void update_params(int fingertrig, int fingerdown);
-
 #ifdef EMU
 float powerout; // squared power
 float gainhistoryrms[512];
@@ -634,11 +442,11 @@ void DoAudio(u32* dst, u32* audioin) {
 
 	arp_tick();
 
-	update_params(string_touch_start, string_touched);
+	params_tick();
 
 	// memory stuff
-	cur_sample_id1 = param_eval_int(P_SAMPLE, any_rnd, env16, pressure16);
-	cur_pattern = param_eval_int(P_SEQPAT, any_rnd, env16, pressure16);
+	cur_sample_id1 = param_val(P_SAMPLE);
+	cur_pattern = param_val(P_PATTERN);
 	CopySampleToRam(false);
 	CopyPatternToRam(false);
 
@@ -659,9 +467,9 @@ void DoAudio(u32* dst, u32* audioin) {
 
 	static u16 delaypos = 0;
 	static u32 wetlr;
-	const float k_target_fb = param_eval_float(P_DLFB, any_rnd, env16, pressure16) * (0.35f); // 3/4
+	const float k_target_fb = param_val_float(P_DLY_FEEDBACK) * (0.35f); // 3/4
 	static float k_fb = 0.f;
-	int k_target_delaytime = param_eval_int(P_DLTIME, any_rnd, env16, pressure16);
+	int k_target_delaytime = param_val(P_DLY_TIME);
 	if (k_target_delaytime > 0) {
 		// free timing
 		k_target_delaytime = (((k_target_delaytime + 255) >> 8) * k_target_delaytime) >> 8;
@@ -677,13 +485,13 @@ void DoAudio(u32* dst, u32* audioin) {
 		k_target_delaytime = (max_delay * k_target_delaytime) >> 5;
 	}
 	k_target_delaytime = clampi(k_target_delaytime, SAMPLES_PER_TICK, DLMASK - 64) << 12;
-	int k_delaysend = (param_eval_int(P_DLSEND, any_rnd, env16, pressure16) >> 9);
+	int k_delaysend = (param_val(P_DLY_SEND) >> 9);
 
 	static int wobpos = 0;
 	static int dwobpos = 0;
 	static int wobcount = 0;
 	if (wobcount <= 0) {
-		const int wobamount = param_eval_int(P_DLWOB, any_rnd, env16, pressure16); // 1/2
+		const int wobamount = param_val(P_DLY_WOBBLE); // 1/2
 		int newwobtarget = ((rand() & 8191) * wobamount) >> 8;
 		if (newwobtarget > k_target_delaytime / 2)
 			newwobtarget = k_target_delaytime / 2;
@@ -700,9 +508,7 @@ void DoAudio(u32* dst, u32* audioin) {
 	// at sample rate, lpf k 0.002 takes 10ms to go to half; .0006 takes 40ms; k=.0002 takes 100ms;
 	// at buffer rate, k=0.13 goes to half in 10ms; 0.013 goes to half in 100ms; 0.005 is 280ms
 
-	float g =
-	    param_eval_float(P_MIXHPF, any_rnd, env16,
-	                     pressure16); // tanf(3.141592f * 8000.f / 32000.f); // highpass constant // TODO PARAM 0 -1
+	float g = param_val_float(P_HPF); // tanf(3.141592f * 8000.f / 32000.f); // highpass constant // TODO PARAM 0 -1
 	g *= g;
 	g *= g;
 	g += (10.f / 32000.f);
@@ -747,19 +553,19 @@ void DoAudio(u32* dst, u32* audioin) {
 
 	// reverb params
 
-	float f = 1.f - clampf(param_eval_float(P_RVTIME, any_rnd, env16, pressure16), 0.f, 1.f);
+	float f = 1.f - clampf(param_val_float(P_RVB_TIME), 0.f, 1.f);
 	f *= f;
 	f *= f;
 	k_reverb_fade = (int)(250 * (1.f - f));
-	k_reverb_shim = (param_eval_int(P_RVSHIM, any_rnd, env16, pressure16) >> 9);
-	k_reverb_wob = (param_eval_float(P_RVWOB, any_rnd, env16, pressure16));
-	// k_reverb_color=(param_eval_float(P_RVCOLOR, any_rnd, env16, pressure16));
-	k_reverbsend = (param_eval_int(P_RVSEND, any_rnd, env16, pressure16));
+	k_reverb_shim = (param_val(P_RVB_SHIMMER) >> 9);
+	k_reverb_wob = (param_val_float(P_RVB_WOBBLE));
+	// k_reverb_color=(param_val_float(P_RVCOLOR));
+	k_reverbsend = (param_val(P_RVB_SEND));
 
 	// mixer params
 
-	int synthlvl_ = param_eval_int(P_MIXSYNTH, any_rnd, env16, pressure16);
-	int synthwidth = param_eval_int(P_MIX_WIDTH, any_rnd, env16, pressure16);
+	int synthlvl_ = param_val(P_SYNTH_LVL);
+	int synthwidth = param_val(P_MIX_WIDTH);
 	int asynthwidth = abs(synthwidth);
 	int synthlvl_mid;
 	int synthlvl_side;
@@ -773,12 +579,12 @@ void DoAudio(u32* dst, u32* audioin) {
 		synthlvl_mid = (asynthwidth * synthlvl_) >> 15;
 	}
 
-	int ainwetdry = param_eval_int(P_MIXINWETDRY, any_rnd, env16, pressure16);
-	int wetdry = param_eval_int(P_MIXWETDRY, any_rnd, env16, pressure16);
+	int ainwetdry = param_val(P_INPUT_WET_DRY);
+	int wetdry = param_val(P_SYNTH_WET_DRY);
 	int wetlvl = 65536 - maxi(-wetdry, 0);
 	int drylvl = 65536 - maxi(wetdry, 0);
 
-	int ainlvl = param_eval_int(P_MIXINPUT, any_rnd, env16, pressure16);
+	int ainlvl = param_val(P_INPUT_LVL);
 	int ainwetlvl = 65536 - maxi(-ainwetdry, 0);
 	int aindrylvl = 65536 - maxi(ainwetdry, 0);
 
@@ -787,7 +593,7 @@ void DoAudio(u32* dst, u32* audioin) {
 	ainlvl = ((ainlvl >> 4) * (drylvl >> 4)) >> 8;    // prescale by dry level
 	ainlvl = ((ainlvl >> 4) * (aindrylvl >> 4)) >> 8; // prescale by fx dry level
 
-	int delayratio = param_eval_int(P_DLRATIO, any_rnd, env16, pressure16) >> 8;
+	int delayratio = param_val(P_DLY_PINGPONG) >> 8;
 	static int delaytime = SAMPLES_PER_TICK << 12;
 	int scopescale = (65536 * 24) / maxi(16384, (int)peak);
 
@@ -1240,14 +1046,6 @@ void test_jig(void) {
 		int errorcount = 0;
 		int rangeok = 0, zerook = 0;
 		// reset_ext_clock();
-#ifndef EMU
-		if (!update_accelerometer_raw()) {
-			draw_str(0, 0, F_32_BOLD, "BAD ACCEL");
-			oled_flip();
-			HAL_Delay(1000);
-			errorcount++;
-		}
-#endif
 		for (int iter = 0; iter < 4; ++iter) {
 			send_cv_clock(false);
 			HAL_Delay(3);

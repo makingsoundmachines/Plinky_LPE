@@ -7,13 +7,6 @@
 // a conditional step can either advance or not advance in the sequence, and can either play or not play, based on the
 // chance and euclid len parameters
 
-// cleanup
-extern u16 any_rnd;
-extern int env16;
-extern int pressure16;
-int param_eval_int(u8 paramidx, int rnd, int env16, int pressure16);
-// -- cleanup
-
 typedef struct ConditionalStep {
 	s8 euclid_len;
 	u8 euclid_trigs;
@@ -55,7 +48,7 @@ static void do_conditional_step(ConditionalStep* c_step, ArpOrder arp_order) {
 	else {
 		c_step->advance_step = cond_trig;
 		// non-advanced steps play if gate length is 100%
-		if ((param_eval_int(P_GATE_LENGTH, any_rnd, env16, pressure16) >> 8) == 256)
+		if ((param_val(P_GATE_LENGTH) >> 8) == 256)
 			c_step->play_step = true;
 		else
 			c_step->play_step = cond_trig;

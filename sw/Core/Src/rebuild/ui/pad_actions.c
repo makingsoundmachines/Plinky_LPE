@@ -2,6 +2,7 @@
 #include "gfx/data/names.h"
 #include "hardware/touchstrips.h"
 #include "shift_states.h"
+#include "synth/params.h"
 #include "synth/sampler.h"
 #include "synth/time.h"
 #include "ui.h"
@@ -14,9 +15,6 @@ extern Preset rampreset;
 extern SysParams sysparams;
 extern s8 selected_preset_global; // system
 void SetPreset(u8 preset, bool force);
-// gfx
-#include "gfx/gfx.h"
-void ShowMessage(Font fnt, const char* msg, const char* submsg);
 // memory
 SampleInfo* GetSavedSampleInfo(u8 sample0);
 // parameters
@@ -31,45 +29,23 @@ extern u8 prev_pending_preset;
 extern u8 prev_pending_pattern;
 extern u8 prev_pending_sample1;
 extern u8 cur_pattern;
-int GetParam(u8 paramidx, u8 mod);
-void EditParamQuant(u8 paramidx, u8 mod, s16 data);
-void EditParamNoQuant(u8 paramidx, u8 mod, s16 data);
-void toggle_latch(void);
-void toggle_arp(void);
 // - needs cleaning up
 
 #define LONGPRESS_THRESH 160 // full read cycles
 
-u8 selected_param = 255;
-u8 selected_mod_src = M_BASE;
-
 // needed by drawing ui.h, should be local
-u8 last_selected_param = 255;
 u8 strip_holds_valid_action = 0; // mask
 u8 strip_is_action_pressed = 0;  // mask
 u16 long_press_frames = 0;
 u8 long_press_pad = 0;
 
 // local
-static s32 saved_param_value[8];
-static ValueSmoother param_value_smoother[8];
 
 static u8 get_load_section(u8 pad_id) {
 	return pad_id < 32   ? 0  // presets
 	       : pad_id < 56 ? 1  // patterns
 	       : pad_id < 64 ? 2  // samples
 	                     : 3; // none
-}
-
-// will this strip produce a press for the synth?
-bool strip_available_for_synth(u8 strip_id) {
-	// yes, in the default ui
-	if (ui_mode == UI_DEFAULT
-	    // but not the left-most strip when a parameter is being edited
-	    && !(strip_id == 0 && VALID_PARAM_SELECTED))
-		return true;
-	// in all other modes and situations: no
-	return false;
 }
 
 void handle_pad_actions(u8 strip_id, Touch* strip_cur) {
@@ -118,7 +94,7 @@ void handle_pad_actions(u8 strip_id, Touch* strip_cur) {
 				case 1: // patterns
 					if (pending_pattern == prev_pending_pattern || !seq_playing()) {
 						if (pending_pattern != 255) {
-							EditParamQuant(P_SEQPAT, M_BASE, pending_pattern);
+							save_param(P_PATTERN, SRC_BASE, pending_pattern);
 							pending_pattern = 255;
 						}
 					}
@@ -126,7 +102,7 @@ void handle_pad_actions(u8 strip_id, Touch* strip_cur) {
 				case 2: // samples
 					if (pending_sample1 == prev_pending_sample1 || !seq_playing()) {
 						if (pending_sample1 != 255) {
-							EditParamQuant(P_SAMPLE, M_BASE, pending_sample1);
+							save_param(P_SAMPLE, SRC_BASE, pending_sample1);
 							pending_sample1 = 255;
 						}
 					}
@@ -139,79 +115,31 @@ void handle_pad_actions(u8 strip_id, Touch* strip_cur) {
 	// == executing actions == //
 
 	if ((strip_is_action_pressed & strip_mask) && (strip_holds_valid_action & strip_mask)) {
-		action_pressed_during_shift = true;
+		if (shift_state != SS_NONE)
+			press_action_during_shift();
 		switch (ui_mode) {
 		case UI_DEFAULT:
 		case UI_EDITING_A:
 		case UI_EDITING_B: {
-			u8 prev_selected_param = selected_param;
-			// selected a parameter (center six strips)
-			if (strip_id > 0 && strip_id < 7) {
-				// show the user the base value
-				selected_mod_src = M_BASE;
-				selected_param = pad_y * 12 + strip_id - 1;
-				if (ui_mode == UI_EDITING_B) // offset for b params
-					selected_param += 6;
-				// newly selected params are displayed on screen, largely, before reverting to the param edit screen
-				if (VALID_PARAM_SELECTED && selected_param != prev_selected_param)
-					ShowMessage(F_20_BOLD, paramnames[selected_param], pagenames[selected_param / 6]);
-
-				// parameters that do something the moment they are pressed
-				if (is_press_start) {
-					switch (selected_param) {
-					case P_ARPONOFF:
-						toggle_arp();
-						break;
-					case P_LATCHONOFF:
-						toggle_latch();
-						break;
-					case P_TEMPO:
-						trigger_tap_tempo();
-						break;
-					}
-				}
-			}
-			// new valid param press
-			if (VALID_PARAM_SELECTED && (selected_param != prev_selected_param || is_press_start)) {
-				// set the value smoother to the value of that param
-				saved_param_value[strip_id] = GetParam(selected_param, selected_mod_src);
-				set_smoother(&param_value_smoother[strip_id], saved_param_value[strip_id]);
-			}
-			// new valid mod source press
-			if (strip_id == 7 && pad_y != selected_mod_src) {
-				// select it
-				selected_mod_src = pad_y;
-			}
+			// do we need to reset the left strip?
+			bool left_strip_reset = false;
 			// left-most strip used to edit param value
-			if (strip_id == 0 && VALID_PARAM_SELECTED && pres_stable) {
-				// position of the press
-				float press_value = clampf((2048 - 256 - strip_cur->pos) * (FULL / (2048.f - 512.f)), 0.f, FULL);
-				bool is_signed = (param_flags[selected_param] & FLAG_SIGNED) | (selected_mod_src != M_BASE);
-				if (is_signed)
-					press_value = press_value * 2 - FULL;
-				// smooth the pressed value
-				float smoothed_value = smooth_value(&param_value_smoother[strip_id], press_value, FULL);
-				smoothed_value = clampf(smoothed_value, (is_signed) ? -FULL - 0.1f : 0.f, FULL + 0.1f);
-				// value stops exactly at zero when crossing it
-				if (smoothed_value < 0.f && saved_param_value[strip_id] > 0)
-					smoothed_value = 0.f;
-				if (smoothed_value > 0.f && saved_param_value[strip_id] < 0)
-					smoothed_value = 0.f;
-				// value stops exactly halfway when crossing center
-				bool notch_at_50 = (selected_param == P_SMP_RATE || selected_param == P_SMP_TIME);
-				if (notch_at_50) {
-					if (smoothed_value < HALF && saved_param_value[strip_id] > HALF)
-						smoothed_value = HALF;
-					if (smoothed_value > HALF && saved_param_value[strip_id] < HALF)
-						smoothed_value = HALF;
-					if (smoothed_value < -HALF && saved_param_value[strip_id] > -HALF)
-						smoothed_value = -HALF;
-					if (smoothed_value > -HALF && saved_param_value[strip_id] < -HALF)
-						smoothed_value = -HALF;
-				}
-				// save the value to the parameter
-				EditParamNoQuant(selected_param, selected_mod_src, (s16)smoothed_value);
+			if (strip_id == 0) {
+				if (is_press_start)
+					left_strip_reset = true;
+				if (pres_stable)
+					try_left_strip_for_params(strip_cur->pos, is_press_start);
 			}
+			// center six strips => pressed a parameter
+			else if (strip_id < 7) {
+				if (press_param(pad_y, strip_id, is_press_start))
+					left_strip_reset = true;
+			}
+			// right-most strip => pressed a mod source
+			else
+				select_mod_src(pad_y);
+			if (left_strip_reset)
+				reset_left_strip();
 		} break;
 		case UI_SAMPLE_EDIT:
 			if (is_press_start && shift_state == SS_NONE)

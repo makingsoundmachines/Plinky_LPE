@@ -5,9 +5,6 @@
 
 u8 spibigtx[256 + 4];
 u8 spibigrx[256 + 4];
-#define EXPANDER_ZERO 0x800
-#define EXPANDER_RANGE 0x7ff
-#define EXPANDER_MAX 0xfff
 u16 expander_out[4] = { EXPANDER_ZERO,EXPANDER_ZERO,EXPANDER_ZERO,EXPANDER_ZERO };
 
 int spi_readgrain_dma(int gi);

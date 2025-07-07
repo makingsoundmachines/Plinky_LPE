@@ -41,6 +41,8 @@ SRCS = \
 	../Core/Src/rebuild/hardware/touchstrips.c \
 	../Core/Src/rebuild/synth/arp.c \
 	../Core/Src/rebuild/synth/audio.c \
+	../Core/Src/rebuild/synth/lfos.c \
+	../Core/Src/rebuild/synth/params.c \
 	../Core/Src/rebuild/synth/sampler.c \
 	../Core/Src/rebuild/synth/sequencer.c \
 	../Core/Src/rebuild/synth/strings.c \

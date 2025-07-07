@@ -37,25 +37,25 @@ typedef enum MidiMessageType {
 // clang-format off
 static const s8 midi_cc_table[128] = {
 	//					0			1			2			3			4			5			6			7
-	/*   0 */			-1,			-1,			P_NOISE,	P_SENS,		P_DRIVE,	P_GLIDE,	-1,			P_MIXSYNTH,
-	/*   8 */			P_MIXWETDRY,P_PITCH,	-1,			P_GATE_LENGTH,P_DLTIME,	P_PWM,		P_INTERVAL,	P_SMP_POS,
-	/*  16 */			P_SMP_GRAINSIZE,P_SMP_RATE,P_SMP_TIME,P_ENV_LEVEL,P_A2,		P_D2,		P_S2,		P_R2,
-	/*  24 */			P_AFREQ,	P_ADEPTH,	P_AOFFSET,	P_BFREQ,	P_BDEPTH,	P_BOFFSET,	-1,			P_MIXHPF,
+	/*   0 */			-1,			-1,			P_NOISE,	P_ENV_LVL1,		P_DISTORTION,	P_GLIDE,	-1,			P_SYNTH_LVL,
+	/*   8 */			P_SYNTH_WET_DRY,P_PITCH,	-1,			P_GATE_LENGTH,P_DLY_TIME,	P_SHAPE,		P_INTERVAL,	P_SMP_SCRUB,
+	/*  16 */			P_SMP_GRAINSIZE,P_SMP_SPEED,P_SMP_STRETCH,P_ENV_LVL2,P_ATTACK2,		P_DECAY2,		P_SUSTAIN2,		P_RELEASE2,
+	/*  24 */			P_A_RATE,	P_A_DEPTH,	P_A_OFFSET,	P_B_RATE,	P_B_DEPTH,	P_B_OFFSET,	-1,			P_HPF,
 
 	// CCs 32 through 63 reserved for 14-bit CCs, each of them representing the LSB of CC [number - 32]
 	/*  32 */			-1,			-1,			-1,			-1,			-1,			-1,			-1,			-1,
 	/*  40 */			-1,			-1,			-1,			-1,			-1,			-1,			-1,			-1,
 	/*  48 */			-1,			-1,			-1,			-1,			-1,			-1,			-1,			-1,
 	/*  56 */			-1,			-1,			-1,			-1,			-1,			-1,			-1,			-1,
-	/*  64 */			-1,			-1,			-1,			-1,			-1,			-1,			-1,			P_MIXRESO, // reso needs to be moved
+	/*  64 */			-1,			-1,			-1,			-1,			-1,			-1,			-1,			P_RESO, // reso needs to be moved
 	// End of 14-bit CC reserved numbers
 
-	/*  72 */			P_R,		P_A,		P_S,		P_D,		P_XFREQ,	P_XDEPTH,	P_XOFFSET,	P_YFREQ,
-	/*  80 */			P_YDEPTH,	P_YOFFSET,	P_SAMPLE,	P_SEQPAT,	-1,			P_SEQSTEP,	-1,			-1,
-	/*  88 */			-1,			P_MIXINPUT,	P_MIXINWETDRY,P_RVSEND,	P_RVTIME,	P_RVSHIM,	P_DLSEND,	P_DLFB,
-	/*  96 */			-1,			-1,			-1,			-1,			-1,			P_LATCHONOFF,			P_ARPONOFF,	P_ARPMODE,
-	/* 104 */			P_ARPDIV,	P_ARPPROB,	P_ARPLEN,	P_ARPOCT,	P_SEQMODE,	P_SEQDIV,	P_SEQPROB,	P_SEQLEN,
-	/* 112 */			P_DLRATIO,	P_DLWOB,	P_RVWOB,	-1,			P_JIT_POS,	P_JIT_GRAINSIZE, P_JIT_RATE, P_JIT_PULSE,
+	/*  72 */			P_RELEASE1,		P_ATTACK1,		P_SUSTAIN1,		P_DECAY1,		P_X_RATE,	P_X_DEPTH,	P_X_OFFSET,	P_Y_RATE,
+	/*  80 */			P_Y_DEPTH,	P_Y_OFFSET,	P_SAMPLE,	P_PATTERN,	-1,			P_STEP_OFFSET,	-1,			-1,
+	/*  88 */			-1,			P_INPUT_LVL,	P_INPUT_WET_DRY,P_RVB_SEND,	P_RVB_TIME,	P_RVB_SHIMMER,	P_DLY_SEND,	P_DLY_FEEDBACK,
+	/*  96 */			-1,			-1,			-1,			-1,			-1,			P_LATCH_TOGGLE,			P_ARP_TOGGLE,	P_ARP_ORDER,
+	/* 104 */			P_ARP_CLK_DIV,	P_ARP_CHANCE,	P_ARP_EUC_LEN,	P_ARP_OCTAVES,	P_SEQ_ORDER,	P_SEQ_CLK_DIV,	P_SEQ_CHANCE,	P_SEQ_EUC_LEN,
+	/* 112 */			P_DLY_PINGPONG,	P_DLY_WOBBLE,	P_RVB_WOBBLE,	-1,			P_SMP_SCRUB_JIT,	P_SMP_GRAINSIZE_JIT, P_SMP_SPEED_JIT, P_SMP_UNUSED1,
 	/* 120 */			-1,			-1,			-1,			-1,			-1,			-1,			-1,			-1,
 };
 // clang-format on

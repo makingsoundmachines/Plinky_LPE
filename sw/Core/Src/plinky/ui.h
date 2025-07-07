@@ -2,6 +2,8 @@
 #include "gfx/gfx.h"
 #include "hardware/encoder.h"
 #include "synth/arp.h"
+#include "synth/lfos.h"
+#include "synth/params.h"
 #include "synth/pattern.h"
 #include "synth/pitch_tools.h"
 #include "synth/sampler.h"
@@ -416,20 +418,20 @@ static int frame = 0;
 
 void DrawLFOs(void) {
 	u8* vr = oled_buffer();
-	vr += 128 - 16;
-	u8 lfohp = ((lfo_history_pos >> 4) + 1) & 15;
-	for (int x = 0; x < 16; ++x) {
-		vr[0] &= ~(lfo_history[lfohp][0] >> 1);
-		vr[128] &= ~(lfo_history[lfohp][1] >> 1);
-		vr[256] &= ~(lfo_history[lfohp][2] >> 1);
-		vr[384] &= ~(lfo_history[lfohp][3] >> 1);
+	vr += OLED_WIDTH - 16;
+	u8 draw_frame = (lfo_scope_frame + 1) & 15;
+	for (u8 x = 0; x < 16; ++x) {
+		vr[0] &= ~(lfo_scope_data[draw_frame][0] >> 1);
+		vr[128] &= ~(lfo_scope_data[draw_frame][1] >> 1);
+		vr[256] &= ~(lfo_scope_data[draw_frame][2] >> 1);
+		vr[384] &= ~(lfo_scope_data[draw_frame][3] >> 1);
 
-		vr[0] |= lfo_history[lfohp][0];
-		vr[128] |= lfo_history[lfohp][1];
-		vr[256] |= lfo_history[lfohp][2];
-		vr[384] |= lfo_history[lfohp][3];
+		vr[0] |= lfo_scope_data[draw_frame][0];
+		vr[128] |= lfo_scope_data[draw_frame][1];
+		vr[256] |= lfo_scope_data[draw_frame][2];
+		vr[384] |= lfo_scope_data[draw_frame][3];
 		vr++;
-		lfohp = (lfohp + 1) & 15;
+		draw_frame = (draw_frame + 1) & 15;
 	}
 }
 
@@ -501,22 +503,22 @@ void DrawFlags() {
 const char* getparamstr(int p, int mod, int v, char* valbuf, char* decbuf) {
 	if (decbuf)
 		*decbuf = 0;
-	int valmax = param_flags[p] & FLAG_MASK;
-	int vscale = valmax ? (mini(v, FULL - 1) * valmax) / FULL : v;
+	int valmax = param_range[p] & RANGE_MASK;
+	int vscale = valmax ? (mini(v, PARAM_SIZE - 1) * valmax) / PARAM_SIZE : v;
 	int displaymax = valmax ? valmax * 10 : 1000;
 	bool decimal = true;
 	//	const char* val = valbuf;
-	if (mod == M_BASE)
+	if (mod == SRC_BASE)
 		switch (p) {
-		case P_SMP_TIME:
-		case P_SMP_RATE:
+		case P_SMP_STRETCH:
+		case P_SMP_SPEED:
 			displaymax = 2000;
 			break;
-		case P_ARPONOFF:
+		case P_ARP_TOGGLE:
 			if (mod)
 				return "";
 			return ((rampreset.flags & FLAGS_ARP)) ? "On" : "Off";
-		case P_LATCHONOFF:
+		case P_LATCH_TOGGLE:
 			if (mod)
 				return "";
 			return ((rampreset.flags & FLAGS_LATCH)) ? "On" : "Off";
@@ -525,7 +527,7 @@ const char* getparamstr(int p, int mod, int v, char* valbuf, char* decbuf) {
 				return "Off";
 			}
 			break;
-		case P_SEQDIV: {
+		case P_SEQ_CLK_DIV: {
 			if (vscale >= NUM_SYNC_DIVS)
 				return "(Gate CV)";
 			int n = sprintf(valbuf, "%d", sync_divs_32nds[vscale] /* >> divisor*/);
@@ -534,7 +536,7 @@ const char* getparamstr(int p, int mod, int v, char* valbuf, char* decbuf) {
 			sprintf(decbuf, /*divisornames[divisor]*/ "/32");
 			return valbuf;
 		}
-		case P_ARPDIV:
+		case P_ARP_CLK_DIV:
 			if (v < 0) {
 				v = -v;
 				decimal = true;
@@ -542,14 +544,14 @@ const char* getparamstr(int p, int mod, int v, char* valbuf, char* decbuf) {
 				displaymax = 1000;
 				break;
 			}
-			vscale = (mini(v, FULL - 1) * NUM_SYNC_DIVS) / FULL;
+			vscale = (mini(v, PARAM_SIZE - 1) * NUM_SYNC_DIVS) / PARAM_SIZE;
 			int n = sprintf(valbuf, "%d", sync_divs_32nds[vscale] /*>> divisor*/);
 			if (!decbuf)
 				decbuf = valbuf + n;
 			sprintf(decbuf, /*divisornames[divisor]*/ "/32");
 			return valbuf;
-		case P_ARPOCT:
-			v += (FULL * 10) / displaymax; // 1 based
+		case P_ARP_OCTAVES:
+			v += (PARAM_SIZE * 10) / displaymax; // 1 based
 			break;
 		case P_MIDI_CH_IN:
 		case P_MIDI_CH_OUT: {
@@ -559,41 +561,41 @@ const char* getparamstr(int p, int mod, int v, char* valbuf, char* decbuf) {
 				decbuf = valbuf + n;
 			return valbuf;
 		}
-		case P_ARPMODE:
+		case P_ARP_ORDER:
 			return arp_modenames[clampi(vscale, 0, NUM_ARP_ORDERS - 1)];
-		case P_SEQMODE:
+		case P_SEQ_ORDER:
 			return seqmodenames[clampi(vscale, 0, NUM_SEQ_ORDERS - 1)];
 		case P_CV_QUANT:
 			return cvquantnames[clampi(vscale, 0, CVQ_LAST - 1)];
 		case P_SCALE:
-			return scalenames[clampi(vscale, 0, S_LAST - 1)];
-		case P_ASHAPE:
-		case P_BSHAPE:
-		case P_XSHAPE:
-		case P_YSHAPE:
-			return lfonames[clampi(vscale, 0, LFO_LAST - 1)];
+			return scalenames[clampi(vscale, 0, NUM_SCALES - 1)];
+		case P_A_SHAPE:
+		case P_B_SHAPE:
+		case P_X_SHAPE:
+		case P_Y_SHAPE:
+			return lfo_names[clampi(vscale, 0, NUM_LFO_SHAPES - 1)];
 		case P_PITCH:
 		case P_INTERVAL:
 			displaymax = 120;
 			break;
 		case P_TEMPO:
-			v += FULL;
+			v += PARAM_SIZE;
 			if (!using_internal_clock)
-				v = (bpm_10x * FULL) / 1200;
+				v = (bpm_10x * PARAM_SIZE) / 1200;
 			displaymax = 1200;
 			break;
-		case P_DLTIME:
+		case P_DLY_TIME:
 			if (v < 0) {
 				if (v <= -1024)
 					v++;
-				v = (-v * 13) / FULL;
+				v = (-v * 13) / PARAM_SIZE;
 				int n = sprintf(valbuf, "%d", sync_divs_32nds[v]);
 				if (!decbuf)
 					decbuf = valbuf + n;
 				sprintf(decbuf, "/32 sync");
 			}
 			else {
-				int n = sprintf(valbuf, "%d", (v * 100) / FULL);
+				int n = sprintf(valbuf, "%d", (v * 100) / PARAM_SIZE);
 				if (!decbuf)
 					decbuf = valbuf + n;
 				sprintf(decbuf, "free");
@@ -601,7 +603,7 @@ const char* getparamstr(int p, int mod, int v, char* valbuf, char* decbuf) {
 			return valbuf;
 		default:;
 		}
-	v = (v * displaymax) / FULL;
+	v = (v * displaymax) / PARAM_SIZE;
 	int av = abs(v);
 	int n = sprintf(valbuf, "%c%d", (v < 0) ? '-' : ' ', av / 10);
 	if (decimal) {
@@ -665,7 +667,7 @@ void edit_mode_ui(void) {
 	presetname[8] = 0;
 
 	u8* vr = oled_buffer();
-	static u8 ui_edit_param = P_LAST;
+	static u8 ui_edit_param = NUM_PARAMS;
 	u8 ep = selected_param;
 	if (ui_edit_param != ep) {
 		ui_edit_param = ep; // as it may change in the background
@@ -677,16 +679,6 @@ void edit_mode_ui(void) {
 	if (shift_state == SS_RECORD) {
 		if (shift_short_pressed())
 			draw_str(0, 4, F_20_BOLD, seq_recording() ? I_RECORD "record >off" : I_RECORD "record >on");
-		else if (seq_recording()) {
-			if (recording_knobs == 0)
-				draw_str(0, 4, F_20_BOLD, "record " I_A I_B "?");
-			else if (recording_knobs == 1)
-				draw_str(0, 4, F_20_BOLD, "recording " I_A);
-			else if (recording_knobs == 2)
-				draw_str(0, 4, F_20_BOLD, "recording " I_B);
-			else if (recording_knobs == 3)
-				draw_str(0, 4, F_20_BOLD, "recording " I_A I_B);
-		}
 	}
 	else if (shift_state == SS_PLAY) {
 		draw_str(0, 0, F_32_BOLD, I_PLAY "play");
@@ -712,10 +704,10 @@ void edit_mode_ui(void) {
 			DrawLFOs();
 			DrawVoices();
 			gfx_text_color = 2;
-			if (ui_edit_param < P_LAST)
+			if (ui_edit_param < NUM_PARAMS)
 				goto draw_parameter;
 
-			if (last_selected_param < P_LAST && enc_recently_used())
+			if (mem_param < NUM_PARAMS && enc_recently_used())
 				goto draw_parameter;
 			DrawFlags();
 			char seqicon = (rampreset.flags & FLAGS_ARP) ? I_NOTES[0] : I_SEQ[0];
@@ -738,7 +730,7 @@ void edit_mode_ui(void) {
 			break;
 		case UI_EDITING_A:
 		case UI_EDITING_B:
-			if (ui_edit_param >= P_LAST) {
+			if (ui_edit_param >= NUM_PARAMS) {
 				draw_str(0, 0, F_20_BOLD, modnames[ui_edit_mod]);
 				draw_str(0, 16, F_16, "select parameter");
 				break;
@@ -748,17 +740,17 @@ void edit_mode_ui(void) {
 				int pi;
 draw_parameter:
 				pi = ui_edit_param;
-				if (pi >= P_LAST)
-					pi = last_selected_param;
-				if (pi >= P_LAST)
+				if (pi >= NUM_PARAMS)
+					pi = mem_param;
+				if (pi >= NUM_PARAMS)
 					pi = 0;
-				pagename = pagenames[pi / 6];
+				pagename = param_page_names[pi / 6];
 				switch (pi) {
 				case P_TEMPO:
 					pagename = I_TEMPO "Tap";
 					break;
 #ifndef NEW_LAYOUT
-				case P_ENV_LEVEL:
+				case P_ENV_LVL2:
 				case P_ENV_REPEAT:
 				case P_ENV_WARP:
 				case P_ENV_RATE:
@@ -769,12 +761,12 @@ draw_parameter:
 					pagename = I_WAVE "noise";
 					break;
 				case P_CV_QUANT:
-				case P_HEADPHONE:
+				case P_VOLUME:
 					pagename = "system";
 					break;
 				}
 				draw_str(0, 0, F_12, (ui_edit_mod == 0) ? pagename : modnames[ui_edit_mod]);
-				const char* pn = paramnames[pi];
+				const char* pn = param_names[pi];
 				int pw = str_width(F_16_BOLD, pn);
 				if (pw > 64)
 					draw_str(0, 20, F_12_BOLD, pn);
@@ -783,10 +775,10 @@ draw_parameter:
 				char valbuf[32];
 				char decbuf[16];
 				int w = 0;
-				int v = GetParam(pi, ui_edit_mod);
+				int v = param_val_raw(pi, ui_edit_mod);
 				int vbase = v;
-				if (ui_edit_mod == 0) {
-					v = (param_eval_int_noscale(pi, any_rnd, env16, pressure16) * FULL) >> 16;
+				if (ui_edit_mod == SRC_BASE) {
+					v = (param_val_unscaled(pi) * PARAM_SIZE) >> 16;
 					if (v != vbase) {
 						// if there is modulation going on, show the base value below
 						const char* val = getparamstr(pi, ui_edit_mod, vbase, valbuf, NULL);
@@ -874,24 +866,23 @@ draw_parameter:
 	int cvpitch = adc_get_smooth(ADC_S_PITCH);
 
 	for (int fi = 0; fi < 8; ++fi) {
-		Touch* synthf = get_string_touch(fi);
 		PatternStringStep* fr = get_string_step(fi);
 
 		///////////////////////////////////// ROOT NOTE DISPLAY
 		/// per finger
-		int root = param_eval_finger(P_ROTATE, fi, synthf);
-		u32 scale = param_eval_finger(P_SCALE, fi, synthf);
-		if (scale >= S_LAST)
+		int root = param_val_poly(P_DEGREE, fi);
+		u32 scale = param_val_poly(P_SCALE, fi);
+		if (scale >= NUM_SCALES)
 			scale = 0;
-		int cvquant = param_eval_int(P_CV_QUANT, any_rnd, env16, pressure16);
+		int cvquant = param_val(P_CV_QUANT);
 		if (cvquant == CVQ_SCALE) {
 			// remap the 12 semitones input to the scale steps, evenly, with a slight offset so white keys map to major
 			// scale etc
 			int steps = ((cvpitch / 512) * scale_table[scale][0] + 1) / 12;
 			root += steps;
 		}
-		root += scale_steps_at_string(scale, fi, synthf);
-
+		root += scale_steps_at_string(scale, fi);
+		Touch* synthf = get_string_touch(fi);
 		///////////////////////////////////////////////////////
 		int sp0 = get_sample_info()->splitpoints[fi];
 		int sp1 = (fi < 7) ? get_sample_info()->splitpoints[fi + 1] : get_sample_info()->samplelen;
@@ -911,7 +902,7 @@ draw_parameter:
 
 			bool inloop = ((step - start_step) & 63) < rampreset.seq_len;
 #ifdef NEW_LAYOUT
-			int pA = (fi > 0 && fi < 7) ? (fi - 1) + (y) * 12 : P_LAST;
+			int pA = (fi > 0 && fi < 7) ? (fi - 1) + (y) * 12 : NUM_PARAMS;
 #else
 			int p = (fi - 1) + (y - 1) * 12;
 #endif
@@ -926,34 +917,34 @@ draw_parameter:
 						k = flickery;
 					else {
 						// light right side for mod sources that are non zero
-						k = (y && GetParam(ui_edit_param, y)) ? 255 : 0;
+						k = (y && param_val_raw(ui_edit_param, y)) ? 255 : 0;
 					}
 				}
-				else if (fi == 0 && ui_edit_param < P_LAST) {
+				else if (fi == 0 && ui_edit_param < NUM_PARAMS) {
 					// bar graph
 bargraph:
 					k = 0;
-					int v = GetParam(ui_edit_param, ui_edit_mod);
-					bool issigned = param_flags[ui_edit_param] & FLAG_SIGNED;
-					issigned |= (selected_mod_src != M_BASE);
+					int v = param_val_raw(ui_edit_param, ui_edit_mod);
+					bool issigned = param_range[ui_edit_param] & RANGE_SIGNED;
+					issigned |= (selected_mod_src != SRC_BASE);
 					int kontrast = 16;
 
 					if (issigned) {
 						if (y < 4) {
-							k = ((v - (3 - y) * (FULL / 4)) * (192 * 4)) / FULL;
+							k = ((v - (3 - y) * (PARAM_SIZE / 4)) * (192 * 4)) / PARAM_SIZE;
 							k = (y) * 2 * kontrast + clampi(k, 0, 191);
 							if (y == 3 && v < 0)
 								k = 255;
 						}
 						else {
-							k = ((-v - (y - 4) * (FULL / 4)) * (192 * 4)) / FULL;
+							k = ((-v - (y - 4) * (PARAM_SIZE / 4)) * (192 * 4)) / PARAM_SIZE;
 							k = (8 - y) * 2 * kontrast + clampi(k, 0, 191);
 							if (y == 4 && v > 0)
 								k = 255;
 						}
 					}
 					else {
-						k = ((v - (7 - y) * (FULL / 8)) * (192 * 8)) / FULL;
+						k = ((v - (7 - y) * (PARAM_SIZE / 8)) * (192 * 8)) / PARAM_SIZE;
 						k = (y)*kontrast + clampi(k, 0, 191);
 					}
 				}
@@ -961,16 +952,16 @@ bargraph:
 					k = 0;
 					if ((strip_holds_valid_action & 128) && (strip_is_action_pressed & 128) && ui_edit_mod > 0) {
 						// finger down over right side! show all params with a non zero mod amount
-						if (GetParam(pAorB, ui_edit_mod))
+						if (param_val_raw(pAorB, ui_edit_mod))
 							k = 255;
 					}
 					if (pAorB == ui_edit_param)
 						k = flickery;
 				}
 #ifdef NEW_LAYOUT
-				if (pAorB == P_ARPONOFF)
+				if (pAorB == P_ARP_TOGGLE)
 					k = (rampreset.flags & FLAGS_ARP) ? 255 : 0;
-				else if (pAorB == P_LATCHONOFF)
+				else if (pAorB == P_LATCH_TOGGLE)
 					k = (rampreset.flags & FLAGS_LATCH) ? 255 : 0;
 #else
 				if (y == 0) {
@@ -983,9 +974,9 @@ bargraph:
 				break;
 			}
 			case UI_DEFAULT:
-				if (fi == 0 && ui_edit_param < P_LAST)
+				if (fi == 0 && ui_edit_param < NUM_PARAMS)
 					goto bargraph;
-				if (ui_edit_param < P_LAST && (ui_edit_param == pA || ui_edit_param == pA + 6) && fi > 0 && fi < 7)
+				if (ui_edit_param < NUM_PARAMS && (ui_edit_param == pA || ui_edit_param == pA + 6) && fi > 0 && fi < 7)
 					k = flickery;
 				{
 					if (using_sampler() && !get_sample_info()->pitched) {
@@ -1060,11 +1051,12 @@ bargraph:
 		leds[8][SS_CLEAR] = 0;
 		leds[8][SS_LOAD] = (ui_mode == UI_LOAD) ? 255 : 0;
 		;
-		leds[8][SS_SHIFT_A] = (ui_mode == UI_EDITING_A)                                                       ? 255
-		                      : (ui_mode == UI_DEFAULT && ui_edit_param < P_LAST && (ui_edit_param % 12) < 6) ? flickery
-		                                                                                                      : 0;
+		leds[8][SS_SHIFT_A] = (ui_mode == UI_EDITING_A) ? 255
+		                      : (ui_mode == UI_DEFAULT && ui_edit_param < NUM_PARAMS && (ui_edit_param % 12) < 6)
+		                          ? flickery
+		                          : 0;
 		leds[8][SS_SHIFT_B] = (ui_mode == UI_EDITING_B) ? 255
-		                      : (ui_mode == UI_DEFAULT && ui_edit_param < P_LAST && (ui_edit_param % 12) >= 6)
+		                      : (ui_mode == UI_DEFAULT && ui_edit_param < NUM_PARAMS && (ui_edit_param % 12) >= 6)
 		                          ? flickery
 		                          : 0;
 		if (shift_state >= 0 && shift_state < 8)

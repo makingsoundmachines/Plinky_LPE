@@ -6,8 +6,6 @@
 // user. Strings can also register virtual touches: triggered by latching, the arpeggiator or the sequencer. Strings
 // combine physical and virtual touches and use these to trigger plinky's voices
 
-#define NUM_STRINGS 8
-
 // which of these can we keep local?
 extern u8 string_touched;            // sampler & params
 extern u8 write_string_touched_copy; // arp & ui.h

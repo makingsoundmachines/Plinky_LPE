@@ -62,8 +62,7 @@ void open_sampler(u8 with_sample_id);
 // play sampler audio
 
 void handle_sampler_audio(u32* dst, u32* audioin);
-void apply_sample_lpg_noise(u8 voice_id, Voice* voice, Touch* s_touch, float goal_lpg, float noise_diff, float drive,
-                            u32* dst);
+void apply_sample_lpg_noise(u8 voice_id, Voice* voice, float goal_lpg, float noise_diff, float drive, u32* dst);
 void sort_sample_voices(void);
 
 // recording samples

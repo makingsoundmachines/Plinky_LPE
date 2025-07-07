@@ -2,6 +2,7 @@
 #include "gfx/gfx.h"
 #include "midi_defs.h"
 #include "synth/arp.h"
+#include "synth/params.h"
 #include "synth/sequencer.h"
 #include "synth/strings.h"
 #include "synth/time.h"
@@ -11,9 +12,7 @@
 // needs cleaning up
 extern Preset rampreset;
 
-extern int GetParam(u8 paramidx, u8 mod);
 extern void SetPreset(u8 preset, bool force);
-extern void EditParamNoQuant(u8 paramidx, u8 mod, s16 data);
 extern void ShowMessage(Font fnt, const char* msg, const char* submsg);
 // -- needs cleaning up
 
@@ -83,7 +82,7 @@ static bool send_midi_msg(u8 status, u8 data1, u8 data2) {
 	u8 num_bytes = 3;
 	if (status == MIDI_PROGRAM_CHANGE || status == MIDI_CHANNEL_PRESSURE)
 		num_bytes = 2;
-	int midi_ch_out = clampi((mini(GetParam(P_MIDI_CH_OUT, 0), FULL - 1) * 16) / FULL, 0, 15);
+	int midi_ch_out = clampi((mini(param_val_raw(P_MIDI_CH_OUT, 0), PARAM_SIZE - 1) * 16) / PARAM_SIZE, 0, 15);
 	if (status < MIDI_SYSTEM_EXCLUSIVE)
 		status += midi_ch_out; // set output channel
 	u8 buf[4] = {status >> 4, status, data1, data2};
@@ -200,7 +199,7 @@ static void process_midi_msg(u8 status, u8 d1, u8 d2) {
 
 	u8 chan = status & 0x0F; // save the channel
 	u8 type = status & 0xF0; // take the channel out
-	u8 midi_ch_in = clampi((mini(GetParam(P_MIDI_CH_IN, 0), FULL - 1) * 16) / FULL, 0, 15);
+	u8 midi_ch_in = clampi((mini(param_val_raw(P_MIDI_CH_IN, 0), PARAM_SIZE - 1) * 16) / PARAM_SIZE, 0, 15);
 
 	// allow only selected channel and system msgs
 	if ((chan != midi_ch_in) && (type != MIDI_SYSTEM_COMMON_MSG))
@@ -231,35 +230,11 @@ static void process_midi_msg(u8 status, u8 d1, u8 d2) {
 		if (d1 >= NUM_14BIT_CCS && d1 < (2 * NUM_14BIT_CCS))
 			cc14_lsb[d1 - 32] = d2;
 		s8 param = (d1 < 128) ? midi_cc_table[d1] : -1;
-		if (param >= 0 && param < P_LAST) {
-			int val;
+		if (param >= 0) {
+			u16 value = d2 << 7;
 			if (d1 < 32)
-				val = (d2 << 7) + cc14_lsb[d1]; // full CC14
-			else
-				val = (d2 << 7);
-			val = (val * FULL) / (127 * 128 + 127); // map to plinky space
-			if (param_flags[param] & FLAG_SIGNED)
-				val = val * 2 - FULL;
-			EditParamNoQuant(param, M_BASE, val); // set parameter
-
-			if (param == P_ARPONOFF) { // this should be moved to memory
-				if (val > 64) {
-					rampreset.flags = rampreset.flags | FLAGS_ARP;
-				}
-				else {
-					rampreset.flags = rampreset.flags & ~FLAGS_ARP;
-				}
-				ShowMessage(F_32_BOLD, ((rampreset.flags & FLAGS_ARP)) ? "arp on" : "arp off", 0);
-			}
-			if (param == P_LATCHONOFF) { // this should be moved to memory
-				if (val > 64) {
-					rampreset.flags = rampreset.flags | FLAGS_LATCH;
-				}
-				else {
-					rampreset.flags = rampreset.flags & ~FLAGS_LATCH;
-				}
-				ShowMessage(F_32_BOLD, ((rampreset.flags & FLAGS_LATCH)) ? "latch on" : "latch off", 0);
-			}
+				value += cc14_lsb[d1]; // full CC14
+			set_param_from_cc(param, value);
 		}
 		break;
 	}

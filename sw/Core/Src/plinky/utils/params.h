@@ -1,93 +1,16 @@
 #include "data/tables.h"
+#include "hardware/cv.h"
+#include "synth/lfos.h"
 #include "synth/params.h"
+#include "synth/pattern.h"
 #include "synth/pitch_tools.h"
 #include "synth/sampler.h"
 #include "synth/sequencer.h"
 
 // clang-format off
-static inline u8 lfohashi(u16 step) {
-	return rndtab[step];
-}
-static inline float lfohashf(u16 step) {
-	return (float) (lfohashi(step) * (2.f / 256.f) - 1.f);
-}
-
-float EvalTri(float t, u32 step) {
-	return 1.f - (t + t);
-}
-float EvalEnv(float t, u32 step) {
-	// unipolar pseudo exponential up/down
-	if (step & 1) {
-		t *= t;
-		t *= t;
-		return t;
-	}
-	else {
-		t = 1.f - t;
-		t *= t;
-		t *= t;
-		return 1.f-t;
-	}
-}
-float EvalSin(float t, u32 step) {
-	t = t * t * (3.f - t - t);
-	return 1.f - (t + t);
-}
-float EvalSaw(float t, u32 step) {
-	return (step &1) ? t-1.f : 1.f-t;
-}
-float EvalSquare(float t, u32 step) {
-	return (step & 1) ? 0.f : 1.f;
-}
-float EvalBiSquare(float t, u32 step) {
-	return (step & 1) ? -1.f : 1.f;
-}
-float EvalSandcastle(float t, u32 step) {
-	return (step & 1) ? ((t<0.5f) ? 0.f : -1.f) : ((t<0.5f) ? 1.f : 0.f);
-}
-static inline float triggy(float t) {
-	t=1.f-(t+t);
-	t=t*t;
-	return t*t;
-}
-float EvalTrigs(float t, u32 step) {
-	return (step & 1) ? ((t<0.5f) ? 0.f : triggy(1.f-t)) : ((t<0.5f) ? triggy(t) : 0.f);
-}
-float EvalBiTrigs(float t, u32 step) {
-	return (step & 1) ? ((t<0.5f) ? 0.f : -triggy(1.f-t)) : ((t<0.5f) ? triggy(t) : 0.f);
-}
-float EvalStepNoise(float t, u32 step) {
-	return lfohashf(step);
-}
-float EvalSmoothNoise(float t, u32 step) {
-	float n0 = lfohashf(step + (step&1)), n1 = lfohashf(step | 1);
-	return n0 + (n1 - n0) * t;
-}
-
-float (*lfofuncs[LFO_LAST])(float t, u32 step) = {
-		[LFO_TRI]=EvalTri, [LFO_SIN]=EvalSin, [LFO_SMOOTHNOISE]=EvalSmoothNoise, [LFO_STEPNOISE]=EvalStepNoise,
-		[LFO_BISQUARE]=EvalBiSquare, [LFO_SQUARE]=EvalSquare, [LFO_SANDCASTLE]=EvalSandcastle, [LFO_BITRIGS]=EvalBiTrigs, [LFO_TRIGS]=EvalTrigs, [LFO_ENV]=EvalEnv,
-		[LFO_SAW]=EvalSaw,
-};
-
-float lfo_eval(u32 ti, float warp, unsigned int shape) {
-	int step = (ti >> 16)<<1;
-	float t = (ti & 65535) * (1.f / 65536.f);
-	if (t < warp)
-		t /= warp;
-	else {
-		step++;
-		t = (1.f - t) / (1.f-warp);
-	}
-	if (shape>=LFO_LAST) shape=0;
-	return (*lfofuncs[shape])(t, step);
-}
-
-int params_premod[P_LAST]; // parameters with the lfos/inputs pre-mixed in
-#define FULLBITS 10
-#define QUARTER (FULL/4)
-#define EIGHTH (FULL/8)
-#define QUANT(v,maxi) ( ((v)*FULL+FULL/2)/(maxi) )
+#define QUARTER (PARAM_SIZE/4)
+#define EIGHTH (PARAM_SIZE/8)
+#define QUANT(v,maxi) ( ((v)*PARAM_SIZE+PARAM_SIZE/2)/(maxi) )
 
 #define FIRST_PRESET_IDX 0
 #define LAST_PRESET_IDX 32
@@ -130,7 +53,6 @@ u8 copy_request = 255;
 u8 preset_copy_source = 0;
 u8 pattern_copy_source = 0;
 u8 sample_copy_source = 0;
-u8 recording_knobs = 0;
 s8 selected_preset_global; // the thing that gets cleared when you hold down X
 
 float knobbase[2];
@@ -155,27 +77,6 @@ SysParams sysparams;
 static inline FlashPage* GetFlashPagePtr(u8 page) { return (FlashPage*)(FLASH_ADDR_256 + page * 2048); }
 
 Preset const init_params;
-int mod_cur[8]; // 16 bit fp
-
-
-static inline int GetHeadphoneAsParam(void) {
-	return (sysparams.headphonevol + 45) * (FULL / 64);
-}
-
-static inline int param_eval_premod(u8 paramidx) {
-	if (paramidx == P_HEADPHONE)
-		return params_premod[paramidx] = GetHeadphoneAsParam() * 65536 ;
-	s16* p = rampreset.params[paramidx];
-	int tv = p[M_BASE] << 16;
-	tv += (mod_cur[M_A] * p[M_A]);
-	tv += (mod_cur[M_B] * p[M_B]);
-	tv += (mod_cur[M_X] * p[M_X]);
-	tv += (mod_cur[M_Y] * p[M_Y]);
-	params_premod[paramidx] = tv;
-	return tv;
-}
-
-
 
 static inline Preset* GetSavedPreset(u8 presetidx) {
 #ifdef HALF_FLASH
@@ -234,23 +135,23 @@ bool CopyPresetToRam(bool force) {
 		return true; // nothing to do
 	if (updating_bank2 || IsGenDirty(GEN_PRESET)) return false; // not copied yet
 	memcpy(&rampreset, GetSavedPreset(sysparams.curpreset), sizeof(rampreset));
-	for (int m = 1; m < M_LAST; ++m)
-		rampreset.params[P_HEADPHONE][m] = 0;
+	for (int m = 1; m < NUM_MOD_SOURCES; ++m)
+		rampreset.params[P_VOLUME][m] = 0;
 	// upgrade rampreset.version to CUR_PRESET_VERSION
 	if (rampreset.version == 0) {
 		rampreset.version = 1;
 		// swappin these around ;)
 		SwapParams(P_MIX_WIDTH,P_ACCEL_SENS);
-		rampreset.params[P_MIX_WIDTH][0] = HALF; // set default
+		rampreset.params[P_MIX_WIDTH][0] = HALF_PARAM_SIZE; // set default
 	}
 	if (rampreset.version == 1) {
 		rampreset.version = 2;
 		// insert a new lfo shape at LFO_SAW
 		for (int p = 0; p < 4; ++p) {
-			s16* data = rampreset.params[P_ASHAPE + p * 6];
-			*data = (*data * (LFO_LAST - 1)) / (LFO_LAST); // rescale to add extra enum entry
-			if (*data >= (LFO_SAW * FULL) / LFO_LAST) // and shift high numbers up
-				*data += (1 * FULL) / LFO_LAST;
+			s16* data = rampreset.params[P_A_SHAPE + p * 6];
+			*data = (*data * (NUM_LFO_SHAPES - 1)) / (NUM_LFO_SHAPES); // rescale to add extra enum entry
+			if (*data >= (LFO_SAW * PARAM_SIZE) / NUM_LFO_SHAPES) // and shift high numbers up
+				*data += (1 * PARAM_SIZE) / NUM_LFO_SHAPES;
 		}
 	}
 	rampreset_idx = sysparams.curpreset;
@@ -405,49 +306,6 @@ void SetPattern(u8 pattern, bool force) {
 	ramtime[GEN_SYS]=millis();
 }*/
 
-
-int GetParam(u8 paramidx, u8 mod) {
-	if (paramidx == P_HEADPHONE)
-		return mod ? 0 : GetHeadphoneAsParam();
-	return rampreset.params[paramidx][mod];
-}
-
-void EditParamNoQuant(u8 paramidx, u8 mod, s16 data) {
-	if (paramidx >= P_LAST || mod >= M_LAST)
-		return;
-	if (paramidx == P_HEADPHONE) {
-		if (mod == M_BASE) {
-			data = clampi(-45, ((data + (FULL/128)) / (FULL / 64)) - 45, 18);
-			if (data == sysparams.headphonevol)
-				return;
-			sysparams.headphonevol = data;
-			ramtime[GEN_SYS] = millis();
-		}
-		return;
-	}
-	if (!CopyPresetToRam(false))
-		return; // oh dear we haven't backed up the previous one yet!
-	int olddata = GetParam(paramidx, mod);
-	if (olddata == data)
-		return;
-	rampreset.params[paramidx][mod] = data;
-	param_eval_premod(paramidx);
-	//if (paramidx == P_SEQSTEP && mod == M_BASE)
-	//	return; // dont set dirty when you're just moving the current playhead pos.
-	ramtime[GEN_PRESET]=millis();
-}
-
-void EditParamQuant(u8 paramidx, u8 mod, s16 data) {
-	int max = param_flags[paramidx] & FLAG_MASK;
-	if (max>0) {
-		data %= max; 
-		if (data < 0 && !(param_flags[paramidx] & FLAG_SIGNED))
-			data += max;
-		data = ((data * 2 + 1) * FULL) / (max * 2);
-	}
-	EditParamNoQuant(paramidx, mod, data);
-}
-
 bool NeedWrite(int gen, u32 now) {
 	if (ramtime[gen] == flashtime[gen])
 		return false;
@@ -572,7 +430,7 @@ void PumpFlashWrites(void) {
 						ProgramPage(GetSavedPatternQuarter(srcpat * 4 + i), sizeof(PatternQuarter), 32 + dstpat * 4 + i);
 #endif
 				}
-				EditParamQuant(P_SEQPAT, M_BASE, dstpat);
+				save_param(P_PATTERN, SRC_BASE, dstpat);
 			}
 		}
 		copy_request = 255;
@@ -591,166 +449,115 @@ Preset const init_params = {
 	.version=CUR_PRESET_VERSION,
 	.params=
 	{
-		[P_SENS] = {HALF},
-		[P_DRIVE] = {0},
-		[P_A] = {EIGHTH},
-		[P_D] = {QUARTER},
-		[P_S] = {FULL},
-		[P_R] = {EIGHTH},
+		[P_ENV_LVL1] = {HALF_PARAM_SIZE},
+		[P_DISTORTION] = {0},
+		[P_ATTACK1] = {EIGHTH},
+		[P_DECAY1] = {QUARTER},
+		[P_SUSTAIN1] = {PARAM_SIZE},
+		[P_RELEASE1] = {EIGHTH},
 
 		[P_OCT] = {0,0,0},
 		[P_PITCH] = {0,0,0},
-		[P_SCALE] = {QUANT(S_MAJOR,S_LAST)},
-		[P_MICROTUNE] = {EIGHTH},
-		[P_STRIDE] = {QUANT(7,13)},
-		[P_INTERVAL] = {(0 * FULL) / 12},
-		[P_ROTATE] = {0,0,0},
+		[P_SCALE] = {QUANT(S_MAJOR,NUM_SCALES)},
+		[P_MICROTONE] = {EIGHTH},
+		[P_COLUMN] = {QUANT(7,13)},
+		[P_INTERVAL] = {(0 * PARAM_SIZE) / 12},
+		[P_DEGREE] = {0,0,0},
 
 		[P_NOISE] = {0,0,0},
 
-		[P_SMP_RATE] = {HALF},
-		[P_SMP_GRAINSIZE] = {HALF},
-		[P_SMP_TIME] = {HALF},
+		[P_SMP_SPEED] = {HALF_PARAM_SIZE},
+		[P_SMP_GRAINSIZE] = {HALF_PARAM_SIZE},
+		[P_SMP_STRETCH] = {HALF_PARAM_SIZE},
 		
 
-		//		[P_ARPMODE]={QUANT(ARP_UP,NUM_ARP_ORDERS)},
-				[P_ARPDIV] = {QUANT(2,NUM_SYNC_DIVS) },
-				[P_ARPPROB] = {FULL},
-				[P_ARPLEN] = {QUANT(8,17)},
-				[P_ARPOCT] = {QUANT(0,4)},
+		//		[P_ARP_ORDER]={QUANT(ARP_UP,NUM_ARP_ORDERS)},
+				[P_ARP_CLK_DIV] = {QUANT(2,NUM_SYNC_DIVS) },
+				[P_ARP_CHANCE] = {PARAM_SIZE},
+				[P_ARP_EUC_LEN] = {QUANT(8,17)},
+				[P_ARP_OCTAVES] = {QUANT(0,4)},
 				[P_GLIDE] = {0},
 
-				[P_SEQMODE] = {QUANT(SEQ_ORD_FWD,NUM_SEQ_ORDERS)},
-				[P_SEQDIV] = {QUANT(6,NUM_SYNC_DIVS+1)},
-				[P_SEQPROB] = {FULL},
-				[P_SEQLEN] = {QUANT(8,17)},
-				[P_SEQPAT] = {QUANT(0,24)},
-				[P_SEQSTEP] = {0},
+				[P_SEQ_ORDER] = {QUANT(SEQ_ORD_FWD,NUM_SEQ_ORDERS)},
+				[P_SEQ_CLK_DIV] = {QUANT(6,NUM_SYNC_DIVS+1)},
+				[P_SEQ_CHANCE] = {PARAM_SIZE},
+				[P_SEQ_EUC_LEN] = {QUANT(8,17)},
+				[P_PATTERN] = {QUANT(0,24)},
+				[P_STEP_OFFSET] = {0},
 				[P_TEMPO] = {0},
 
-				[P_GATE_LENGTH] = {FULL},
+				[P_GATE_LENGTH] = {PARAM_SIZE},
 
-				//[P_DLSEND]={HALF},
-				[P_DLTIME] = {QUANT(3,8)},
-				[P_DLFB] = {HALF},
-				//[P_DLCOLOR]={FULL},
-				[P_DLWOB] = {QUARTER},
-				[P_DLRATIO] = {FULL},
+				//[P_DLY_SEND]={HALF_PARAM_SIZE},
+				[P_DLY_TIME] = {QUANT(3,8)},
+				[P_DLY_FEEDBACK] = {HALF_PARAM_SIZE},
+				//[P_DLCOLOR]={PARAM_SIZE},
+				[P_DLY_WOBBLE] = {QUARTER},
+				[P_DLY_PINGPONG] = {PARAM_SIZE},
 
-				[P_RVSEND]={QUARTER},
-				[P_RVTIME] = {HALF},
-				[P_RVSHIM] = {QUARTER},
-				//[P_RVCOLOR]={FULL-QUARTER},
-				[P_RVWOB] = {QUARTER},
-				//[P_RVUNUSED]={0},
+				[P_RVB_SEND]={QUARTER},
+				[P_RVB_TIME] = {HALF_PARAM_SIZE},
+				[P_RVB_SHIMMER] = {QUARTER},
+				//[P_RVCOLOR]={PARAM_SIZE-QUARTER},
+				[P_RVB_WOBBLE] = {QUARTER},
+				//[P_RVB_UNUSED]={0},
 
 
-				[P_MIXSYNTH] = {HALF},
-				[P_MIX_WIDTH] = {(HALF * 7)/8},
-				[P_MIXINWETDRY] = {0},
+				[P_SYNTH_LVL] = {HALF_PARAM_SIZE},
+				[P_MIX_WIDTH] = {(HALF_PARAM_SIZE * 7)/8},
+				[P_INPUT_WET_DRY] = {0},
 #ifdef EMU
-				[P_MIXINPUT] = {0},
+				[P_INPUT_LVL] = {0},
 #else
-				[P_MIXINPUT] = {HALF},
+				[P_INPUT_LVL] = {HALF_PARAM_SIZE},
 #endif
-				[P_MIXWETDRY] = {0},
+				[P_SYNTH_WET_DRY] = {0},
 							
 #ifdef NEW_LAYOUT
-		[P_A2] = {EIGHTH},
-		[P_D2] = {QUARTER},
-		[P_S2] = {FULL},
-		[P_R2] = {EIGHTH},
+		[P_ATTACK2] = {EIGHTH},
+		[P_DECAY2] = {QUARTER},
+		[P_SUSTAIN2] = {PARAM_SIZE},
+		[P_RELEASE2] = {EIGHTH},
 		[P_SWING] = {0},
 #else
 				[P_ENV_RATE] = {QUARTER},
 				[P_ENV_REPEAT] = {0},
-				[P_ENV_WARP] = {-FULL},
+				[P_ENV_WARP] = {-PARAM_SIZE},
 #endif
-				[P_ENV_LEVEL] = {HALF},
+				[P_ENV_LVL2] = {HALF_PARAM_SIZE},
 				[P_CV_QUANT] = {QUANT(CVQ_OFF,CVQ_LAST)},
 
-				[P_AOFFSET] = {0},
-				[P_ASCALE] = {HALF},
-				[P_ADEPTH] = {0},
-				[P_AFREQ] = {0},
-				//[P_ASHAPE] = {QUANT(LFO_ENV,LFO_LAST)},
-				[P_AWARP] = {0},
+				[P_A_OFFSET] = {0},
+				[P_A_SCALE] = {HALF_PARAM_SIZE},
+				[P_A_DEPTH] = {0},
+				[P_A_RATE] = {0},
+				//[P_A_SHAPE] = {QUANT(LFO_ENV,NUM_LFO_SHAPES)},
+				[P_A_SYM] = {0},
 
-				[P_BOFFSET] = {0},
-				[P_BSCALE] = {HALF},
-				[P_BDEPTH] = {0},
-				[P_BFREQ] = {100},
-				[P_BSHAPE] = {0},
-				[P_BWARP] = {0},
+				[P_B_OFFSET] = {0},
+				[P_B_SCALE] = {HALF_PARAM_SIZE},
+				[P_B_DEPTH] = {0},
+				[P_B_RATE] = {100},
+				[P_B_SHAPE] = {0},
+				[P_B_SYM] = {0},
 
-				[P_XOFFSET] = {0},
-				[P_XSCALE] = {HALF},
-				[P_XDEPTH] = {0},
-				[P_XFREQ] = {-123},
-				[P_XSHAPE] = {0},
-				[P_XWARP] = {0},
+				[P_X_OFFSET] = {0},
+				[P_X_SCALE] = {HALF_PARAM_SIZE},
+				[P_X_DEPTH] = {0},
+				[P_X_RATE] = {-123},
+				[P_X_SHAPE] = {0},
+				[P_X_SYM] = {0},
 
-				[P_YOFFSET] = {0},
-				[P_YSCALE] = {HALF},
-				[P_YDEPTH] = {0},
-				[P_YFREQ] = {-315},
-				[P_YSHAPE] = {0},
-				[P_YWARP] = {0},
+				[P_Y_OFFSET] = {0},
+				[P_Y_SCALE] = {HALF_PARAM_SIZE},
+				[P_Y_DEPTH] = {0},
+				[P_Y_RATE] = {-315},
+				[P_Y_SHAPE] = {0},
+				[P_Y_SYM] = {0},
 
-				[P_ACCEL_SENS] = {HALF},
+				[P_ACCEL_SENS] = {HALF_PARAM_SIZE},
 
 				[P_MIDI_CH_IN] = {0},
 				[P_MIDI_CH_OUT] = {0},
 				}
 }; // init params
-
-
-u8 lfo_history[16][4];
-u8 lfo_history_pos;
-uint64_t lfo_pos[4];
-u16 finger_rnd[8] = { 0, 1 << 12, 2 << 12, 3 << 12, 4 << 12, 5 << 12, 6 << 12, 7 << 12 }; // incremented by a big prime each time the finger is triggered
-u16 any_rnd = { 8 << 12 }; // incremented every time any finger goes down
-int tilt16 = 0; // average tilt, 
-int env16 = 0; // global attack/decay env - TODO
-int pressure16 = 0; // max pressure
-static inline int index_to_tilt16(int fingeridx) {
-	return fingeridx * 16384 - (28672*2);
-}
-static inline int param_eval_int_noscale(u8 paramidx, int rnd, int env16, int pressure16) { // 16 bit fp
-	s16* p = rampreset.params[paramidx];
-	int tv = params_premod[paramidx]; // p[M_BASE] * 65538;
-	if (p[M_RND]) {
-		u16 ri = (u16)(rnd + paramidx);
-		if (p[M_RND] > 0)
-			// unsigned uniform distribution
-			tv += (rndtab[ri] * p[M_RND]) << 8;
-		else {
-			// signed! triangular distribution
-			ri += ri;
-			tv += (((int)rndtab[ri] - (int)rndtab[ri - 1]) * p[M_RND]) << 8;
-		}
-	}
-	//tv += (tilt16 * p[M_TILT]);
-	tv += (env16 * p[M_ENV]);
-	tv += (maxi(0,pressure16) * p[M_PRESSURE]);
-	/*
-	tv += (mod_cur[M_A] * p[M_A]);
-	tv += (mod_cur[M_B] * p[M_B]);
-	tv += (mod_cur[M_X] * p[M_X]);
-	tv += (mod_cur[M_Y] * p[M_Y]);
-	*/
-	u8 flags = param_flags[paramidx];
-	u8 maxi = flags & FLAG_MASK;
-	return clampi(tv >> FULLBITS, (flags & FLAG_SIGNED) ? -65536 : 0, maxi ? 65535 : 65536);
-}
-
-int param_eval_int(u8 paramidx, int rnd, int env16, int pressure16) { // 16 bit fp
-	u8 flags = param_flags[paramidx];
-	u8 maxi = flags & FLAG_MASK;
-	int tv = param_eval_int_noscale(paramidx, rnd, env16, pressure16);
-	if (maxi) {
-		tv = (tv * maxi) >> 16;
-	}
-	return tv;
-}
-

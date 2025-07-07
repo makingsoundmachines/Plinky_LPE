@@ -6,16 +6,6 @@
 #include "ui/pad_actions.h"
 #include "ui/ui.h"
 
-// needs cleanup
-#include <math.h>
-extern void ShowMessage(Font fnt, const char* msg, const char* submsg);
-extern Preset const init_params;
-extern int GetParam(u8 paramidx, u8 mod);
-extern void EditParamNoQuant(u8 paramidx, u8 mod, s16 data);
-extern void toggle_latch(void);
-extern void toggle_arp(void);
-// -- needs cleanup
-
 volatile s8 encoder_value = 0;
 volatile bool encoder_pressed = false;
 
@@ -56,12 +46,11 @@ void encoder_irq(void) {
 	encoder_acc += abs(prev_encoder_value - encoder_value) * 0.125f;
 }
 
-// this function is not cleaned up as 95% of it belongs in other modules that don't exist yet
 void encoder_tick(void) {
 	static u16 encoder_press_duration = 0;
 	static bool prev_encoder_pressed;
 
-	int enc_diff = encoder_value >> 2;
+	s8 enc_diff = encoder_value >> 2;
 
 	// hold time
 	if (encoder_pressed)
@@ -87,91 +76,40 @@ void encoder_tick(void) {
 		// log time
 		last_encoder_use = millis();
 		encoder_value -= enc_diff << 2;
+	}
 
-		// basically all of this belongs in the parameter module
-		int param_id = selected_param;
-		if (param_id >= P_LAST)
-			param_id = last_selected_param;
-		switch (ui_mode) {
-		case UI_DEFAULT:
-		case UI_EDITING_A:
-		case UI_EDITING_B:
-			if (param_id < P_LAST) {
-				// retrieve parameters
-				int saved_param_value = GetParam(param_id, selected_mod_src);
-				int prev_enc_val = saved_param_value;
-				int flag_ = param_flags[param_id];
-				bool is_signed = flag_ & FLAG_SIGNED;
-				is_signed |= (selected_mod_src != M_BASE);
-				// modify parameter value
-				if ((flag_ & FLAG_MASK) && !selected_mod_src) {
-					int maxi = flag_ & FLAG_MASK;
-					saved_param_value += enc_diff * (FULL / maxi);
-				}
-				else {
-					int enc_val_sens = 1;
-					if (param_id == P_HEADPHONE)
-						enc_val_sens = 4;
-					saved_param_value +=
-					    (int)floorf(0.5f + enc_diff * enc_val_sens * maxf(1.f, encoder_acc * encoder_acc));
-				}
-				saved_param_value = clampi(saved_param_value, is_signed ? -FULL : 0, FULL);
-
-				// encoder button
-				if (encoder_press_duration > 10) {
-					if (encoder_press_duration >= 50) {
-						ShowMessage(F_20_BOLD, I_CROSS "Mod Cleared", "");
-						if (encoder_press_duration == 50) {
-							for (int mod = 1; mod < M_LAST; ++mod)
-								EditParamNoQuant(param_id, mod, (s16)0);
-						}
-					}
-					else {
-						ShowMessage(F_20_BOLD, I_CROSS "Clear Mod?", "");
-					}
-				}
-				// button release, short press
-				if (!encoder_pressed && prev_encoder_pressed && encoder_press_duration <= 50) {
-					int base_val = (selected_mod_src) ? 0 : init_params.params[param_id][0];
-					// toggle between 0 and set value
-					if (base_val != 0) {
-						if (saved_param_value != base_val)
-							saved_param_value = base_val;
-						else
-							saved_param_value = 0;
-					}
-					else {
-						if (saved_param_value != 0)
-							saved_param_value = 0;
-						else
-							saved_param_value = FULL;
-					}
-				}
-				// button press, toggle fake params
-				if (encoder_pressed && !prev_encoder_pressed) {
-					if (param_id == P_ARPONOFF) {
-						toggle_arp();
-					}
-					else if (param_id == P_LATCHONOFF) {
-						toggle_latch();
-					}
-				}
-				// saved_param_value has changed since the start of the function
-				if (prev_enc_val != saved_param_value) {
-					// save it to memory
-					EditParamNoQuant(param_id, selected_mod_src, (s16)saved_param_value);
-				}
-			}
+	switch (ui_mode) {
+	case UI_DEFAULT:
+	case UI_EDITING_A:
+	case UI_EDITING_B:
+		// get current or last edited param
+		Param param_id = get_recent_param();
+		// exit if no valid param
+		if (param_id >= NUM_PARAMS)
 			break;
-		case UI_SAMPLE_EDIT:
+		// encoder turned
+		if (enc_diff)
+			edit_param_from_encoder(param_id, enc_diff, encoder_acc);
+		// start of an encoder press
+		if (encoder_pressed && !prev_encoder_pressed)
+			check_param_toggles(param_id);
+		// release of a short encoder press
+		else if (!encoder_pressed && prev_encoder_pressed && encoder_press_duration <= 50)
+			params_toggle_default_value(param_id);
+		// hold encoder (not during reboot sequence)
+		if (encoder_press_duration <= 250)
+			hold_encoder_for_params(encoder_press_duration);
+		break;
+	case UI_SAMPLE_EDIT:
+		if (enc_diff) {
 			if (get_sample_info()->pitched)
 				sampler_adjust_cur_slice_pitch(enc_diff);
 			else
 				sampler_adjust_cur_slice_point(enc_diff * 512);
-			break;
-		default:
-			break;
 		}
+		break;
+	default:
+		break;
 	}
 
 	if (!encoder_pressed)

@@ -45,4 +45,4 @@ u16 adc_get_raw(ADC_DAC_Index index);
 float adc_get_calib(ADC_DAC_Index index);
 float adc_get_smooth(ADCSmoothIndex index);
 
-void adc_smooth_values(void);
+void adc_update_inputs(void);

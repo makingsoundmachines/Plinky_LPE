@@ -19,16 +19,19 @@ extern s8 selected_preset_global; // system
 #define SHORT_PRESS_TIME 250 // ms
 
 ShiftState shift_state = SS_NONE;
-bool action_pressed_during_shift = false;
 
 static u8 prev_ui_mode = UI_DEFAULT;
 static u32 shift_last_press_time = 0;
-static bool param_from_mem = false;
+static bool action_pressed_during_shift = false;
 
 // we'd prefer not exposing these
 u32 shift_state_frames = 0;
 bool shift_short_pressed(void) {
 	return (shift_state == SS_NONE) || ((synth_tick - shift_last_press_time) < SHORT_PRESS_TIME);
+}
+
+void press_action_during_shift(void) {
+	action_pressed_during_shift = true;
 }
 
 void shift_set_state(ShiftState new_state) {
@@ -83,30 +86,10 @@ void shift_set_state(ShiftState new_state) {
 	action_pressed_during_shift = false;
 	switch (shift_state) {
 	case SS_SHIFT_A:
-		// remember parameter
-		if (!VALID_PARAM_SELECTED && last_selected_param < P_LAST) {
-			selected_param = last_selected_param;
-			param_from_mem = true;
-		}
-		else
-			param_from_mem = false;
-		// make sure our parameter is an A parameter
-		if (VALID_PARAM_SELECTED && (selected_param % 12) >= 6)
-			selected_param -= 6;
-		// activate A edit mode
-		ui_mode = UI_EDITING_A;
-		break;
 	case SS_SHIFT_B:
-		// identical to SS_SHIFT_A
-		if (!VALID_PARAM_SELECTED && last_selected_param < P_LAST) {
-			selected_param = last_selected_param;
-			param_from_mem = true;
-		}
-		else
-			param_from_mem = false;
-		if (VALID_PARAM_SELECTED && (selected_param % 12) < 6)
-			selected_param += 6;
-		ui_mode = UI_EDITING_B;
+		bool mode_a = shift_state == SS_SHIFT_A;
+		ui_mode = mode_a ? UI_EDITING_A : UI_EDITING_B;
+		enter_param_edit_mode(mode_a);
 		break;
 	case SS_LOAD:
 		// activate preset load screen
@@ -194,18 +177,8 @@ void shift_release_state(void) {
 	switch (shift_state) {
 	case SS_SHIFT_A:
 	case SS_SHIFT_B:
-		// return to default mode
 		ui_mode = UI_DEFAULT;
-		last_selected_param = selected_param; // save param
-		if (!action_pressed_during_shift && !param_from_mem) {
-			selected_param = P_LAST;
-			selected_mod_src = 0;
-		}
-		// these arent real params, so don't remember them
-		if (selected_param == P_ARPONOFF || selected_param == P_LATCHONOFF) {
-			selected_param = P_LAST;
-			selected_mod_src = 0;
-		}
+		try_exit_param_edit_mode(action_pressed_during_shift);
 		break;
 	case SS_LOAD:
 		if (action_pressed_during_shift || prev_ui_mode == ui_mode)

@@ -2,6 +2,7 @@
 #include "data/fonts.h"
 #include "data/icons.h"
 #include "data/logo.h"
+#include "data/names.h"
 
 u8 gfx_text_color = 1;
 
@@ -389,6 +390,10 @@ int drawstr_noright(int x, int y, Font f, const char* buf) {
 			return x;
 	}
 	return x;
+}
+
+void gfx_flash_parameter(u8 param_id) {
+	ShowMessage(F_20_BOLD, param_names[param_id], param_page_names[param_id / 6]);
 }
 
 // LOGO

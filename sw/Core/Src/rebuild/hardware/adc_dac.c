@@ -2,13 +2,6 @@
 #include "cv.h"
 #include "synth/params.h"
 
-// cleanup
-extern u16 any_rnd;
-extern int env16;
-extern int pressure16;
-int param_eval_int(u8 paramidx, int rnd, int env16, int pressure16);
-// -- cleanup
-
 // these are defined in main.c
 extern DAC_HandleTypeDef hdac1;
 extern ADC_HandleTypeDef hadc1;
@@ -81,7 +74,7 @@ float adc_get_smooth(ADCSmoothIndex index) {
 	if (index == ADC_S_PITCH) {
 		s32 pitch = (s32)(adc_smoother[ADC_S_PITCH].y2 * (512.f * 12.f));
 		// quantize pitch according to param
-		if (param_eval_int(P_CV_QUANT, any_rnd, env16, pressure16))
+		if (param_val(P_CV_QUANT))
 			pitch = (pitch + 256) & (~511);
 		return pitch;
 	}
@@ -89,17 +82,16 @@ float adc_get_smooth(ADCSmoothIndex index) {
 }
 
 // same as general smooth_value(), but with faster constants
-static float adc_smooth_value(ValueSmoother* s, float new_val) {
+static void adc_smooth_value(ValueSmoother* s, float new_val) {
 	// inspired by  https ://cytomic.com/files/dsp/DynamicSmoothing.pdf
 	const static float sens = 10.f;
 	float band = fabsf(s->y2 - s->y1);
 	float g = minf(1.f, 0.1f + band * sens);
 	s->y1 += (new_val - s->y1) * g;
 	s->y2 += (s->y1 - s->y2) * g;
-	return s->y2;
 }
 
-void adc_smooth_values(void) {
+void adc_update_inputs(void) {
 	// why don't we clamp in the calib stage? and why aren't all calls to value_calib clamped?
 	adc_smooth_value(adc_smoother + ADC_S_A_CV, clampf(adc_get_calib(ADC_A_CV), -1.f, 1.f));
 	adc_smooth_value(adc_smoother + ADC_S_B_CV, clampf(adc_get_calib(ADC_B_CV), -1.f, 1.f));

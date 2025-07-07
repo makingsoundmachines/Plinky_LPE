@@ -9,10 +9,6 @@
 
 // cleanup
 extern Preset rampreset;
-extern u16 any_rnd;
-extern int env16;
-extern int pressure16;
-int param_eval_int(u8 paramidx, int rnd, int env16, int pressure16);
 // -- cleanup
 
 ArpOrder arp_order = ARP_NONE;
@@ -155,7 +151,7 @@ static void advance_step() {
 	if (arp_order >= ARP_UP8)
 		avail_touch_mask = 0b11111111;
 	// map the used octaves evenly above/below the current octave
-	u8 arp_octs = param_eval_int(P_ARPOCT, any_rnd, env16, pressure16);
+	u8 arp_octs = param_val(P_ARP_OCTAVES);
 	u8 top_oct_offset = (arp_octs + 1) / 2;
 	s8 bottom_oct_offset = top_oct_offset - arp_octs;
 	switch (arp_order) {
@@ -224,9 +220,9 @@ static void advance_step() {
 
 void arp_tick(void) {
 	// update properties
-	arp_order = (rampreset.flags & FLAGS_ARP) ? param_eval_int(P_ARPMODE, any_rnd, env16, pressure16) : ARP_NONE;
-	c_step.euclid_len = param_eval_int(P_ARPLEN, any_rnd, env16, pressure16);
-	c_step.density = param_eval_int(P_ARPPROB, any_rnd, env16, pressure16);
+	arp_order = (rampreset.flags & FLAGS_ARP) ? param_val(P_ARP_ORDER) : ARP_NONE;
+	c_step.euclid_len = param_val(P_ARP_EUC_LEN);
+	c_step.density = param_val(P_ARP_CHANCE);
 
 	// arp not active
 	if (arp_order == ARP_NONE || ui_mode == UI_SAMPLE_EDIT)
@@ -240,7 +236,7 @@ void arp_tick(void) {
 
 	// does this tick generate a step?
 	bool arp_step = false;
-	s32 arp_div = param_eval_int(P_ARPDIV, any_rnd, env16, pressure16);
+	s32 arp_div = param_val(P_ARP_CLK_DIV);
 	// clock synced
 	if (arp_div >= 0) {
 		u8 step_32nds = sync_divs_32nds[(clampi(arp_div, 0, 65535) * NUM_SYNC_DIVS) >> 16];

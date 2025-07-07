@@ -22,6 +22,10 @@ typedef enum Font {
 	F_32_BOLD,
 } Font;
 
+// cleanup
+void ShowMessage(Font fnt, const char* msg, const char* submsg);
+// -- cleanup
+
 extern u8 gfx_text_color; // 0 = black, 1 = white, 2 = upper shadow, 3 = lower shadow
 
 void gfx_init();
@@ -41,6 +45,8 @@ int str_height(Font f, const char* buf);
 int draw_str(int x, int y, Font f, const char* buf);
 int fdraw_str(int x, int y, Font f, const char* fmt, ...);
 int drawstr_noright(int x, int y, Font f, const char* buf);
+
+void gfx_flash_parameter(u8 param_id);
 
 void gfx_dither_logo(u8 frame);
 void gfx_debug(u8 row, const char* fmt, ...);

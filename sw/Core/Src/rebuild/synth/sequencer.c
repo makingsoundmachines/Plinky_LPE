@@ -15,16 +15,10 @@ extern u8 pending_pattern;
 extern Preset rampreset;
 extern u32 ramtime[GEN_LAST];
 extern u8 pending_sample1;
-extern u16 any_rnd;
-extern int env16;
-extern int pressure16;
 extern u8 rampattern_idx;
 extern u8 cur_pattern;
 extern PatternQuarter rampattern[NUM_QUARTERS];
-int param_eval_int(u8 paramidx, int rnd, int env16, int pressure16);
 void SetPreset(u8 preset, bool force);
-void EditParamQuant(u8 paramidx, u8 mod, s16 data);
-int param_eval_finger(u8 paramidx, int fingeridx, Touch* f);
 bool OnLoop(void);
 // -- cleanup
 
@@ -87,7 +81,7 @@ static void align_cur_step(void) {
 
 // calculate start step from preset and step offset modulation
 static void recalc_start_step(void) {
-	cur_seq_start = (rampreset.seq_start + param_eval_int(P_SEQSTEP, any_rnd, env16, pressure16) + 64) & 63;
+	cur_seq_start = (rampreset.seq_start + param_val(P_STEP_OFFSET) + 64) & 63;
 	// this always needs an align of cur step as well
 	align_cur_step();
 }
@@ -135,8 +129,8 @@ static void seq_step(void) {
 	seq_flags.force_next_step = false;
 
 	if (SEQ_CLOCK_SYNCED) {
-		c_step.euclid_len = param_eval_int(P_SEQLEN, any_rnd, env16, pressure16);
-		c_step.density = param_eval_int(P_SEQPROB, any_rnd, env16, pressure16);
+		c_step.euclid_len = param_val(P_SEQ_EUC_LEN);
+		c_step.density = param_val(P_SEQ_CHANCE);
 		do_conditional_step(&c_step, ARP_NONE);
 	}
 	// gate sync is not conditional
@@ -151,7 +145,7 @@ static void seq_step(void) {
 	}
 
 	// we're advancing, let's define what the next step is going to be
-	SeqOrder seq_order = param_eval_int(P_SEQMODE, any_rnd, env16, pressure16);
+	SeqOrder seq_order = param_val(P_SEQ_ORDER);
 	bool wrapped = false;
 	switch (seq_order) {
 	case SEQ_ORD_PAUSE:
@@ -231,7 +225,7 @@ static void seq_step(void) {
 void seq_tick(void) {
 	// update properties
 	ticks_since_step++;
-	u8 seq_div = param_eval_int(P_SEQDIV, any_rnd, env16, pressure16);
+	u8 seq_div = param_val(P_SEQ_CLK_DIV);
 	step_32nds = seq_div == NUM_SYNC_DIVS ? -1 : sync_divs_32nds[clampi(seq_div, 0, NUM_SYNC_DIVS - 1)];
 	recalc_start_step();
 
@@ -332,7 +326,7 @@ void seq_try_rec_touch(u8 string_id, s16 pressure, s16 position, bool pres_incre
 }
 
 // try receiving touch data from sequencer
-void seq_try_get_touch(u8 string_id, Touch* s_touch, s16* pressure, s16* position) {
+void seq_try_get_touch(u8 string_id, s16* pressure, s16* position) {
 	// exit if we're not playing a sequencer note
 	if (!c_step.play_step || shift_state == SS_CLEAR)
 		return;
@@ -345,7 +339,7 @@ void seq_try_get_touch(u8 string_id, Touch* s_touch, s16* pressure, s16* positio
 	if (!string_step->pres[substep])
 		return;
 	// exit if we're beyond the gate length
-	if (seq_substep(GATE_LEN_SUBSTEPS) > (param_eval_finger(P_GATE_LENGTH, string_id, s_touch) >> 8)) {
+	if (seq_substep(GATE_LEN_SUBSTEPS) > (param_val_poly(P_GATE_LENGTH, string_id) >> 8)) {
 		return;
 	}
 
@@ -436,7 +430,7 @@ bool seq_dec_step(void) {
 
 void seq_try_set_start(u8 new_step) {
 	// get the unmodulated new start step
-	u8 new_start = (new_step - param_eval_int(P_SEQSTEP, any_rnd, env16, pressure16) + 64) & 63;
+	u8 new_start = (new_step - param_val(P_STEP_OFFSET) + 64) & 63;
 	// 1. not playing => change immediately
 	// 2. goal identical to cued means double press on the same step => change immediately
 	if (!seq_flags.playing || cued_ptn_start == new_start) {

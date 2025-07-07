@@ -17,7 +17,8 @@ typedef enum ShiftState {
 } ShiftState;
 
 extern ShiftState shift_state;
-extern bool action_pressed_during_shift;
+
+void press_action_during_shift(void);
 
 void shift_set_state(ShiftState new_state);
 void shift_release_state(void);

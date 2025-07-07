@@ -1,5 +1,4 @@
 #pragma once
-#include "params.h"
 #include "utils.h"
 
 typedef struct SeqFlags {
@@ -43,13 +42,13 @@ extern u8 cued_ptn_start; // for ui
 bool seq_playing(void);
 bool seq_recording(void);
 SeqState seq_state(void);
-u32 seq_substep(u32 resolution); // ui & update_params
+u32 seq_substep(u32 resolution); // ui & params_tick
 
 // == MAIN SEQ FUNCTIONS == //
 
 void seq_tick(void);
 void seq_try_rec_touch(u8 string_id, s16 pressure, s16 position, bool pres_increasing);
-void seq_try_get_touch(u8 string_id, Touch* s_touch, s16* pressure, s16* position);
+void seq_try_get_touch(u8 string_id, s16* pressure, s16* position);
 
 // == SEQ COMMANDS == //
 

@@ -178,7 +178,7 @@ static void generate_string_touch(u8 string_id) {
 
 	// retrieve touch from sequencer
 	if (pressure <= 0)
-		seq_try_get_touch(string_id, s_touch, &pressure, &position);
+		seq_try_get_touch(string_id, &pressure, &position);
 
 	// === MIDI INPUT === //
 
@@ -264,6 +264,8 @@ void generate_string_touches(void) {
 			strings_read_frame = strings_write_frame;
 			// we write to the frame that is currently being processed by the touchstrips
 			strings_write_frame = touch_frame;
+			// we update the touch pointers for he new strings_read_frame
+			params_update_touch_pointers();
 		}
 	}
 	// toggle which half we process
@@ -327,12 +329,11 @@ static u16 find_string_position_for_midi_pitch(u8 string_id, int midi_pitch) {
 }
 
 static u8 find_free_midi_string(u8 midi_note_number, u16* midi_note_position, u8 chan) {
-	Touch* s_touch = get_string_touch(0);
 	s32 midi_pitch = 12 *
 	                     // pitch from octave parameter
-	                     ((param_eval_finger(P_OCT, 0, s_touch) << 9)
+	                     ((param_val(P_OCT) << 9)
 	                      // pitch from pitch parameter
-	                      + (param_eval_finger(P_PITCH, 0, s_touch) >> 7))
+	                      + (param_val(P_PITCH) >> 7))
 	                 // pitch from midi note
 	                 + midi_note_to_pitch_offset(midi_note_number, chan);
 

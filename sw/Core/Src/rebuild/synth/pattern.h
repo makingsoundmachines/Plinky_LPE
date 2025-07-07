@@ -1,25 +1,6 @@
 #pragma once
 #include "sequencer.h"
-#include "strings.h"
 #include "utils.h"
-
-#define MAX_PTN_STEPS 64
-#define PTN_STEPS_PER_QTR (MAX_PTN_STEPS / NUM_QUARTERS)
-#define PTN_SUBSTEPS 8
-
-typedef struct PatternStringStep {
-	u8 pos[PTN_SUBSTEPS / 2];
-	u8 pres[PTN_SUBSTEPS];
-} PatternStringStep;
-
-typedef struct PatternQuarter {
-	PatternStringStep steps[PTN_STEPS_PER_QTR][NUM_STRINGS];
-	s8 autoknob[PTN_STEPS_PER_QTR * PTN_SUBSTEPS][NUM_KNOBS];
-} PatternQuarter;
-
-// these should be incorporated in memory module:
-// static_assert(sizeof(PatternQuarter) + sizeof(SysParams) + sizeof(PageFooter) <= 2048, "?");
-// static_assert((sizeof(PatternQuarter) & 15) == 0, "?");
 
 // cleanup
 extern u8 rampattern_idx;

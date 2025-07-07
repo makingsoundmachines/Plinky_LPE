@@ -1,16 +1,12 @@
 #include "time.h"
 #include "arp.h"
+#include "params.h"
 #include "sequencer.h"
 
 // cleanup
 #include "hardware/adc_dac.h"
 #include "hardware/cv.h"
-extern u16 any_rnd;
-extern int env16;
-extern int pressure16;
 extern Preset rampreset;
-int param_eval_int(u8 paramidx, int rnd, int env16, int pressure16);
-void EditParamNoQuant(u8 paramidx, u8 mod, s16 data);
 // -- cleanup
 
 typedef enum ExtTrig { EXT_NONE, EXT_MIDI, EXT_CV } ExtTrig;
@@ -70,7 +66,7 @@ void trigger_tap_tempo(void) {
 		    (SYNTH_SAMPLE_RATE * (tap_count - 1) * 60.f) / ((synth_tick - tap_start_tick) * SAMPLES_PER_TICK);
 		bpm_10x = clampi((int)(tap_per_min * 10.f + 0.5f), MIN_BPM_10X, MAX_BPM_10X);
 		// save result to parameter
-		EditParamNoQuant(P_TEMPO, 0, ((bpm_10x - 1200) * FULL) / 1200);
+		save_param_raw(P_TEMPO, SRC_BASE, ((bpm_10x - 1200) * PARAM_SIZE) / 1200);
 	}
 }
 
@@ -114,7 +110,7 @@ void clock_tick(void) {
 
 	// internal clock => get bpm from param
 	if (using_internal_clock) {
-		bpm_10x = ((param_eval_int(P_TEMPO, any_rnd, env16, pressure16) * 1200) >> 16) + 1200;
+		bpm_10x = ((param_val(P_TEMPO) * 1200) >> 16) + 1200;
 		// accumulator clock: rollover at 1 << 21 siginifies 16th note
 		clock_16ths_q21 += ((u64)1 << 21) * bpm_10x * SAMPLES_PER_TICK / (AUDIO_SAMPLE_RATE * 150);
 		if (clock_16ths_q21 >= 1 << 21) {

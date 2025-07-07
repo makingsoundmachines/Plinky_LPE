@@ -2,10 +2,6 @@
 #include "params.h"
 #include "strings.h"
 #include "utils.h"
-// cleanup
-int param_eval_finger(u8 paramidx, int fingeridx, Touch* f);
-
-// -- cleanup
 
 typedef int Pitch;
 
@@ -43,10 +39,10 @@ typedef enum Scale {
 
 	S_CHROMATIC,
 	S_DIMINISHED,
-	S_LAST,
+	NUM_SCALES,
 } Scale;
 
-const static char* const scalenames[S_LAST] = {
+const static char* const scalenames[NUM_SCALES] = {
     [S_MAJOR] = "Major",
     [S_MINOR] = "Minor",
     [S_HARMMINOR] = "Harmonic Min",
@@ -104,7 +100,7 @@ const static char* const scalenames[S_LAST] = {
 
 #define MAX_SCALE_STEPS 12
 
-const static u16 scale_table[S_LAST][16] = {
+const static u16 scale_table[NUM_SCALES][16] = {
     [S_CHROMATIC] = {12, C, Cs, D, Ds, E, F, Fs, G, Gs, A, As, B},
     [S_MAJOR] = {7, C, D, E, F, G, A, B},
     [S_MINOR] = {7, C, D, Eb, F, G, Ab, Bb},
@@ -199,7 +195,7 @@ static inline s32 pitch_at_step(Scale scale, u8 step) {
 	return oct * (12 * 512) + scale_table[scale][step + 1];
 }
 
-static inline u8 scale_steps_at_string(Scale scale, u8 string_id, Touch* s_touch) {
+static inline u8 scale_steps_at_string(Scale scale, u8 string_id) {
 	static u8 scale_steps[NUM_STRINGS];
 	static u8 step_hash[NUM_STRINGS];
 
@@ -207,7 +203,7 @@ static inline u8 scale_steps_at_string(Scale scale, u8 string_id, Touch* s_touch
 	if (string_id == 0)
 		return 0;
 
-	s8 stride_semitones = maxi(0, param_eval_finger(P_STRIDE, string_id, s_touch));
+	s8 stride_semitones = maxi(0, param_val_poly(P_COLUMN, string_id));
 
 	// we basically lazy-generate the scale steps table - whenever the hash changes (scale or column has changed) we
 	// recalculate the scale steps for this string and reuse it until the hash changes again
@@ -257,8 +253,7 @@ static inline u8 scale_steps_at_string(Scale scale, u8 string_id, Touch* s_touch
 }
 
 static inline int string_pitch_at_pad(u8 string_id, u8 pad_y) {
-	Touch* s_touch = get_string_touch(string_id);
-	Scale scale = param_eval_finger(P_SCALE, string_id, s_touch);
+	Scale scale = param_val_poly(P_SCALE, string_id);
 	// pitch calculation:
 	return
 	    // calculate pitch offset, based on
@@ -266,9 +261,9 @@ static inline int string_pitch_at_pad(u8 string_id, u8 pad_y) {
 	        // the scale
 	        scale,
 	        // the step-offset set by "degree"
-	        param_eval_finger(P_ROTATE, string_id, s_touch) +
+	        param_val_poly(P_DEGREE, string_id) +
 	            // the step-offset of this string based on "column"
-	            scale_steps_at_string(scale, string_id, s_touch) +
+	            scale_steps_at_string(scale, string_id) +
 	            // the step-offset caused by the pad_id on the string
 	            pad_y)
 	    +
@@ -276,9 +271,9 @@ static inline int string_pitch_at_pad(u8 string_id, u8 pad_y) {
 	    12
 	        * (
 	            // octave offset
-	            (param_eval_finger(P_OCT, string_id, s_touch) << 9) +
+	            (param_val_poly(P_OCT, string_id) << 9) +
 	            // pitch offset
-	            (param_eval_finger(P_PITCH, string_id, s_touch) >> 7));
+	            (param_val_poly(P_PITCH, string_id) >> 7));
 }
 
 static inline int string_center_pitch(u8 string_id) {

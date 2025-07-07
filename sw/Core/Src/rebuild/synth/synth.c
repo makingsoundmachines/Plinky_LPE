@@ -21,8 +21,6 @@ extern int env16;
 extern int pressure16;
 extern Preset rampreset;
 
-int param_eval_finger(u8 paramidx, int voice_id, Touch* s_touch);
-
 #define clz __builtin_clz
 #define unlikely(x) __builtin_expect((x), 0)
 #define SMUAD(o, a, b) asm("smuad %0, %1, %2" : "=r"(o) : "r"(a), "r"(b))
@@ -47,8 +45,8 @@ static void osc_generation_init(void) {
 }
 
 // take string values, calculate osc pitches and write them to voice
-void generate_oscs(u8 string_id, Voice* voice, Touch* s_touch) {
-	float pres_scaled = s_touch->pres * 1.f / TOUCH_MAX_POS;
+void generate_oscs(u8 string_id, Voice* voice) {
+	float pres_scaled = get_string_touch(string_id)->pres * 1.f / TOUCH_MAX_POS;
 
 	// rj: cv_gate_value is in practice another expression of the maximum pressure over all strings, which goes against
 	// eurorack conventions (gates are generally high/low, 5V/0V) and I'm also not sure what the added value of this is,
@@ -66,7 +64,7 @@ void generate_oscs(u8 string_id, Voice* voice, Touch* s_touch) {
 	s32 summed_pitch = 0; // summed pitch of four oscillators
 
 	// these only get used by touch
-	Scale scale = S_LAST;
+	Scale scale = NUM_SCALES;
 	s32 cv_pitch_offset = 0;
 	s8 cv_step_offset = 0;
 
@@ -74,13 +72,13 @@ void generate_oscs(u8 string_id, Voice* voice, Touch* s_touch) {
 
 	s32 base_pitch = 12 *
 	                 // pitch from arp and the octave parameter
-	                 (((arp_oct_offset + param_eval_finger(P_OCT, string_id, s_touch)) << 9)
+	                 (((arp_oct_offset + param_val_poly(P_OCT, string_id)) << 9)
 	                  // pitch from the pitch parameter
-	                  + (param_eval_finger(P_PITCH, string_id, s_touch) >> 7));
+	                  + (param_val_poly(P_PITCH, string_id) >> 7));
 	// pitch from interval parameter
-	s32 osc_interval_pitch = (param_eval_finger(P_INTERVAL, string_id, s_touch) * 12) >> 7;
+	s32 osc_interval_pitch = (param_val_poly(P_INTERVAL, string_id) * 12) >> 7;
 	// scale step from rotate parameter
-	s8 string_step_offset = param_eval_finger(P_ROTATE, string_id, s_touch);
+	s8 string_step_offset = param_val_poly(P_DEGREE, string_id);
 
 	// for midi
 	if ((midi_pitch_override & mask) && !(midi_suppress & mask)) {
@@ -88,17 +86,16 @@ void generate_oscs(u8 string_id, Voice* voice, Touch* s_touch) {
 	}
 	// for touch
 	else {
-		// this param retrieval should be simplified in params
-		scale = param_eval_finger(P_SCALE, string_id, s_touch);
-		if (scale >= S_LAST)
+		scale = param_val_poly(P_SCALE, string_id);
+		if (scale >= NUM_SCALES)
 			scale = 0;
 
 		// add step offset caused by scale & column (stride) parameters
-		string_step_offset += scale_steps_at_string(scale, string_id, s_touch);
+		string_step_offset += scale_steps_at_string(scale, string_id);
 
 		// cv
 		s32 cv_pitch = adc_get_smooth(ADC_S_PITCH);
-		if (param_eval_int(P_CV_QUANT, any_rnd, env16, pressure16) == CVQ_SCALE)
+		if (param_val(P_CV_QUANT) == CVQ_SCALE)
 			cv_step_offset = pitch_to_scale_steps(cv_pitch, scale); // quantized cv
 		else
 			cv_pitch_offset = cv_pitch; // unquantized cv
@@ -112,7 +109,7 @@ void generate_oscs(u8 string_id, Voice* voice, Touch* s_touch) {
 		// for midi
 		if ((midi_pitch_override & mask) && !(midi_suppress & mask)) {
 			// generate pitch spread
-			fine_pitch = (osc_id - 2) * 64 * param_eval_finger(P_MICROTUNE, string_id, s_touch) >> 16;
+			fine_pitch = (osc_id - 2) * 64 * param_val_poly(P_MICROTONE, string_id) >> 16;
 		}
 		// for touch
 		else {
@@ -122,7 +119,7 @@ void generate_oscs(u8 string_id, Voice* voice, Touch* s_touch) {
 			note_pitch = pitch_at_step(scale, string_step_offset + pad_y + cv_step_offset) + cv_pitch_offset;
 			// detuning scaled by microtune param
 			s16 fine_pos = 127 - (position & 255); // offset from pad center
-			s32 micro_tune = 64 + param_eval_finger(P_MICROTUNE, string_id, s_touch);
+			s32 micro_tune = 64 + param_val_poly(P_MICROTONE, string_id);
 			fine_pitch = (fine_pos * micro_tune) >> 14;
 		}
 
@@ -158,10 +155,10 @@ void generate_oscs(u8 string_id, Voice* voice, Touch* s_touch) {
 	set_midi_goal_note(string_id, quad_pitch_to_midi_note(summed_pitch));
 }
 
-static float update_envelope(u8 voice_id, Voice* voice, Touch* s_touch) {
+static float update_envelope(u8 voice_id, Voice* voice) {
 	// calc goal lpg
-	float sens = param_eval_finger(P_SENS, voice_id, s_touch) * (2.f / 65536.f);
-	float goal_lpg = s_touch->pres * 1.f / TOUCH_MAX_POS * sens * sens;
+	float sens = param_val_poly(P_ENV_LVL1, voice_id) * (2.f / 65536.f);
+	float goal_lpg = get_string_touch(voice_id)->pres * 1.f / TOUCH_MAX_POS * sens * sens;
 	if (goal_lpg < 0.f)
 		goal_lpg = 0.f;
 	goal_lpg *= goal_lpg;
@@ -169,11 +166,10 @@ static float update_envelope(u8 voice_id, Voice* voice, Touch* s_touch) {
 
 	// retrieve envelope
 	bool is_sample_preview = ui_mode == UI_SAMPLE_EDIT;
-	const float attack = is_sample_preview ? 0.5f : lpf_k((param_eval_finger(P_A, voice_id, s_touch)));
-	const float decay = is_sample_preview ? 1.f : lpf_k((param_eval_finger(P_D, voice_id, s_touch)));
-	const float sustain =
-	    is_sample_preview ? 1.f : squaref(param_eval_finger(P_S, voice_id, s_touch) * (1.f / 65536.f));
-	const float release = is_sample_preview ? 0.5f : lpf_k((param_eval_finger(P_R, voice_id, s_touch)));
+	const float attack = is_sample_preview ? 0.5f : lpf_k((param_val_poly(P_ATTACK1, voice_id)));
+	const float decay = is_sample_preview ? 1.f : lpf_k((param_val_poly(P_DECAY1, voice_id)));
+	const float sustain = is_sample_preview ? 1.f : squaref(param_val_poly(P_SUSTAIN1, voice_id) * (1.f / 65536.f));
+	const float release = is_sample_preview ? 0.5f : lpf_k((param_val_poly(P_RELEASE1, voice_id)));
 
 	u8 mask = 1 << voice_id;
 	if (arp_active() && !arp_touched(voice_id))
@@ -209,13 +205,13 @@ static float update_envelope(u8 voice_id, Voice* voice, Touch* s_touch) {
 	return env_lvl;
 }
 
-static void apply_subtractive_lpg_noise(u8 voice_id, Voice* voice, Touch* s_touch, float goal_lpg, float noise_diff,
-                                        float drive, float resonance, u32* dst) {
-	float glide = lpf_k(param_eval_finger(P_GLIDE, voice_id, s_touch) >> 2) * (0.5f / SAMPLES_PER_TICK);
+static void apply_subtractive_lpg_noise(u8 voice_id, Voice* voice, float goal_lpg, float noise_diff, float drive,
+                                        float resonance, u32* dst) {
+	float glide = lpf_k(param_val_poly(P_GLIDE, voice_id) >> 2) * (0.5f / SAMPLES_PER_TICK);
 
 	// oscillator shape
-	s32 osc_shape_raw = rampreset.params[P_PWM][0]; // unmodulated
-	s32 osc_shape = param_eval_finger(P_PWM, voice_id, s_touch);
+	s32 osc_shape_raw = rampreset.params[P_SHAPE][0]; // unmodulated
+	s32 osc_shape = param_val_poly(P_SHAPE, voice_id);
 	// raw from -8 to 7, snap to 0 => supersaw
 	if (osc_shape_raw >= -8 && osc_shape_raw < 8)
 		osc_shape = 0;
@@ -386,31 +382,31 @@ static void run_voice(u8 voice_id, u32* dst) {
 		midi_pitch_override &= ~mask;
 
 	// generate oscillators
-	generate_oscs(voice_id, voice, s_touch);
+	generate_oscs(voice_id, voice);
 
 	// apply envelope
-	float goal_lpg = update_envelope(voice_id, voice, s_touch);
+	float goal_lpg = update_envelope(voice_id, voice);
 
 	// pre-calc noise, drive, resonance
-	int drive_lvl = param_eval_finger(P_DRIVE, voice_id, s_touch);
+	int drive_lvl = param_val_poly(P_DISTORTION, voice_id);
 	float fdrive = table_interp(pitches, ((32768 - 2048) + drive_lvl / 2));
 	if (drive_lvl < -65536 + 2048)
 		fdrive *= (drive_lvl + 65536) * (1.f / 2048.f); // ensure drive goes right to 0 when full minimum
 	float drive = fdrive * (0.75f / 65536.f);
-	float goal_noise = param_eval_finger(P_NOISE, voice_id, s_touch) * (1.f / 65536.f);
+	float goal_noise = param_val_poly(P_NOISE, voice_id) * (1.f / 65536.f);
 	goal_noise *= goal_noise;
 	if (drive_lvl > 0)
 		goal_noise *= fdrive;
 	float noise_diff = (goal_noise - voice->noise_lvl) * (1.f / SAMPLES_PER_TICK);
-	int resonancei = 65536 - param_eval_finger(P_MIXRESO, voice_id, s_touch);
+	int resonancei = 65536 - param_val_poly(P_RESO, voice_id);
 	float resonance = 2.1f - (table_interp(pitches, resonancei) * (2.1f / pitches[1024]));
 	drive *= 2.f / (resonance + 2.f);
 
 	// apply low pass gate and noise
 	if (using_sampler())
-		apply_sample_lpg_noise(voice_id, voice, s_touch, goal_lpg, noise_diff, drive, dst);
+		apply_sample_lpg_noise(voice_id, voice, goal_lpg, noise_diff, drive, dst);
 	else
-		apply_subtractive_lpg_noise(voice_id, voice, s_touch, goal_lpg, noise_diff, drive, resonance, dst);
+		apply_subtractive_lpg_noise(voice_id, voice, goal_lpg, noise_diff, drive, resonance, dst);
 }
 
 // send cv values resulting from oscillator generation

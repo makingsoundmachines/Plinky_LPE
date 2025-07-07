@@ -25,12 +25,12 @@ bool OnLoop(void) {
 		pending_preset = 255;
 	}
 	if (pending_pattern != 255) {
-		EditParamQuant(P_SEQPAT, M_BASE, pending_pattern);
+		save_param(P_PATTERN, SRC_BASE, pending_pattern);
 		needs_start_recalc = true;
 		pending_pattern = 255;
 	}
 	if (pending_sample1 != cur_sample_id1 && pending_sample1 != 255) {
-		EditParamQuant(P_SAMPLE, 0, pending_sample1);
+		save_param(P_SAMPLE, SRC_BASE, pending_sample1);
 		pending_sample1 = 255;
 	}
 	return needs_start_recalc;
