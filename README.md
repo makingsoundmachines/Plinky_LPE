@@ -21,6 +21,8 @@ This is a user-maintained branch of firmware for the Plinky and Plinky+ synths. 
 
 **Binary:**
 
+&rarr; [PlinkyLPE-0.2.0.uf2](https://github.com/ember-labs-io/Plinky_LPE/raw/main/builds/PlinkyLPE-0.2.0.uf2)
+
 **How to install:**
 - Download the binary above
 - Follow the firmware installation instructions on [the official website](https://plinkysynth.com/firmware)
