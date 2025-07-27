@@ -247,6 +247,11 @@ static void process_midi_msg(u8 status, u8 d1, u8 d2) {
 		midi_chan_pressure[chan] = d1;
 		break;
 	case MIDI_CONTROL_CHANGE: {
+		// sustain is sent to the strings
+		if (d1 == 64) {
+			strings_rcv_midi(status, d1, d2);
+			break;
+		}
 		if (d1 >= NUM_14BIT_CCS && d1 < (2 * NUM_14BIT_CCS))
 			cc14_lsb[d1 - 32] = d2;
 		s8 param = (d1 < 128) ? midi_cc_table[d1] : -1;

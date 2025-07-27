@@ -42,9 +42,11 @@ static u8 midi_velocity[NUM_STRINGS];
 static u8 midi_poly_pressure[NUM_STRINGS];
 static u16 midi_position[NUM_STRINGS]; // for pulsing leds at note position
 u8 midi_channel[NUM_STRINGS] = {255, 255, 255, 255, 255, 255, 255, 255};
+bool midi_sustain_pressed = false;
 u8 midi_pressure_override = 0; // true if midi note is pressed
 u8 midi_pitch_override = 0;    // true if midi note is sounded out, includes release phase
 u8 midi_suppress = 0;          // true if midi is suppressed by touch / latch / seq
+u8 midi_held_by_sustain = 0;   // true is midi note is only held because sustain is pressed
 
 // latching
 
@@ -411,8 +413,10 @@ void strings_rcv_midi(u8 status, u8 d1, u8 d2) {
 		// find string with existing midi note
 		u8 string_id = find_midi_note_string(chan, d1);
 		if (string_id < NUM_STRINGS) {
-			// deactivate midi for string
-			midi_pressure_override &= ~(1 << string_id);
+			if (midi_sustain_pressed)
+				midi_held_by_sustain |= 1 << string_id;
+			else
+				midi_pressure_override &= ~(1 << string_id);
 		}
 	} break;
 	case MIDI_NOTE_ON: {
@@ -434,6 +438,8 @@ void strings_rcv_midi(u8 status, u8 d1, u8 d2) {
 			// activate midi for string
 			midi_pressure_override |= 1 << string_id;
 			midi_pitch_override |= 1 << string_id;
+			if (midi_sustain_pressed)
+				midi_held_by_sustain &= ~(1 << string_id);
 		}
 	} break;
 	case MIDI_POLY_KEY_PRESSURE: {
@@ -442,12 +448,30 @@ void strings_rcv_midi(u8 status, u8 d1, u8 d2) {
 			midi_poly_pressure[string_id] = d2;
 		}
 	} break;
+	case MIDI_CONTROL_CHANGE:
+		// sustain
+		if (d1 == 64) {
+			bool new_sustain = d2 >= 64;
+			if (new_sustain != midi_sustain_pressed) {
+				midi_sustain_pressed = new_sustain;
+				if (midi_sustain_pressed)
+					midi_held_by_sustain = 0;
+				else {
+					// on a sustain release, release all midi notes that were held by the sustain
+					for (u8 string_id = 0; string_id < NUM_STRINGS; string_id++)
+						if (midi_held_by_sustain & (1 << string_id))
+							midi_pressure_override &= ~(1 << string_id);
+				}
+			}
+		}
+		break;
 	}
 }
 
 void strings_clear_midi(void) {
 	midi_pressure_override = 0;
 	midi_pitch_override = 0;
+	midi_sustain_pressed = false;
 	memset(midi_note, 0, sizeof(midi_note));
 	memset(midi_velocity, 0, sizeof(midi_velocity));
 	memset(midi_poly_pressure, 0, sizeof(midi_poly_pressure));
