@@ -224,8 +224,10 @@ static void process_midi_msg(u8 status, u8 d1, u8 d2) {
 		return;
 
 	// turn silent note ons into note offs
-	if (type == MIDI_NOTE_ON && d2 == 0)
+	if (type == MIDI_NOTE_ON && d2 == 0) {
+		status = MIDI_NOTE_OFF | chan;
 		type = MIDI_NOTE_OFF;
+	}
 
 	switch (type) {
 	case MIDI_PROGRAM_CHANGE:
