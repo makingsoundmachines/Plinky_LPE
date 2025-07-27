@@ -380,9 +380,10 @@ static void run_voice(u8 voice_id, u32* dst) {
 	if (s_touch->pres > synth_max_pres)
 		synth_max_pres = s_touch->pres;
 
-	// midi note is playing its release phase and has rung out
-	if ((midi_pitch_override & mask) && !(midi_pressure_override & mask) && !(midi_suppress & mask)
-	    && (voice->env1_lvl < 0.001f))
+	// midi note is released but still playing
+	// and it's being suppressed by touch/latch/seq or its release phase has rung out
+	if (((midi_pitch_override & mask) && !(midi_pressure_override & mask))
+	    && ((midi_suppress & mask) || (voice->env1_lvl < 0.001f)))
 		// disable pitch override, this truly turns off the note
 		midi_pitch_override &= ~mask;
 
