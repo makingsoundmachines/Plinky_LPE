@@ -22,6 +22,8 @@ UIMode ui_mode = UI_DEFAULT;
 
 HardwareVersion hw_version;
 
+CalibMode calib_mode = CALIB_NONE;
+
 static void define_hardware_version(void) {
 	GPIO_InitTypeDef GPIO_InitStruct = {0};
 	GPIO_InitStruct.Pin = GPIO_PIN_1;
@@ -33,13 +35,74 @@ static void define_hardware_version(void) {
 	hw_version = state == GPIO_PIN_SET ? HW_PLINKY_PLUS : HW_PLINKY;
 }
 
+static void open_usb_bootloader(void) {
+	oled_clear();
+	draw_str(0, 0, F_16_BOLD, "Re-flash");
+	draw_str(0, 16, F_16, "over USB DFU");
+	oled_flip();
+	HAL_Delay(100);
+
+	// https://community.st.com/s/question/0D50X00009XkeeW/stm32l476rg-jump-to-bootloader-from-software
+	typedef void (*pFunction)(void);
+	pFunction JumpToApplication;
+	HAL_RCC_DeInit();
+	HAL_DeInit();
+	SysTick->CTRL = 0;
+	SysTick->LOAD = 0;
+	SysTick->VAL = 0;
+	__disable_irq();
+	__DSB();
+	__HAL_SYSCFG_REMAPMEMORY_SYSTEMFLASH(); /* Remap is bot visible at once. Execute some unrelated command! */
+	__DSB();
+	__ISB();
+	JumpToApplication = (void (*)(void))(*((uint32_t*)(0x1FFF0000 + 4)));
+	__set_MSP(*(__IO uint32_t*)0x1FFF0000);
+	JumpToApplication();
+}
+
+static void launch_calib(u8 phase) {
+	static u16 knob_a_start = 0;
+	static u16 knob_b_start = 0;
+
+	switch (phase) {
+	// first phase: auto-launch calibration if none found, save knob values
+	case 0:
+		FlashCalibType flash_calib_type = flash_read_calib();
+		calib_mode = CALIB_TOUCH;
+		if (!(flash_calib_type & FLASH_CALIB_TOUCH))
+			touch_calib(flash_calib_type | FLASH_CALIB_TOUCH);
+		calib_mode = CALIB_CV;
+		if (!(flash_calib_type & FLASH_CALIB_ADC_DAC))
+			cv_calib();
+		calib_mode = CALIB_NONE;
+		HAL_Delay(80);
+		knob_a_start = adc_get_raw(ADC_A_KNOB);
+		knob_b_start = adc_get_raw(ADC_B_KNOB);
+		break;
+	// second phase: launch calib/bootloader based on knob turns
+	case 1:
+		u16 knob_a_delta = abs(knob_a_start - adc_get_raw(ADC_A_KNOB));
+		u16 knob_b_delta = abs(knob_b_start - adc_get_raw(ADC_B_KNOB));
+		if (knob_a_delta > 4096 && knob_b_delta > 4096)
+			open_usb_bootloader();
+		calib_mode = CALIB_TOUCH;
+		if (knob_a_delta > 4096)
+			touch_calib(FLASH_CALIB_COMPLETE);
+		calib_mode = CALIB_CV;
+		if (knob_b_delta > 4096)
+			cv_calib();
+		calib_mode = CALIB_NONE;
+		break;
+	}
+}
+
 void plinky_init(void) {
 	accel_init();
-	reset_touches();
 	define_hardware_version();
 	HAL_Delay(100); // stablise power before bringing oled up
 	gfx_init();     // also initializes oled
 	check_bootloader_flash();
+	init_touchstrips();
 	audio_init();
 	codec_init();
 	adc_dac_init();
@@ -47,9 +110,9 @@ void plinky_init(void) {
 	spi_init();
 	midi_init();
 	leds_init();
-	flash_read_calib();
-	HAL_Delay(80);
+	launch_calib(0);
 	leds_bootswish();
+	launch_calib(1);
 	init_flash();
 	init_ram();
 	encoder_init();
@@ -66,6 +129,11 @@ void plinky_codec_tick(u32* audio_out, u32* audio_in) {
 	}
 	// update all leds
 	leds_update();
+
+	// don't do anything else while calibrating
+	if (calib_mode)
+		return;
+
 	// pre-process audio
 	audio_pre(audio_out, audio_in);
 

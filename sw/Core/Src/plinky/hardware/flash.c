@@ -7,7 +7,7 @@
 #include "touchstrips.h"
 
 const static u64 MAGIC = 0xf00dcafe473ff02a;
-const static u8 calib_sector = 255;
+const static u8 CALIB_PAGE = 255;
 
 static u8 latest_page_id[NUM_FLASH_ITEMS] = {};
 static u8 backup_page_id[NUM_PRESETS] = {};
@@ -228,41 +228,15 @@ void flash_erase_page(u8 page) {
 	SET_BIT(FLASH->CR, FLASH_CR_STRT);
 	FLASH_WaitForLastOperation((u32)FLASH_TIMEOUT_VALUE);
 	CLEAR_BIT(FLASH->CR, (FLASH_CR_PER | FLASH_CR_PNB));
-	// u32* mem = (u32*)(FLASH_ADDR_256 + page * 2048);
-	// for (int i = 0; i < 2048 / 4; ++i)
-	// 	if (mem[i] != 0xffffffff) {
-	// 		DebugLog("flash mem page %d failed to erase at address %d - val %08x\r\n", page, i * 4, mem[i]);
-	// 		break;
-	// 	}
 }
 
 void flash_write_block(void* dst, void* src, int size) {
 	u64* s = (u64*)src;
 	volatile u64* d = (volatile u64*)dst;
-	// int osize = size;
 	while (size >= 8) {
 		HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, (u32)(size_t)(d++), *s++);
 		size -= 8;
 	}
-	// int fail = 0;
-	// {
-	// 	u64* s = (u64*)src;
-	// 	volatile u64* d = (volatile u64*)dst;
-	// 	for (int i = 0; i < osize; i += 8) {
-	// 		if (*s != *d) {
-	// 			u32 s0 = (*s);
-	// 			u32 s1 = (*s >> 32);
-	// 			u32 d0 = (*d);
-	// 			u32 d1 = (*d >> 32);
-	// 			DebugLog("flash program failed at offset %d - %08x %08x vs dst %08x %08x\r\n", i, s0, s1, d0, d1);
-	// 			++fail;
-	// 		}
-	// 		s++;
-	// 		d++;
-	// 	}
-	// }
-	// if (fail != 0)
-	// 	DebugLog("flash program block failed!\r\n");
 }
 
 void flash_write_page(void* src, u32 size, u8 page_id) {
@@ -295,26 +269,39 @@ void flash_write_page(void* src, u32 size, u8 page_id) {
 
 // calib
 
-u8 flash_read_calib(void) {
-	volatile u64* flash = (volatile u64*)(FLASH_ADDR_256 + calib_sector * 2048);
-	u8 ver = 0;
-	u8 ok = 0;
-	if (flash[0] == MAGIC && flash[255] == ~MAGIC)
-		ver = 2;
-	if (ver == 0) {
-		DebugLog("no calibration found in flash\r\n");
-		return 0;
+FlashCalibType flash_read_calib(void) {
+	FlashCalibType flash_calib_type = FLASH_CALIB_NONE;
+	volatile u64* flash = (volatile u64*)(FLASH_ADDR_256 + CALIB_PAGE * 2048);
+	if (!(flash[0] == MAGIC && flash[255] == ~MAGIC))
+		return FLASH_CALIB_NONE;
+	// read touch calibration data
+	volatile u64* src = flash + 1;
+	if (*src != ~(u64)(0)) {
+		flash_calib_type |= FLASH_CALIB_TOUCH;
+		memcpy(touch_calib_ptr(), (u64*)src, sizeof(TouchCalibData) * NUM_TOUCH_READINGS);
 	}
-	volatile u64* s = flash + 1;
-	if (*s != ~(u64)(0)) {
-		ok |= 1;
-		memcpy(touch_calib_ptr(), (u64*)s, sizeof(CalibData) * NUM_TOUCH_READINGS);
+	// read adc/dac calibration data
+	src += sizeof(TouchCalibData) * NUM_TOUCH_READINGS / 8;
+	if (*src != ~(u64)(0)) {
+		flash_calib_type |= FLASH_CALIB_ADC_DAC;
+		memcpy(adc_dac_calib_ptr(), (u64*)src, sizeof(ADC_DAC_Calib) * NUM_ADC_DAC_ITEMS);
 	}
-	s += sizeof(CalibData) * NUM_TOUCH_READINGS / 8;
-	if (*s != ~(u64)(0)) {
-		ok |= 2;
-		memcpy(adc_dac_calib_ptr(), (u64*)s, sizeof(ADC_DAC_Calib) * 10);
-	}
-	s += sizeof(ADC_DAC_Calib) * 10 / 8;
-	return ok;
+	return flash_calib_type;
+}
+
+void flash_write_calib(FlashCalibType flash_calib_type) {
+	HAL_FLASH_Unlock();
+	flash_erase_page(CALIB_PAGE);
+	u64* flash = (u64*)(FLASH_ADDR_256 + CALIB_PAGE * 2048);
+	HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, (u32)flash, MAGIC);
+	// write touch calibration data
+	u64* dst = flash + 1;
+	if (flash_calib_type & FLASH_CALIB_TOUCH)
+		flash_write_block(dst, touch_calib_ptr(), sizeof(TouchCalibData) * NUM_TOUCH_READINGS);
+	// write adc/dac calibration data
+	dst += (sizeof(TouchCalibData) * NUM_TOUCH_READINGS + 7) / 8;
+	if (flash_calib_type & FLASH_CALIB_ADC_DAC)
+		flash_write_block(dst, adc_dac_calib_ptr(), sizeof(ADC_DAC_Calib) * NUM_ADC_DAC_ITEMS);
+	HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, (u32)(flash + 255), ~MAGIC);
+	HAL_FLASH_Lock();
 }

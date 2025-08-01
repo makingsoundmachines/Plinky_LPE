@@ -1,5 +1,4 @@
 #include "time.h"
-#include "hardware/cv.h"
 #include "hardware/midi.h"
 #include "params.h"
 #include "sequencer.h"

@@ -19,8 +19,15 @@ typedef enum UIMode {
 	UI_SAMPLE_EDIT, // sample edit screen
 } UIMode;
 
+typedef enum CalibMode {
+	CALIB_NONE = 0,
+	CALIB_TOUCH,
+	CALIB_CV,
+} CalibMode;
+
 extern HardwareVersion hw_version;
 extern UIMode ui_mode;
+extern CalibMode calib_mode;
 
 void plinky_init(void);
 void plinky_codec_tick(u32* audio_out, u32* audio_in);

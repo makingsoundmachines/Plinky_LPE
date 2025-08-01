@@ -1,4 +1,5 @@
 #pragma once
+#include "flash.h"
 #include "utils.h"
 
 // this module manages physical touches on the touch-sensors
@@ -6,7 +7,8 @@
 // - each touchstrip gets read up to two times per cycle, leading to 18 touch readings and 36 saved sensor values
 // - after processing, these readings are reduced to 9 touches
 
-#define NUM_TOUCHES 9
+#define NUM_TOUCHSTRIPS 9
+#define PADS_PER_STRIP 8
 #define NUM_TOUCH_FRAMES 8
 #define NUM_TOUCH_READINGS 18
 #define TOUCH_MIN_POS 0
@@ -17,10 +19,14 @@
 #define TOUCH_MIN_PRES -2048
 #define TOUCH_FULL_PRES 2047
 
+typedef struct TouchCalibData {
+	u16 pres[PADS_PER_STRIP];
+	s16 pos[PADS_PER_STRIP];
+} TouchCalibData;
+
 extern u8 touch_frame;
 
-void MX_TSC_Init(void);
-CalibData* touch_calib_ptr(void);
+TouchCalibData* touch_calib_ptr(void);
 
 // get touch info
 
@@ -29,5 +35,9 @@ Touch* get_touch_prev(u8 touch_id, u8 frames_back);
 
 // main
 
+void init_touchstrips(void);
 u8 read_touchstrips(void);
-void reset_touches(void);
+
+// calib
+
+void touch_calib(FlashCalibType flash_calib_type);

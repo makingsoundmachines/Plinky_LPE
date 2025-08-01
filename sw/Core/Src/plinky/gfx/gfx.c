@@ -1,7 +1,6 @@
 #include "gfx.h"
 #include "data/fonts.h"
 #include "data/icons.h"
-#include "data/logo.h"
 #include "data/names.h"
 
 u8 gfx_text_color = 1;

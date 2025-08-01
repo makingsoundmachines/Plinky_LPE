@@ -45,13 +45,9 @@ typedef struct Touch {
 	u16 pos;
 } Touch;
 
-typedef struct CalibData {
-	u16 pres[NUM_STRINGS];
-	s16 pos[NUM_STRINGS];
-} CalibData;
-
 typedef struct ValueSmoother {
-	float y1, y2;
+	float y1;
+	float y2;
 } ValueSmoother;
 
 // time

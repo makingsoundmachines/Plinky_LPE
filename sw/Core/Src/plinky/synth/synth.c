@@ -4,7 +4,6 @@
 #include "data/tables.h"
 #include "gfx/gfx.h"
 #include "hardware/adc_dac.h"
-#include "hardware/cv.h"
 #include "hardware/midi.h"
 #include "hardware/midi_defs.h"
 #include "hardware/ram.h"
@@ -419,10 +418,10 @@ static void run_voice(u8 voice_id, u32* dst) {
 static void send_cvs(void) {
 	send_cv_trigger(cv_trig_high);
 	if (got_high_pitch)
-		send_cv_pitch_hi(high_string_pitch, true);
+		send_cv_pitch(true, high_string_pitch, true);
 	send_cv_gate(mini(cv_gate_value, 65535));
 	if (got_low_pitch)
-		send_cv_pitch_lo(low_string_pitch, true);
+		send_cv_pitch(false, low_string_pitch, true);
 	send_cv_pressure(synth_max_pres * 8);
 }
 

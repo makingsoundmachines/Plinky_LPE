@@ -1,65 +1,32 @@
 #include "touchstrips.h"
+#include "encoder.h"
+#include "gfx/gfx.h"
+#include "leds.h"
 #include "sensor_defs.h"
+#include "synth/audio.h"
 #include "synth/sampler.h"
 #include "synth/time.h"
 #include "ui/pad_actions.h"
 #include "ui/shift_states.h"
 
+extern TSC_HandleTypeDef htsc;
+
 #define TOUCH_THRESHOLD 1000
 
-// stm setup
+static TouchCalibData touch_calib_data[NUM_TOUCH_READINGS];
 
-TSC_HandleTypeDef htsc;
-
-void Error_Handler(void);
-
-void MX_TSC_Init(void) {
-	// Configure the TSC peripheral
-	htsc.Instance = TSC;
-	htsc.Init.CTPulseHighLength = TSC_CTPH_7CYCLES;
-	htsc.Init.CTPulseLowLength = TSC_CTPL_7CYCLES;
-	htsc.Init.SpreadSpectrum = DISABLE;
-	htsc.Init.SpreadSpectrumDeviation = 32;
-	htsc.Init.SpreadSpectrumPrescaler = TSC_SS_PRESC_DIV1;
-	htsc.Init.PulseGeneratorPrescaler = TSC_PG_PRESC_DIV2;
-	htsc.Init.MaxCountValue = TSC_MCV_16383;
-	htsc.Init.IODefaultMode = TSC_IODEF_OUT_PP_LOW;
-	htsc.Init.SynchroPinPolarity = TSC_SYNC_POLARITY_FALLING;
-	htsc.Init.AcquisitionMode = TSC_ACQ_MODE_NORMAL;
-	htsc.Init.MaxCountInterrupt = DISABLE;
-	htsc.Init.ChannelIOs = TSC_GROUP1_IO2 | TSC_GROUP1_IO3 | TSC_GROUP1_IO4 | TSC_GROUP2_IO2 | TSC_GROUP2_IO3
-	                       | TSC_GROUP2_IO4 | TSC_GROUP3_IO3 | TSC_GROUP3_IO4 | TSC_GROUP4_IO2 | TSC_GROUP4_IO3
-	                       | TSC_GROUP4_IO4 | TSC_GROUP5_IO2 | TSC_GROUP5_IO3 | TSC_GROUP5_IO4 | TSC_GROUP6_IO2
-	                       | TSC_GROUP6_IO3 | TSC_GROUP7_IO2 | TSC_GROUP7_IO3;
-	htsc.Init.ShieldIOs = 0;
-	htsc.Init.SamplingIOs = TSC_GROUP1_IO1 | TSC_GROUP2_IO1 | TSC_GROUP3_IO2 | TSC_GROUP4_IO1 | TSC_GROUP5_IO1
-	                        | TSC_GROUP6_IO1 | TSC_GROUP7_IO1;
-	if (HAL_TSC_Init(&htsc) != HAL_OK) {
-		Error_Handler();
-	}
-
-	// set up tsc for first reading
-	TSC_IOConfigTypeDef config = {0};
-	config.ChannelIOs = channels_io[0];
-	config.SamplingIOs = sample_io[0];
-	HAL_TSC_IOConfig(&htsc, &config);
-	HAL_TSC_IODischarge(&htsc, ENABLE);
-}
-
-static CalibData touch_calib[NUM_TOUCH_READINGS];
-
-CalibData* touch_calib_ptr(void) {
-	return touch_calib;
+TouchCalibData* touch_calib_ptr(void) {
+	return touch_calib_data;
 }
 
 u8 touch_frame = 0; // frame counter for touch reading loop
 
-static u16 sensor_val[2 * NUM_TOUCH_READINGS];       // current value (range 0 - 65027)
-static Touch touches[NUM_TOUCHES][NUM_TOUCH_FRAMES]; // the touches
+static Touch touches[NUM_TOUCHSTRIPS][NUM_TOUCH_FRAMES]; // the touches
+static u16 sensor_val[2 * NUM_TOUCH_READINGS];           // current value (range 0 - 65027)
+static u16 sensor_min[2 * NUM_TOUCH_READINGS];           // lifetime low
+static u16 sensor_max[2 * NUM_TOUCH_READINGS];           // lifetime high
 
-static u16 sensor_min[2 * NUM_TOUCH_READINGS]; // lifetime low
-static u16 sensor_max[2 * NUM_TOUCH_READINGS]; // lifetime high
-
+static bool tsc_started = false;
 static u8 read_this_frame = 0; // has touch (0 - 7) been read this touch_frame? bitmask
 
 // sensor macros
@@ -68,9 +35,28 @@ static u8 read_this_frame = 0; // has touch (0 - 7) been read this touch_frame? 
 #define B_VAL(reading_id) (sensor_val[reading_id * 2 + 1])
 #define A_MIN(reading_id) (sensor_min[reading_id * 2])
 #define B_MIN(reading_id) (sensor_min[reading_id * 2 + 1])
+#define A_MAX(reading_id) (sensor_max[reading_id * 2])
+#define B_MAX(reading_id) (sensor_max[reading_id * 2 + 1])
 #define A_DIFF(reading_id) (A_VAL(reading_id) - A_MIN(reading_id))
 #define B_DIFF(reading_id) (B_VAL(reading_id) - B_MIN(reading_id))
 #define IS_TOUCH(reading_id) (A_DIFF(reading_id) + B_DIFF(reading_id) > TOUCH_THRESHOLD)
+
+static void setup_tsc(u8 read_phase) {
+	TSC_IOConfigTypeDef config = {0};
+	config.ChannelIOs = channels_io[read_phase];
+	config.SamplingIOs = sample_io[read_phase];
+	HAL_TSC_IOConfig(&htsc, &config);
+	HAL_TSC_IODischarge(&htsc, ENABLE);
+	tsc_started = false;
+}
+
+void init_touchstrips(void) {
+	memset(sensor_val, 0, sizeof(sensor_val));
+	memset(sensor_min, -1, sizeof(sensor_min));
+	memset(sensor_max, 0, sizeof(sensor_max));
+	memset(touch_calib_data, 0, sizeof(touch_calib_data));
+	setup_tsc(0);
+}
 
 // == GET TOUCH INFO == //
 
@@ -141,14 +127,14 @@ static void process_reading(u8 reading_id) {
 	u16 raw_pres = sensor_reading_pressure(reading_id);
 
 	// touch
-	u8 touch_id = reading_id % NUM_TOUCHES;
+	u8 touch_id = reading_id % NUM_TOUCHSTRIPS;
 	Touch* cur_touch = get_touch(touch_id);
 	Touch* prev_touch = get_touch_prev(touch_id, 1);
 
 	// calibration
 	u16 calib_pos;
 	s16 calib_pres;
-	const CalibData* c = &touch_calib[reading_id];
+	const TouchCalibData* c = &touch_calib_data[reading_id];
 
 	// we have calibration data, let's apply it
 	if (c->pres[0] != 0) {
@@ -211,6 +197,10 @@ static void process_reading(u8 reading_id) {
 	else
 		cur_touch->pos = prev_touch->pos;
 
+	// don't further process the touches during cv-calib
+	if (calib_mode == CALIB_CV)
+		return;
+
 	// shift buttons
 	if (touch_id == 8) {
 		ShiftState new_state = cur_touch->pos >> 8;
@@ -247,7 +237,6 @@ u8 read_touchstrips(void) {
 	static u8 sensor_id = 0;
 	static u8 read_phase = 0;
 	static u16 phase_read_mask = 0xffff; // fill min_value array on first loop
-	static bool tsc_started = false;
 
 	if (!tsc_started) {
 		HAL_TSC_Start(&htsc);
@@ -263,7 +252,7 @@ u8 read_touchstrips(void) {
 		// if so, save sensor value (resulting range 0 - 65027)
 		u16 value = sensor_val[sensor_id] = (1 << 23) / maxi(129, HAL_TSC_GroupGetValue(&htsc, group_id));
 		// keep track of lifetime min/max values
-		if (value > sensor_max[sensor_id])
+		if (calib_mode && value > sensor_max[sensor_id])
 			sensor_max[sensor_id] = value;
 		if (value < sensor_min[sensor_id])
 			sensor_min[sensor_id] = value;
@@ -275,6 +264,20 @@ u8 read_touchstrips(void) {
 
 	// we have done all readings for this phase
 	HAL_TSC_Stop(&htsc);
+
+	// touch-calibration loop is a simplified version of the regular loop
+	if (calib_mode == CALIB_TOUCH) {
+		read_phase++;
+		if (read_phase == READ_PHASES) {
+			touch_frame = (touch_frame + 1) & 7;
+			read_phase = 0;
+			reading_id = 0;
+			group_id = reading_group[reading_id];
+			sensor_id = reading_sensor[reading_id];
+		}
+		setup_tsc(read_phase);
+		return read_phase; // skip the regular loop
+	}
 
 	// read phases
 	//
@@ -374,10 +377,10 @@ u8 read_touchstrips(void) {
 	case 11: // second pass of first sensor of strip 8
 		break;
 	case 12: // second pass of second sensor of strip 8
-		process_reading(NUM_TOUCHES + 8);
+		process_reading(NUM_TOUCHSTRIPS + 8);
 		break;
 	default: // phase 3 through 10: second pass of individual fingers 0 through 7
-		process_reading(NUM_TOUCHES + read_phase - 3);
+		process_reading(NUM_TOUCHSTRIPS + read_phase - 3);
 		break;
 	}
 
@@ -392,8 +395,8 @@ u8 read_touchstrips(void) {
 		read_this_frame = 0;                 // where no touches have been read
 		read_phase = 0;                      // start back from the top
 		reading_id = 0;
-		group_id = reading_group[0];
-		sensor_id = reading_sensor[0];
+		group_id = reading_group[reading_id];
+		sensor_id = reading_sensor[reading_id];
 		phase_read_mask = 0b111; // the first three phases are always executed
 	}
 
@@ -405,20 +408,148 @@ u8 read_touchstrips(void) {
 		sensor_id = reading_sensor[reading_id];
 	}
 
-	// set up the tsc for the next read phase
-	TSC_IOConfigTypeDef config = {0};
-	config.ChannelIOs = channels_io[read_phase];
-	config.SamplingIOs = sample_io[read_phase];
-	HAL_TSC_IOConfig(&htsc, &config);
-	HAL_TSC_IODischarge(&htsc, ENABLE);
-	tsc_started = false;
-
+	// prepare for next phase
+	setup_tsc(read_phase);
 	return read_phase;
 }
 
-void reset_touches(void) {
-	memset(sensor_val, 0, sizeof(sensor_val));
-	memset(sensor_min, -1, sizeof(sensor_min));
-	memset(sensor_max, 0, sizeof(sensor_max));
-	memset(touch_calib, 0, sizeof(touch_calib));
+// == CALIB == //
+
+void touch_calib(FlashCalibType flash_calib_type) {
+	typedef struct ReadingCalib {
+		float pos[PADS_PER_STRIP];
+		float pres[PADS_PER_STRIP];
+		float weight[PADS_PER_STRIP];
+	} ReadingCalib;
+
+	ReadingCalib* reading_calib = (ReadingCalib*)delay_ram_buf;
+	memset(reading_calib, 0, sizeof(ReadingCalib) * NUM_TOUCH_READINGS);
+	s8 cur_pad[NUM_TOUCHSTRIPS];
+	memset(cur_pad, PADS_PER_STRIP - 1, sizeof(cur_pad));
+	u16 raw_pres_1back[NUM_TOUCH_READINGS] = {};
+	u8 cur_frame = touch_frame;
+	u8 readings_done = 0;
+	u16 errors = 0;
+	// display drawing
+	char help_text[64] = "slowly/evenly press lit pads\ntake care, be accurate";
+	u8 refresh_counter = 0;
+	bool blink = false;
+
+	do {
+		// show text on display
+		if (!refresh_counter) {
+			refresh_counter = 16; // update once every 16 frames
+			blink = !blink;
+			oled_clear();
+			fdraw_str(0, 0, F_16, "Calibration%c", blink ? '!' : ' ');
+			draw_str(0, 16, F_8, help_text);
+			if (errors)
+				inverted_rectangle(0, 0, OLED_WIDTH, OLED_HEIGHT);
+			oled_flip();
+		}
+		else
+			refresh_counter--;
+
+		// wait for touchstrips to update
+		while (touch_frame == cur_frame)
+			__asm__ volatile("" ::: "memory");
+		cur_frame = touch_frame;
+
+		// update the 18 calibration entries for their respective current steps
+		u16 ready_mask = 0;
+		readings_done = 0;
+		for (u8 read_id = 0; read_id < NUM_TOUCH_READINGS; ++read_id) {
+			s8 pad = cur_pad[read_id % NUM_TOUCHSTRIPS];
+			// reading done => skip loop
+			if (pad < 0) {
+				readings_done++;
+				continue;
+			}
+			// pressure
+			u16 raw_pres = sensor_reading_pressure(read_id);
+			u16 prev_raw_pres = raw_pres_1back[read_id];
+			raw_pres_1back[read_id] = raw_pres;
+			u16 pres_band = raw_pres / 20;
+			// position
+			s16 raw_pos = sensor_reading_position(read_id);
+			// pressure is quite stable => update calibration state
+			if (raw_pres > 1200 && raw_pres > prev_raw_pres - pres_band / 2 && raw_pres < prev_raw_pres + pres_band) {
+				float weight = (raw_pres - 1200.f) / 1000.f;
+				float change = abs(prev_raw_pres - raw_pres) * (1.f / 250.f);
+				weight *= maxf(0.f, 1.f - change);
+				weight = minf(weight, 1.f);
+				weight *= weight;
+				// leakage
+				const static float LEAK = 0.90f;
+				reading_calib[read_id].weight[pad] *= LEAK;
+				reading_calib[read_id].pos[pad] *= LEAK;
+				reading_calib[read_id].pres[pad] *= LEAK;
+				// add new input
+				reading_calib[read_id].weight[pad] += weight;
+				reading_calib[read_id].pos[pad] += raw_pos * weight;
+				reading_calib[read_id].pres[pad] += raw_pres * weight;
+			}
+			// second read id of a sensor
+			u8 read_id2 = read_id + NUM_TOUCHSTRIPS;
+			// don't save calib data if: this is a 2nd reading or either calibration doesn't have enough data yet
+			if (read_id >= NUM_TOUCHSTRIPS || reading_calib[read_id].weight[pad] < 4.f
+			    || reading_calib[read_id2].weight[pad] < 4.f)
+				continue;
+			// pressed finger => pulse led
+			if (raw_pres > 900)
+				ready_mask |= 1 << read_id;
+			// lifted finger => save calib data and move to next pad
+			else {
+				touch_calib_data[read_id].pres[pad] =
+				    reading_calib[read_id].pres[pad] / reading_calib[read_id].weight[pad];
+				touch_calib_data[read_id].pos[pad] =
+				    reading_calib[read_id].pos[pad] / reading_calib[read_id].weight[pad];
+				touch_calib_data[read_id2].pres[pad] =
+				    reading_calib[read_id2].pres[pad] / reading_calib[read_id2].weight[pad];
+				touch_calib_data[read_id2].pos[pad] =
+				    reading_calib[read_id2].pos[pad] / reading_calib[read_id2].weight[pad];
+				cur_pad[read_id]--;
+
+				// a few pads have been handled, check for invalid value ranges
+				if (pad <= 4) {
+					errors &= ~(1 << read_id);
+					if (A_MAX(read_id) - A_MIN(read_id) < 1000) {
+						snprintf(help_text, sizeof(help_text), "!pad %d upper not conn\ncheck soldering", read_id + 1);
+						errors |= (1 << read_id);
+					}
+					else if (B_MAX(read_id) - B_MIN(read_id) < 1000) {
+						snprintf(help_text, sizeof(help_text), "!pad %d lower not conn\ncheck soldering", read_id + 1);
+						errors |= (1 << read_id);
+					}
+					else if (abs(touch_calib_data[read_id].pos[pad] - touch_calib_data[read_id].pos[PADS_PER_STRIP - 1])
+					         < 300) {
+						snprintf(help_text, sizeof(help_text), "!pad %d shorted?\ncheck soldering", read_id + 1);
+						errors |= (1 << read_id);
+					}
+				}
+			}
+		}
+
+		// update the leds
+		u8 pulse = triangle(millis());
+		for (u8 strip = 0; strip < NUM_TOUCHSTRIPS; ++strip) {
+			bool ready = (ready_mask & (1 << strip)) > 0;
+			bool err = (errors & (1 << strip)) > 0;
+			for (u8 pad = 0; pad < PADS_PER_STRIP; ++pad) {
+				u8 k = 0;
+				if (pad == cur_pad[strip])
+					k = ready ? pulse : (255 - reading_calib[strip].weight[pad] * 12.f);
+				if (err)
+					k = maxi(k, pulse / 2);
+				leds[strip][pad] = led_add_gamma(k);
+			}
+		}
+	} while (readings_done < NUM_TOUCH_READINGS);
+
+	// save results
+	flash_write_calib(flash_calib_type);
+
+	HAL_Delay(500);
+	oled_flip_with_buffer(logo_buffer);
+	leds_bootswish();
 }

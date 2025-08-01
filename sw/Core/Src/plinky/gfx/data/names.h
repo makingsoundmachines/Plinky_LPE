@@ -1,4 +1,4 @@
-#include "hardware/cv.h"
+#include "hardware/adc_dac.h"
 #include "icons.h"
 #include "synth/arp.h"
 #include "synth/lfos.h"

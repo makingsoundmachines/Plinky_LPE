@@ -3,7 +3,6 @@
 #include "conditional_step.h"
 #include "gfx/data/icons.h"
 #include "gfx/gfx.h"
-#include "hardware/cv.h"
 #include "hardware/midi.h"
 #include "hardware/midi_defs.h"
 #include "hardware/ram.h"

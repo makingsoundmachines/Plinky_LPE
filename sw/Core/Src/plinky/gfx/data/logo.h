@@ -1,4 +1,6 @@
 #pragma once
+#include "utils.h"
+
 // clang-format off
 static u8 logo_buffer[32 / 8 * 128 + 1] = { 0x40, 
 	// plinky logo

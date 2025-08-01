@@ -37,7 +37,6 @@ SRCS = \
 	../Core/Src/plinky/hardware/accelerometer.c \
 	../Core/Src/plinky/hardware/adc_dac.c \
 	../Core/Src/plinky/hardware/codec.c \
-	../Core/Src/plinky/hardware/cv.c \
 	../Core/Src/plinky/hardware/encoder.c \
 	../Core/Src/plinky/hardware/expander.c \
 	../Core/Src/plinky/hardware/flash.c \

@@ -1,4 +1,5 @@
 #pragma once
+#include "data/logo.h"
 #include "oled/oled.h"
 #include "utils.h"
 

@@ -1,5 +1,5 @@
 #pragma once
-#include "hardware/cv.h"
+#include "hardware/adc_dac.h"
 #include "hardware/mem_defs.h"
 #include "utils.h"
 
