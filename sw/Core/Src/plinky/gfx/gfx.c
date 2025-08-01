@@ -402,6 +402,7 @@ void gfx_debug(u8 row, const char* fmt, ...) {
 		va_list args;
 		va_start(args, fmt);
 		oled_open_debug_buffer(row);
+		gfx_text_color = 1;
 		vfdraw_str(0, row * 16, F_16_BOLD, fmt, args);
 		oled_close_debug_buffer();
 		va_end(args);
