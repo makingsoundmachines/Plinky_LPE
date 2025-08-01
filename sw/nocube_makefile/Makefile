@@ -58,6 +58,15 @@ SRCS = \
 	../Core/Src/plinky/ui/oled_viz.c \
 	../Core/Src/plinky/ui/pad_actions.c \
 	../Core/Src/plinky/ui/shift_states.c \
+	../Core/Src/plinky/usb/tinyusb/src/tusb.c \
+	../Core/Src/plinky/usb/tinyusb/src/usb_descriptors.c \
+	../Core/Src/plinky/usb/tinyusb/src/usbmidi.c \
+	../Core/Src/plinky/usb/tinyusb/src/class/midi/midi_device.c \
+	../Core/Src/plinky/usb/tinyusb/src/class/vendor/vendor_device.c \
+	../Core/Src/plinky/usb/tinyusb/src/common/tusb_fifo.c \
+	../Core/Src/plinky/usb/tinyusb/src/device/usbd.c \
+	../Core/Src/plinky/usb/tinyusb/src/device/usbd_control.c \
+	../Core/Src/plinky/usb/tinyusb/src/portable/st/synopsys/dcd_synopsys.c \
 	../Core/Src/plinky/usb/web_editor.c \
 	../Core/Src/plinky/gfx/gfx.c \
 	../Core/Src/plinky/gfx/oled/oled.c \
@@ -68,15 +77,6 @@ SRCS = \
 	../Core/Src/syscalls.c \
 	../Core/Src/sysmem.c \
 	../Core/Src/system_stm32l4xx.c \
-	../Core/Src/tinyusb/src/tusb.c \
-	../Core/Src/tinyusb/src/usb_descriptors.c \
-	../Core/Src/tinyusb/src/usbmidi.c \
-	../Core/Src/tinyusb/src/class/midi/midi_device.c \
-	../Core/Src/tinyusb/src/class/vendor/vendor_device.c \
-	../Core/Src/tinyusb/src/common/tusb_fifo.c \
-	../Core/Src/tinyusb/src/device/usbd.c \
-	../Core/Src/tinyusb/src/device/usbd_control.c \
-	../Core/Src/tinyusb/src/portable/st/synopsys/dcd_synopsys.c \
 	../Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal.c \
 	../Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_adc.c \
 	../Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_adc_ex.c \
@@ -148,7 +148,7 @@ endif
 $(info Building in $(BUILD_TYPE) mode)
 
 INCLUDES = -I../Drivers/CMSIS/Include \
-	    -I../Core/Src/tinyusb/src \
+	    -I../Core/Src/plinky/usb/tinyusb/src \
 	    -I../Core/Inc \
 	    -I../Drivers/CMSIS/Device/ST/STM32L4xx/Include \
 	    -I../Drivers/STM32L4xx_HAL_Driver/Inc \
