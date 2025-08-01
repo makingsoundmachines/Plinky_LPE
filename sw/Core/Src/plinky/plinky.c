@@ -17,6 +17,7 @@
 #include "ui/led_viz.h"
 #include "ui/oled_viz.h"
 #include "ui/pad_actions.h"
+#include "usb/web_editor.h"
 
 UIMode ui_mode = UI_DEFAULT;
 
@@ -198,6 +199,8 @@ void plinky_loop(void) {
 		accel_read();
 		// ram updates and writing ram to flash
 		ram_frame();
+		// handle usb web editor
+		web_editor_frame();
 	}
 }
 

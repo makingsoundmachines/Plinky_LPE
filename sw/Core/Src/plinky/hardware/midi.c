@@ -9,10 +9,6 @@
 #include "touchstrips.h"
 #include "tusb.h"
 
-// cleanup
-#include "../../web_usb.h"
-// -- cleanup
-
 // midi uart, lives in main.c
 extern UART_HandleTypeDef huart3;
 
@@ -352,8 +348,8 @@ static void process_usb_midi_in(void) {
 
 void process_midi(void) {
 	process_all_midi_out();
-	pump_web_usb(true);
 	process_serial_midi_in();
+	tud_task();
 	process_usb_midi_in();
 }
 

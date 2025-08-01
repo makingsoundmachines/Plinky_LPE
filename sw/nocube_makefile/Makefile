@@ -58,6 +58,7 @@ SRCS = \
 	../Core/Src/plinky/ui/oled_viz.c \
 	../Core/Src/plinky/ui/pad_actions.c \
 	../Core/Src/plinky/ui/shift_states.c \
+	../Core/Src/plinky/usb/web_editor.c \
 	../Core/Src/plinky/gfx/gfx.c \
 	../Core/Src/plinky/gfx/oled/oled.c \
 	../Core/Src/main.c \
@@ -76,7 +77,6 @@ SRCS = \
 	../Core/Src/tinyusb/src/device/usbd.c \
 	../Core/Src/tinyusb/src/device/usbd_control.c \
 	../Core/Src/tinyusb/src/portable/st/synopsys/dcd_synopsys.c \
-	../Core/Src/web_usb.c \
 	../Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal.c \
 	../Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_adc.c \
 	../Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_adc_ex.c \
