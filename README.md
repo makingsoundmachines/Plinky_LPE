@@ -2,13 +2,10 @@
 
 This is a user-maintained branch of firmware for the Plinky and Plinky+ synths. For the official firmware and information about the Plinky devices, visit the [official firmware repo](https://github.com/plinkysynth/plinky_public) and [official website](https://plinkysynth.com)
 
-## Current Release: v0.2.0 - *The one with the timing*
-**Release date:** 24 July 2025
+## Current Release: v0.2.1 - *The one with the timing*
+**Release date:** 3 August 2025
 
-**Release state:** Alpha
-- Some features are not implemented:
-    - There is no calibration procedure, the existing calibration file is used
-    - The usb editor does not work
+**Release state:** Beta
 - Presets saved in previous firmware versions may sound different
 - Encountering bugs that were not present in official firmware v0.B2 is likely 
 
@@ -28,11 +25,27 @@ This is a user-maintained branch of firmware for the Plinky and Plinky+ synths. 
 - Follow the firmware installation instructions on [the official website](https://plinkysynth.com/firmware)
 - If you're updating from an older firmware version, it might be necessary to rename the file to CURRENT.UF2 before installing
 
-*Please report any bugs as a [github issue](https://github.com/ember-labs-io/Plinky_LPE/issues) or in the [beta-firmware channel](https://discord.com/channels/784856175937585152/801926420908474378) of the Plinky discord, so I can fix them*
+*Please report any bugs as a [github issue](https://github.com/ember-labs-io/Plinky_LPE/issues) or in the [#bug-reports](https://discord.com/channels/784856175937585152/844199535860383776) channel of the Plinky discord, so I can fix them*
 
 ---
 
 ## Release notes
+
+## v0.2.1 
+*Released on 3 August 2025*
+### Re-implementation of existing v0.B2 features
+- Restores touch and cv calibration procedures
+- Restores usb bootloader mode
+- Restores [web editor](https://plinkysynth.github.io/editor) functionality
+
+*This makes this firmware a feature-complete replacement for official firmware v0.B2*
+
+### Various small updates
+- Adds support for midi sustain (CC 64)
+- Some edge-case midi fixes
+
+## v0.2.0 - *The one with the timing*
+*Released on 14 July 2025*
 
 ### Important
 - This version changes the parameter mapping for lfo rate - presets saved in earlier firmware versions may sound different because of this
