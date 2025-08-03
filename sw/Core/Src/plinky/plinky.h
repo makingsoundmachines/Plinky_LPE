@@ -1,7 +1,7 @@
 #pragma once
 #include "utils.h"
 
-#define FIRMWARE_VERSION "0.2.0"
+#define FIRMWARE_VERSION "0.2.1"
 #define GOLDEN_CHECKSUM 0xb5a7228c
 
 typedef enum HardwareVersion {
