@@ -2,6 +2,7 @@
 #include "hardware/ram.h"
 #include "synth/params.h"
 #include "synth/sampler.h"
+#include "ui/settings_menu.h"
 
 volatile s8 encoder_value = 0;
 volatile bool encoder_pressed = false;
@@ -40,7 +41,7 @@ void encoder_irq(void) {
 	if (hardware_state == 0b11)
 		encoder_value = (encoder_value & ~0b11) | 2; // snap to the middle of a detent (value = 4x + 2)
 	else
-		encoder_value += enc_deltas[cur_state];
+		encoder_value += enc_deltas[cur_state] * (sys_params.reverse_encoder ? -1 : 1);
 
 	// acceleration
 	encoder_acc *= 0.998f;
@@ -86,6 +87,12 @@ void encoder_tick(void) {
 			else
 				sampler_adjust_cur_slice_point(enc_diff * 512);
 		}
+		break;
+	case UI_SETTINGS_MENU:
+		if (encoder_pressed && !prev_encoder_pressed)
+			settings_encoder_press();
+		if (enc_diff)
+			edit_settings_from_encoder(enc_diff);
 		break;
 	default:
 		break;
