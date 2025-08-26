@@ -46,7 +46,7 @@ static ModSource src_snap;
 // modulation values
 static s32 param_with_lfo[NUM_PARAMS];
 static u16 max_env_global = 0;
-static u16 max_pres_global = 0;
+static u32 max_pres_global = 0;
 static u16 sample_hold_global = {8 << 12};
 static u16 sample_hold_poly[NUM_STRINGS] = {0, 1 << 12, 2 << 12, 3 << 12, 4 << 12, 5 << 12, 6 << 12, 7 << 12};
 
