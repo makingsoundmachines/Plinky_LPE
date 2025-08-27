@@ -132,6 +132,44 @@ bool arp_active(void) {
 
 // == MAIN == //
 
+void init_presets(void) {
+	for (u8 preset_id = 0; preset_id < NUM_PRESETS; preset_id++) {
+		// load preset
+		load_preset(preset_id, true);
+		while (!update_preset_ram(false)) {}
+		// clear volume mod sources
+		for (u8 m = 1; m < NUM_MOD_SOURCES; ++m)
+			cur_preset.params[P_VOLUME][m] = 0;
+		// upgrade preset to CUR_PRESET_VERSION
+		switch (cur_preset.version) {
+		case CUR_PRESET_VERSION:
+			// correct!
+			break;
+		case 0:
+			// add mix width, switch value with accel sensitivity
+			for (u8 mod_id = 0; mod_id < NUM_MOD_SOURCES; ++mod_id) {
+				s16 temp = cur_preset.params[P_MIX_WIDTH][mod_id];
+				cur_preset.params[P_MIX_WIDTH][mod_id] = cur_preset.params[P_MIX_UNUSED3][mod_id];
+				cur_preset.params[P_MIX_UNUSED3][mod_id] = temp;
+			}
+			// set default
+			cur_preset.params[P_MIX_WIDTH][SRC_BASE] = RAW_HALF;
+			cur_preset.version = 1;
+			// fall through for further upgrading
+		case 1:
+			// add lfo saw shape
+			for (u8 lfo_id = 0; lfo_id < NUM_LFOS; ++lfo_id) {
+				s16* data = cur_preset.params[P_A_SHAPE + lfo_id * 6];
+				*data = (*data * (NUM_LFO_SHAPES - 1)) / (NUM_LFO_SHAPES); // rescale to add extra enum entry
+				if (*data >= (LFO_SAW * RAW_SIZE) / NUM_LFO_SHAPES)        // and shift high numbers up
+					*data += (1 * RAW_SIZE) / NUM_LFO_SHAPES;
+			}
+			cur_preset.version = 2;
+			// fall through for further upgrading
+		}
+	}
+}
+
 static void apply_lfo_mods(Param param_id) {
 	s16* param = cur_preset.params[param_id];
 	s32 new_val = param[SRC_BASE] << 16;

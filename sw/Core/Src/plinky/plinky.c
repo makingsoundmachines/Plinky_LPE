@@ -121,6 +121,7 @@ void plinky_init(void) {
 	init_flash();
 	init_ram();
 	encoder_init();
+	init_presets();
 }
 
 // this runs with precise audio timing

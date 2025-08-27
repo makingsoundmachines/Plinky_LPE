@@ -157,7 +157,7 @@ typedef struct Voice {
 } Voice;
 
 typedef struct SysParams {
-	u8 curpreset;
+	u8 preset_id;
 	u8 midi_in_chan : 4;
 	u8 midi_out_chan : 4;
 	u8 accel_sens;

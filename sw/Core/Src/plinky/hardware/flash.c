@@ -29,6 +29,7 @@ typedef struct FlashPage {
 static_assert(sizeof(FlashPage) == 2048, "?");
 
 #define FLASH_ADDR_256 (0x08000000 + 256 * FLASH_PAGE_SIZE)
+#define FOOTER_VERSION 2
 
 const static u64 MAGIC = 0xf00dcafe473ff02a;
 const static u8 CALIB_PAGE = 255;
@@ -58,7 +59,7 @@ const Preset* preset_flash_ptr(u8 preset_id) {
 	if (preset_id >= NUM_PRESETS)
 		return init_params_ptr();
 	FlashPage* fp = flash_page_ptr(latest_page_id[preset_id]);
-	if (fp->footer.idx != preset_id || fp->footer.version != CUR_PRESET_VERSION)
+	if (fp->footer.idx != preset_id || fp->footer.version != FOOTER_VERSION)
 		return init_params_ptr();
 	return (Preset*)fp;
 }
@@ -67,7 +68,7 @@ PatternQuarter* ptn_quarter_flash_ptr(u8 quarter_id) {
 	if (quarter_id >= NUM_PTN_QUARTERS)
 		return (PatternQuarter*)zero;
 	FlashPage* fp = flash_page_ptr(latest_page_id[PATTERNS_START + quarter_id]);
-	if (fp->footer.idx != PATTERNS_START + quarter_id || fp->footer.version != CUR_PRESET_VERSION)
+	if (fp->footer.idx != PATTERNS_START + quarter_id || fp->footer.version != FOOTER_VERSION)
 		return (PatternQuarter*)zero;
 	return (PatternQuarter*)fp;
 }
@@ -76,7 +77,7 @@ SampleInfo* sample_info_flash_ptr(u8 sample0) {
 	if (sample0 >= NUM_SAMPLES)
 		return (SampleInfo*)zero;
 	FlashPage* fp = flash_page_ptr(latest_page_id[F_SAMPLES_START + sample0]);
-	if (fp->footer.idx != F_SAMPLES_START + sample0 || fp->footer.version != CUR_PRESET_VERSION)
+	if (fp->footer.idx != F_SAMPLES_START + sample0 || fp->footer.version != FOOTER_VERSION)
 		return (SampleInfo*)zero;
 	return (SampleInfo*)fp;
 }
@@ -206,7 +207,7 @@ void init_flash() {
 		u8 i = p->footer.idx;
 		if (i >= NUM_FLASH_ITEMS)
 			continue; // skip blank
-		if (p->footer.version < CUR_PRESET_VERSION)
+		if (p->footer.version < FOOTER_VERSION)
 			continue; // skip old
 		u16 check = compute_hash(p, 2040);
 		if (check != p->footer.crc) {
@@ -283,7 +284,7 @@ void flash_write_page(const void* src, u32 size, u8 page_id) {
 	PageFooter footer;
 	footer.idx = page_id;
 	footer.seq = next_seq++;
-	footer.version = CUR_PRESET_VERSION;
+	footer.version = FOOTER_VERSION;
 	footer.crc = compute_hash(dst, 2040);
 	flash_write_block(dst + 2040, &footer, 8);
 	HAL_FLASH_Lock();

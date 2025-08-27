@@ -173,7 +173,7 @@ void web_editor_frame(void) {
 			break;
 		// we sent the header, now send the data
 		case WU_SND_HDR:
-			u8* data = header.idx == sys_params.curpreset ? (u8*)&cur_preset : (u8*)preset_flash_ptr(header.idx);
+			u8* data = header.idx == sys_params.preset_id ? (u8*)&cur_preset : (u8*)preset_flash_ptr(header.idx);
 			set_state(WU_SND_DATA, data + wu_hdr_offset(), wu_hdr_len());
 			break;
 		// done sending data, return to start state

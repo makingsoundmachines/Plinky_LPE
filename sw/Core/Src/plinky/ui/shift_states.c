@@ -85,7 +85,7 @@ void shift_set_state(ShiftState new_state) {
 	case SS_LOAD:
 		// activate preset load screen
 		ui_mode = UI_LOAD;
-		touch_load_item(sys_params.curpreset);
+		touch_load_item(sys_params.preset_id);
 		break;
 	case SS_LEFT:
 		// edit start of sequencer pattern
