@@ -22,12 +22,15 @@ typedef enum Item {
 	I_MIDI_OUT_CH,
 	// cv
 	I_CV_QUANT = S_CV * 8,
+	// actions
+	I_REBOOT = S_ACTIONS * 8,
 
 	MAX_ITEM,
 } Item;
 
 const static u8 num_options[NUM_ITEMS] = {
     [I_ACCEL_SENS] = 201, [I_ENC_DIR] = 2, [I_MIDI_IN_CH] = 16, [I_MIDI_OUT_CH] = 16, [I_CV_QUANT] = NUM_CV_QUANT_TYPES,
+    [I_REBOOT] = 1,
 };
 
 const static char* section_name[NUM_SYS_PARAM_SECTS] = {
@@ -39,7 +42,7 @@ const static char* section_name[NUM_SYS_PARAM_SECTS] = {
 
 const static char* item_name[NUM_ITEMS] = {
     [I_ACCEL_SENS] = "Acc sens",     [I_ENC_DIR] = "Enc dir", [I_MIDI_IN_CH] = "In channel",
-    [I_MIDI_OUT_CH] = "Out channel", [I_CV_QUANT] = "Quant",
+    [I_MIDI_OUT_CH] = "Out channel", [I_CV_QUANT] = "Quant",  [I_REBOOT] = "Reboot",
 };
 
 static Item cur_item = 0;
@@ -138,6 +141,17 @@ void settings_menu_actions(void) {
 	if (!perform_action)
 		return;
 	switch (cur_item) {
+	case I_REBOOT:
+		Font font = F_16;
+		oled_clear();
+		draw_str_ctr(0, font, "release");
+		draw_str_ctr(16, font, "encoder");
+		oled_flip();
+		HAL_Delay(2000);
+		oled_clear();
+		oled_flip();
+		HAL_NVIC_SystemReset();
+		break;
 	default:
 		break;
 	}

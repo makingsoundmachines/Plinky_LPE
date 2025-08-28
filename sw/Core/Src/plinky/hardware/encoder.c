@@ -58,9 +58,6 @@ void encoder_tick(void) {
 	if (encoder_pressed)
 		encoder_press_duration++;
 
-	if (encoder_press_duration > 250)
-		plinky_reboot_sequence(encoder_press_duration);
-
 	if ((enc_diff || encoder_pressed || prev_encoder_pressed)) {
 		// log time
 		last_encoder_use = millis();
@@ -76,9 +73,7 @@ void encoder_tick(void) {
 		// release of a short encoder press
 		else if (!encoder_pressed && prev_encoder_pressed && encoder_press_duration <= 50)
 			params_toggle_default_value();
-		// hold encoder (not during reboot sequence)
-		if (encoder_press_duration <= 250)
-			hold_encoder_for_params(encoder_press_duration);
+		hold_encoder_for_params(encoder_press_duration);
 		break;
 	case UI_SAMPLE_EDIT:
 		if (enc_diff) {

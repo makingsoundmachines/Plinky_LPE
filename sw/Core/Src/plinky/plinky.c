@@ -211,17 +211,3 @@ void plinky_loop(void) {
 		settings_menu_actions();
 	}
 }
-
-void plinky_reboot_sequence(u16 reboot_delay) {
-	// reboot on release
-	if (!encoder_pressed && reboot_delay > 500) {
-		HAL_Delay(500);
-		HAL_NVIC_SystemReset();
-	}
-	// stage 2
-	if (reboot_delay > 500)
-		flash_message(F_20_BOLD, "REBOOT!!", "");
-	// stage 1
-	else if (reboot_delay > 250)
-		flash_message(F_20_BOLD, "REBOOT?", "");
-}

@@ -33,4 +33,3 @@ extern CalibMode calib_mode;
 void plinky_init(void);
 void plinky_codec_tick(u32* audio_out, u32* audio_in);
 void plinky_loop(void);
-void plinky_reboot_sequence(u16 reboot_delay);
