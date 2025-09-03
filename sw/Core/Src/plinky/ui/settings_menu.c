@@ -2,6 +2,7 @@
 #include "gfx/gfx.h"
 #include "hardware/leds.h"
 #include "hardware/ram.h"
+#include "synth/params.h"
 
 #define NUM_ITEMS 64
 
@@ -24,13 +25,19 @@ typedef enum Item {
 	I_CV_QUANT = S_CV * 8,
 	// actions
 	I_REBOOT = S_ACTIONS * 8,
+	I_OG_PRESETS,
 
 	MAX_ITEM,
 } Item;
 
 const static u8 num_options[NUM_ITEMS] = {
-    [I_ACCEL_SENS] = 201, [I_ENC_DIR] = 2, [I_MIDI_IN_CH] = 16, [I_MIDI_OUT_CH] = 16, [I_CV_QUANT] = NUM_CV_QUANT_TYPES,
+    [I_ACCEL_SENS] = 201,
+    [I_ENC_DIR] = 2,
+    [I_MIDI_IN_CH] = 16,
+    [I_MIDI_OUT_CH] = 16,
+    [I_CV_QUANT] = NUM_CV_QUANT_TYPES,
     [I_REBOOT] = 1,
+    [I_OG_PRESETS] = 1,
 };
 
 const static char* section_name[NUM_SYS_PARAM_SECTS] = {
@@ -43,6 +50,7 @@ const static char* section_name[NUM_SYS_PARAM_SECTS] = {
 const static char* item_name[NUM_ITEMS] = {
     [I_ACCEL_SENS] = "Acc sens",     [I_ENC_DIR] = "Enc dir", [I_MIDI_IN_CH] = "In channel",
     [I_MIDI_OUT_CH] = "Out channel", [I_CV_QUANT] = "Quant",  [I_REBOOT] = "Reboot",
+    [I_OG_PRESETS] = "OG Presets",
 };
 
 static Item cur_item = 0;
@@ -151,6 +159,9 @@ void settings_menu_actions(void) {
 		oled_clear();
 		oled_flip();
 		HAL_NVIC_SystemReset();
+		break;
+	case I_OG_PRESETS:
+		revert_presets();
 		break;
 	default:
 		break;

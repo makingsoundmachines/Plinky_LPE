@@ -267,6 +267,86 @@ void init_presets(void) {
 	draw_logo();
 }
 
+void revert_presets(void) {
+	Font font = F_16;
+	Preset preset;
+
+	for (u8 preset_id = 0; preset_id < NUM_PRESETS; preset_id++) {
+		// visuals
+		oled_clear();
+		draw_str_ctr(0, font, "reverting");
+		draw_str_ctr(16, font, "presets");
+		inverted_rectangle(4 * preset_id, 0, OLED_WIDTH, OLED_HEIGHT);
+		oled_flip();
+
+		memcpy(&preset, preset_flash_ptr(preset_id), sizeof(Preset));
+		for (u8 param_id = 0; param_id < NUM_PARAMS; param_id++) {
+			s16 lpe_raw = preset.params[param_id][SRC_BASE];
+			s16 og_raw = lpe_raw;
+			bool is_index = param_is_index(param_id, SRC_BASE, lpe_raw);
+			switch (param_id) {
+			// map unipolar to full bipolar range
+			case P_DISTORTION:
+			case P_SYN_WET_DRY:
+			case P_IN_WET_DRY:
+			case P_MIX_WIDTH:
+				og_raw = (lpe_raw << 1) - RAW_SIZE;
+				break;
+			// restrict to unipolar range
+			case P_ARP_CHANCE:
+				og_raw = abs(lpe_raw);
+				break;
+			// arp & latch, save to "flags"
+			case P_ARP_TGL:
+				if (og_raw >= 512)
+					preset.pad |= 0b01;
+				else
+					preset.pad &= ~0b01;
+				break;
+			case P_LATCH_TGL:
+				if (og_raw >= 512)
+					preset.pad |= 0b10;
+				else
+					preset.pad &= ~0b10;
+				break;
+			// delay time - invert polarity
+			case P_DLY_TIME:
+				og_raw = -lpe_raw;
+				break;
+			// no synced lfos
+			case P_A_RATE:
+			case P_B_RATE:
+			case P_X_RATE:
+			case P_Y_RATE:
+				if (lpe_raw > 0)
+					lpe_raw = -RAW_SIZE + lpe_raw;
+				og_raw = (-lpe_raw << 1) - RAW_SIZE;
+				break;
+			default:
+				// indeces - map to center of range
+				if (is_index)
+					og_raw = ((raw_to_index(lpe_raw, param_range(param_id)) << 10) + RAW_HALF) / get_og_range(param_id);
+				break;
+			}
+			preset.params[param_id][SRC_BASE] = og_raw;
+		}
+		preset.version = OG_PRESET_VERSION;
+		flash_write_page(&preset, sizeof(Preset), preset_id);
+	} // preset loop
+
+	// finish up
+	oled_clear();
+	draw_str_ctr(0, font, "presets");
+	draw_str_ctr(16, font, "reverted");
+	oled_flip();
+	HAL_Delay(2000);
+	oled_clear();
+	draw_str_ctr(0, font, "please turn");
+	draw_str_ctr(16, font, "off plinky!");
+	oled_flip();
+	while (true) {}
+}
+
 static void apply_lfo_mods(Param param_id) {
 	s16* param = cur_preset.params[param_id];
 	s32 new_val = param[SRC_BASE] << 16;

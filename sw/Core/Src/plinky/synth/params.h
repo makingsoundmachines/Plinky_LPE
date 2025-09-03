@@ -12,6 +12,7 @@ bool arp_active(void);
 
 // main
 void init_presets(void);
+void revert_presets(void);
 void params_tick(void);
 
 // param retrieval calls
