@@ -40,7 +40,8 @@ void hold_encoder_for_params(u16 duration);
 
 // visuals
 void take_param_snapshots(void);
-bool draw_cur_param(void);
+bool params_want_to_draw(void);
+void draw_cur_param(void);
 void draw_arp_flag(void);
 void draw_latch_flag(void);
 
