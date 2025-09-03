@@ -82,7 +82,7 @@ const static RangeType range_type[NUM_PARAMS] = {
 const static Preset init_params = {
     .seq_start = 0,
     .seq_len = 8,
-    .version = CUR_PRESET_VERSION,
+    .version = LPE_PRESET_VERSION,
     .params = {
         [P_SHAPE] = {0},            [P_DISTORTION] = {RAW_HALF},                                [P_PITCH] = {0},                                    [P_OCT] = {0},                  [P_GLIDE] = {0},                            [P_INTERVAL] = {0},                 // Sound 1
         [P_NOISE] = {0},            [P_RESO] = {0},                                             [P_DEGREE] = {0},                                   [P_SCALE] = {0},                [P_MICROTONE] = {RAW_EIGHTH},               [P_COLUMN] = {INDEX_TO_RAW(7, 13)}, // Sound 2
