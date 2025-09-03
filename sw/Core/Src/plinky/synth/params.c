@@ -576,15 +576,17 @@ void params_toggle_default_value(void) {
 // == VISUALS == //
 
 void hold_encoder_for_params(u16 duration) {
+	const static u8 msg_delay = 50;
+	const static u8 clear_delay = 150;
 	if (!EDITING_PARAM)
 		return;
-	if (duration == 50)
+	if (duration == clear_delay)
 		for (ModSource mod_src = SRC_ENV2; mod_src < NUM_MOD_SOURCES; ++mod_src)
 			save_param_raw(selected_param, mod_src, 0);
-	if (duration >= 50)
-		flash_message(F_20_BOLD, I_CROSS "Mod Cleared", "");
-	else if (duration >= 10)
-		flash_message(F_20_BOLD, I_CROSS "Clear Mod?", "");
+	if (duration >= clear_delay)
+		flash_message(F_20_BOLD, I_RIGHT "Cleared!", 0);
+	else if (duration >= msg_delay)
+		flash_message(F_20_BOLD, I_RIGHT "Clear mods?", 0);
 }
 
 // == VISUALS == //
