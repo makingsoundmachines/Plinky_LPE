@@ -1,4 +1,5 @@
 #include "codec.h"
+#include "ram.h"
 
 extern I2C_HandleTypeDef hi2c2;
 extern SAI_HandleTypeDef hsai_BlockB1;
@@ -282,7 +283,6 @@ void Error_Handler(void);
 #define BIASCTRL_HALFI_IPGA (1 << 6)
 #define BIASCTRL_BIASCUT (1 << 8)
 
-static u8 cur_volume = -1;
 static short tx_buf[SAMPLES_PER_TICK * 4];
 static short rx_buf[SAMPLES_PER_TICK * 4];
 
@@ -393,11 +393,12 @@ void codec_init(void) {
 	//		wmcodec_write(RINPGAVOL, invol + RINPGAVOL_INPGAVU);
 }
 
-void codec_set_volume(u8 vol) {
-	vol = clampi(vol >> 2, 0, 63);
-	if (vol == cur_volume)
+void codec_update_volume(void) {
+	static u8 cur_vol = 255;
+	u8 new_vol = mini((sys_params.volume_msb << 4) + (sys_params.volume_lsb >> 4), 63);
+	if (new_vol == cur_vol)
 		return;
-	cur_volume = vol;
-	wmcodec_write(LOUT1VOL, 0x000 + vol);
-	wmcodec_write(ROUT1VOL, 0x100 + vol);
+	wmcodec_write(LOUT1VOL, 0x000 + new_vol);
+	wmcodec_write(ROUT1VOL, 0x100 + new_vol);
+	cur_vol = new_vol;
 }

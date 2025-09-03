@@ -161,10 +161,11 @@ typedef struct SysParams {
 	u8 midi_in_chan : 4;
 	u8 midi_out_chan : 4;
 	u8 accel_sens;
-	u8 headphonevol;
+	u8 volume_lsb;
+	u8 volume_msb : 3; // add 3 bits to make editing in 0-1024 range possible
 	u8 cv_quant : 2;
 	u8 reverse_encoder : 1;
-	u8 paddy : 5;
+	u8 paddy : 2;
 	u8 pad[16 - 5];
 } SysParams;
 

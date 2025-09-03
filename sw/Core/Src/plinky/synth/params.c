@@ -272,7 +272,7 @@ void params_tick(void) {
 // raw parameter value, range -1024 to 1024
 static s16 param_val_raw(Param param_id, ModSource mod_src) {
 	if (param_id == P_VOLUME && mod_src == SRC_BASE)
-		return sys_params.headphonevol << 2;
+		return (sys_params.volume_msb << 8) + sys_params.volume_lsb;
 	return cur_preset.params[param_id][mod_src];
 }
 
@@ -338,10 +338,12 @@ void save_param_raw(Param param_id, ModSource mod_src, s16 data) {
 	// special cases
 	switch (param_id) {
 	case P_VOLUME:
-		data = clampi(data >> 2, 0, 255);
-		if (data == sys_params.headphonevol)
+		u8 lsb = data & 255;
+		u8 msb = (data >> 8) & 7;
+		if (lsb == sys_params.volume_lsb && msb == sys_params.volume_msb)
 			return;
-		sys_params.headphonevol = data;
+		sys_params.volume_lsb = lsb;
+		sys_params.volume_msb = msb;
 		log_ram_edit(SEG_SYS);
 		return;
 	case P_LATCH_TGL:
@@ -533,14 +535,6 @@ void edit_param_from_encoder(s8 enc_diff, float enc_acc) {
 		return;
 	}
 
-	// full range values, add/subtract 0.1 per encoder tick with acceleration
-	switch (param_id) {
-	case P_VOLUME:
-		enc_diff *= 4;
-		break;
-	default:
-		break;
-	}
 	// holding shift disables acceleration
 	enc_acc = shift_state == SS_SHIFT_A || shift_state == SS_SHIFT_B ? 1.f : maxf(1.f, enc_acc * enc_acc);
 	raw += floorf(enc_diff * enc_acc + 0.5f);
@@ -734,9 +728,6 @@ static const char* get_param_str(Param param_id, ModSource mod_src, s16 raw, cha
 		break;
 	case P_TEMPO:
 		disp_val_10x = clock_type == CLK_INTERNAL ? maxi((raw + RAW_SIZE) * 1200 >> 10, MIN_BPM_10X) : bpm_10x;
-		break;
-	case P_VOLUME:
-		disp_val_10x = raw * 1000 / 1020;
 		break;
 	default:
 		break;

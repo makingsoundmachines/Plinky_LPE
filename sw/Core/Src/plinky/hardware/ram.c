@@ -106,7 +106,7 @@ void init_ram(void) {
 		last_ram_write[i] = 0;
 		last_flash_write[i] = 0;
 	}
-	codec_set_volume(sys_params.headphonevol);
+	codec_update_volume();
 	recent_load_item = sys_params.preset_id;
 }
 

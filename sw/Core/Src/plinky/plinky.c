@@ -177,7 +177,7 @@ void plinky_codec_tick(u32* audio_out, u32* audio_in) {
 void plinky_loop(void) {
 	while (1) {
 		// set output volume
-		codec_set_volume(sys_params.headphonevol);
+		codec_update_volume();
 		// handle spi flash writes for the sampler
 		if (ui_mode == UI_SAMPLE_EDIT) {
 			switch (sampler_mode) {
