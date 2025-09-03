@@ -350,6 +350,11 @@ int draw_str(int x, int y, Font f, const char* buf) {
 	return drawstr_noright(x, y, f, buf);
 }
 
+int draw_str_ctr(int y, Font f, const char* buf) {
+	int w = str_width(f, buf);
+	return draw_str((OLED_WIDTH - w) / 2, y, f, buf);
+}
+
 int vfdraw_str(int x, int y, Font f, const char* fmt, va_list args) {
 	if (!fmt)
 		return 0;

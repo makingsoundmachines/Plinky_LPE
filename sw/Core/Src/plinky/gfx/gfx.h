@@ -26,6 +26,7 @@ int str_width(Font f, const char* buf);
 int font_height(Font f);
 int str_height(Font f, const char* buf);
 int draw_str(int x, int y, Font f, const char* buf);
+int draw_str_ctr(int y, Font f, const char* buf);
 int fdraw_str(int x, int y, Font f, const char* fmt, ...);
 int drawstr_noright(int x, int y, Font f, const char* buf);
 
