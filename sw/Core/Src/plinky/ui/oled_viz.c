@@ -59,6 +59,7 @@ void flash_message(Font fnt, const char* msg, const char* submsg) {
 	message_time = millis() + 500;
 }
 
+// returns whether this drew anything
 static bool draw_message(void) {
 	if (!message)
 		return false;
@@ -66,12 +67,13 @@ static bool draw_message(void) {
 		message = 0;
 		return false;
 	}
-	u8 y = 0;
 	if (submessage) {
 		draw_str(0, 0, F_12, submessage);
-		y = 12;
+		draw_str(0, 12, message_font, message);
+		return true;
 	}
-	draw_str(0, y, message_font, message);
+	// vertically centered
+	draw_str(0, 8, message_font, message);
 	return true;
 }
 
