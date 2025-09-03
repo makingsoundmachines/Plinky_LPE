@@ -89,8 +89,7 @@ void encoder_tick(void) {
 		}
 		break;
 	case UI_SETTINGS_MENU:
-		if (encoder_pressed && !prev_encoder_pressed)
-			settings_encoder_press();
+		settings_encoder_press(encoder_pressed, encoder_press_duration);
 		if (enc_diff)
 			edit_settings_from_encoder(enc_diff);
 		break;

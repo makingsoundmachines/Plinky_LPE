@@ -21,6 +21,7 @@
 #include "ui/led_viz.h"
 #include "ui/oled_viz.h"
 #include "ui/pad_actions.h"
+#include "ui/settings_menu.h"
 #include "usb/web_editor.h"
 
 UIMode ui_mode = UI_DEFAULT;
@@ -115,13 +116,13 @@ void plinky_init(void) {
 	spi_init();
 	midi_init();
 	leds_init();
+	init_flash();
+	init_ram();
+	init_presets();
 	launch_calib(0);
 	leds_bootswish();
 	launch_calib(1);
-	init_flash();
-	init_ram();
 	encoder_init();
-	init_presets();
 }
 
 // this runs with precise audio timing
@@ -206,6 +207,8 @@ void plinky_loop(void) {
 		ram_frame();
 		// handle usb web editor
 		web_editor_frame();
+		// execute actions triggered by setting menu
+		settings_menu_actions();
 	}
 }
 

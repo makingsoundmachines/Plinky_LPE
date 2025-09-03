@@ -9,6 +9,7 @@ typedef enum Section {
 	S_SYSTEM,
 	S_MIDI,
 	S_CV,
+	S_ACTIONS,
 	NUM_SYS_PARAM_SECTS,
 } Section;
 
@@ -33,6 +34,7 @@ const static char* section_name[NUM_SYS_PARAM_SECTS] = {
     [S_SYSTEM] = "System",
     [S_MIDI] = "Midi",
     [S_CV] = "CV",
+    [S_ACTIONS] = "Actions",
 };
 
 const static char* item_name[NUM_ITEMS] = {
@@ -41,13 +43,17 @@ const static char* item_name[NUM_ITEMS] = {
 };
 
 static Item cur_item = 0;
+static Section cur_section;
 static u8 cur_value = 0;
 static bool value_selected = false;
+static u8 screen_fill = 0;
+static bool perform_action = false;
 
 static void select_item(Item item, bool force) {
 	if (item == cur_item && !force)
 		return;
 	cur_item = item;
+	cur_section = cur_item / 8;
 	switch (cur_item) {
 	case I_ACCEL_SENS:
 		cur_value = sys_params.accel_sens;
@@ -128,8 +134,25 @@ void select_settings_item(u8 x, u8 y) {
 		select_item(item, false);
 }
 
-void settings_encoder_press(void) {
-	value_selected = !value_selected;
+void settings_menu_actions(void) {
+	if (!perform_action)
+		return;
+	switch (cur_item) {
+	default:
+		break;
+	}
+}
+
+void settings_encoder_press(bool pressed, u16 duration) {
+	static bool enc_pressed = false;
+	if (cur_section == S_ACTIONS) {
+		screen_fill = pressed ? mini(duration, OLED_WIDTH) : 0;
+		if (duration >= OLED_WIDTH + 30)
+			perform_action = true;
+	}
+	else if (pressed && !enc_pressed)
+		value_selected = !value_selected;
+	enc_pressed = pressed;
 }
 
 void edit_settings_from_encoder(s8 enc_diff) {
@@ -187,10 +210,17 @@ void draw_settings_menu(void) {
 	vline(OLED_WIDTH - 1, 0, 9, 1);
 	hline(OLED_WIDTH / 2, 9, OLED_WIDTH, 1);
 	// section
-	Section section = cur_item / 8;
-	draw_str(0, 0, F_16_BOLD, section_name[section]);
-	// selection arrow
+	draw_str(0, 0, F_16_BOLD, section_name[cur_section]);
 	Font font = F_16;
+	// actions
+	if (cur_section == S_ACTIONS) {
+		draw_str(0, 17, font, item_name[cur_item]);
+		draw_str(OLED_WIDTH - 32, 15, font, I_TOUCH);
+		if (screen_fill)
+			inverted_rectangle(OLED_WIDTH - screen_fill, 0, OLED_WIDTH, OLED_HEIGHT);
+		return;
+	}
+	// selection arrow
 	draw_str(value_selected ? 110 : 0, 16, font, value_selected ? I_LEFT : I_RIGHT);
 	// name
 	draw_str(value_selected ? 0 : 18, 17, font, item_name[cur_item]);
