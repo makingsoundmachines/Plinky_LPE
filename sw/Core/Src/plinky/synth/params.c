@@ -84,7 +84,7 @@ static u8 param_is_index(Param param_id, ModSource mod_src, s16 raw) {
 		return false;
 	if (param_range(param_id) == 0)
 		return false;
-	if (range_type[param_id] == R_DUACLK && raw < 0)
+	if ((range_type[param_id] == R_DLYCLK || range_type[param_id] == R_DUACLK) && raw < 0)
 		return false;
 	return true;
 }
@@ -520,8 +520,8 @@ void edit_param_from_encoder(s8 enc_diff, float enc_acc) {
 	s16 raw = param_val_raw(param_id, selected_mod_src);
 	u8 range = param_range(param_id);
 
-	// negative values of dual clock are unranged
-	if (range_type[param_id] == R_DUACLK && raw < 0)
+	// negative values of delay/dual clock are unranged
+	if ((range_type[param_id] == R_DLYCLK || range_type[param_id] == R_DUACLK) && raw < 0)
 		range = 0;
 
 	// indeces: just add/subtract 1 per encoder tick
@@ -529,7 +529,7 @@ void edit_param_from_encoder(s8 enc_diff, float enc_acc) {
 		s16 index = raw_to_index(raw, range) + enc_diff;
 		raw = INDEX_TO_RAW(clampi(index, param_signed(param_id) ? -(range - 1) : 0, range - 1), range);
 		// smooth transition between synced and free timing
-		if (range_type[param_id] == R_DUACLK && index < 0)
+		if ((range_type[param_id] == R_DLYCLK || range_type[param_id] == R_DUACLK) && index < 0)
 			raw = -1;
 		save_param_raw(param_id, SRC_BASE, raw);
 		return;
@@ -609,7 +609,7 @@ static const char* get_param_str(Param param_id, ModSource mod_src, s16 raw, cha
 	}
 
 	u8 range = param_range(param_id);
-	if (range_type[param_id] == R_DUACLK && raw < 0)
+	if ((range_type[param_id] == R_DLYCLK || range_type[param_id] == R_DUACLK) && raw < 0)
 		range = 0;
 
 	// indeces
@@ -644,6 +644,7 @@ static const char* get_param_str(Param param_id, ModSource mod_src, s16 raw, cha
 		}
 		switch (range_type[param_id]) {
 		// clock sync
+		case R_DLYCLK:
 		case R_SEQCLK:
 		case R_DUACLK: {
 			u16 num_32nds = sync_divs_32nds[index];
@@ -936,10 +937,14 @@ void draw_cur_param(void) {
 		default:
 			break;
 		}
-		if (range_type[draw_param] == R_DUACLK) {
+		switch (range_type[draw_param]) {
+		case R_DLYCLK:
+		case R_DUACLK:
 			draw_str(0, 18, F_12_BOLD, I_TIME);
 			draw_str(text_x, 20, F_12_BOLD, "Rate");
 			return;
+		default:
+			break;
 		}
 	}
 

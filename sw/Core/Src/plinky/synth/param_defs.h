@@ -20,6 +20,7 @@ typedef enum RangeType {
 	R_DEGREE, // degree
 	R_SCALE,  // scale
 	R_COLUMN, // column
+	R_DLYCLK, // delay clock
 	R_SEQCLK, // sequencer clock
 	R_DUACLK, // dual clock, synced & free (arp, lfos)
 	R_EUCLEN, // euclid length
@@ -43,6 +44,7 @@ const static u16 param_info[NUM_RANGE_TYPES] = {
     [R_DEGREE] = SIGNED + 25,
     [R_SCALE] = UNSIGNED + NUM_SCALES,
     [R_COLUMN] = UNSIGNED + 13,
+    [R_DLYCLK] = SIGNED + 13, // max 1 bar synced
     [R_SEQCLK] = UNSIGNED + NUM_SYNC_DIVS + 1,
     [R_DUACLK] = SIGNED + NUM_SYNC_DIVS,
     [R_EUCLEN] = UNSIGNED + 16,
@@ -63,7 +65,7 @@ const static RangeType range_type[NUM_PARAMS] = {
    [P_NOISE] = R_UVALUE,       [P_RESO] = R_UVALUE,         [P_DEGREE] = R_DEGREE,        [P_SCALE] = R_SCALE,        [P_MICROTONE] = R_UVALUE,     [P_COLUMN] = R_COLUMN,        // Sound 2
    [P_ENV_LVL1] = R_UVALUE,    [P_ATTACK1] = R_UVALUE,      [P_DECAY1] = R_UVALUE,        [P_SUSTAIN1] = R_UVALUE,    [P_RELEASE1] = R_UVALUE,      [P_ENV1_UNUSED] = R_UNUSED,   // Envelope 1
    [P_ENV_LVL2] = R_UVALUE,    [P_ATTACK2] = R_UVALUE,      [P_DECAY2] = R_UVALUE,        [P_SUSTAIN2] = R_UVALUE,    [P_RELEASE2] = R_UVALUE,      [P_ENV2_UNUSED] = R_UNUSED,   // Envelope 2
-   [P_DLY_SEND] = R_UVALUE,    [P_DLY_TIME] = R_DUACLK,     [P_PING_PONG] = R_UVALUE,     [P_DLY_WOBBLE] = R_UVALUE,  [P_DLY_FEEDBACK] = R_UVALUE,  [P_TEMPO] = R_SVALUE,         // Delay
+   [P_DLY_SEND] = R_UVALUE,    [P_DLY_TIME] = R_DLYCLK,     [P_PING_PONG] = R_UVALUE,     [P_DLY_WOBBLE] = R_UVALUE,  [P_DLY_FEEDBACK] = R_UVALUE,  [P_TEMPO] = R_SVALUE,         // Delay
    [P_RVB_SEND] = R_UVALUE,    [P_RVB_TIME] = R_UVALUE,     [P_SHIMMER] = R_UVALUE,       [P_RVB_WOBBLE] = R_UVALUE,  [P_RVB_UNUSED] = R_UNUSED,    [P_SWING] = R_SVALUE,         // Reverb
    [P_ARP_TGL] = R_BINARY,     [P_ARP_ORDER] = R_ARPORD,    [P_ARP_CLK_DIV] = R_DUACLK,   [P_ARP_CHANCE] = R_SVALUE,  [P_ARP_EUC_LEN] = R_EUCLEN,   [P_ARP_OCTAVES] = R_ARPOCT,   // Arp
    [P_LATCH_TGL] = R_BINARY,   [P_SEQ_ORDER] = R_SEQORD,    [P_SEQ_CLK_DIV] = R_SEQCLK,   [P_SEQ_CHANCE] = R_SVALUE,  [P_SEQ_EUC_LEN] = R_EUCLEN,   [P_GATE_LENGTH] = R_UVALUE,   // Sequencer
