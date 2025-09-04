@@ -9,6 +9,7 @@
 #include "synth/strings.h"
 // -- cleanup
 
+#define SYS_PARAMS_VERSION 2
 #define NUM_RAM_ITEMS (NUM_PRESETS + NUM_PATTERNS + NUM_SAMPLES)
 
 typedef enum RamItemType {
@@ -105,6 +106,39 @@ void init_ram(void) {
 	for (u8 i = 0; i < NUM_RAM_SEGMENTS; ++i) {
 		last_ram_write[i] = 0;
 		last_flash_write[i] = 0;
+	}
+	// update sys params
+	Font font = F_16;
+	switch (sys_params.version) {
+	case SYS_PARAMS_VERSION:
+		// correct!
+		break;
+	case OG_SYS_PARAMS_VERSION:
+		// never initialized before - fill with defaults
+		sys_params.midi_in_chan = 0;
+		sys_params.midi_out_chan = 0;
+		sys_params.accel_sens = 150; // 100%
+		sys_params.cv_quant = CVQ_OFF;
+		sys_params.reverse_encoder = false;
+		sys_params.paddy = 0;
+		memset(sys_params.pad, 0, sizeof(sys_params.pad));
+		sys_params.version = REV_SYS_PARAMS_VERSION;
+		// fall through for further updating
+	case REV_SYS_PARAMS_VERSION:
+		// initialized but volume in OG mapping - remap volume
+		u16 og_vol = clampi(((s8)sys_params.volume_lsb + 45) << 4, 0, RAW_SIZE);
+		sys_params.volume_lsb = og_vol & 255;
+		sys_params.volume_msb = (og_vol >> 8) & 7;
+
+		// finalize
+		sys_params.version = SYS_PARAMS_VERSION;
+		log_ram_edit(SEG_SYS);
+		HAL_Delay(500);
+		oled_clear();
+		draw_str_ctr(0, font, "updated");
+		draw_str_ctr(16, font, "system settings");
+		oled_flip();
+		HAL_Delay(2000);
 	}
 	codec_update_volume();
 	recent_load_item = sys_params.preset_id;

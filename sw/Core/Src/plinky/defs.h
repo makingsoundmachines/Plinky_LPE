@@ -50,6 +50,10 @@
 #define OG_PRESET_VERSION 2
 #define LPE_PRESET_VERSION 16
 
+#define OG_SYS_PARAMS_VERSION 0
+#define REV_SYS_PARAMS_VERSION 15
+#define LPE_SYS_PARAMS_VERSION 16
+
 #define PATTERNS_START NUM_PRESETS
 #define SAMPLES_START (PATTERNS_START + NUM_PATTERNS)
 
@@ -167,7 +171,8 @@ typedef struct SysParams {
 	u8 cv_quant : 2;
 	u8 reverse_encoder : 1;
 	u8 paddy : 2;
-	u8 pad[16 - 5];
+	u8 pad[16 - 6];
+	u8 version;
 } SysParams;
 
 typedef struct Preset {

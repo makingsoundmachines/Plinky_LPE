@@ -271,6 +271,16 @@ void revert_presets(void) {
 	Font font = F_16;
 	Preset preset;
 
+	// revert system settings - only volume is relevant
+	sys_params.volume_lsb = mini(((sys_params.volume_msb << 8) + sys_params.volume_lsb) >> 4, 63) - 45;
+	sys_params.version = REV_SYS_PARAMS_VERSION;
+	oled_clear();
+	draw_str_ctr(0, font, "reverted");
+	draw_str_ctr(16, font, "system settings");
+	inverted_rectangle(0, 0, OLED_WIDTH, OLED_HEIGHT);
+	oled_flip();
+	HAL_Delay(2000);
+
 	for (u8 preset_id = 0; preset_id < NUM_PRESETS; preset_id++) {
 		// visuals
 		oled_clear();
