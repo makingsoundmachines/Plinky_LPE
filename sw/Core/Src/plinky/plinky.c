@@ -74,13 +74,10 @@ static void launch_calib(u8 phase) {
 	// first phase: auto-launch calibration if none found, save knob values
 	case 0:
 		FlashCalibType flash_calib_type = flash_read_calib();
-		calib_mode = CALIB_TOUCH;
 		if (!(flash_calib_type & FLASH_CALIB_TOUCH))
 			touch_calib(flash_calib_type | FLASH_CALIB_TOUCH);
-		calib_mode = CALIB_CV;
 		if (!(flash_calib_type & FLASH_CALIB_ADC_DAC))
 			cv_calib();
-		calib_mode = CALIB_NONE;
 		HAL_Delay(80);
 		knob_a_start = adc_get_raw(ADC_A_KNOB);
 		knob_b_start = adc_get_raw(ADC_B_KNOB);
@@ -91,13 +88,15 @@ static void launch_calib(u8 phase) {
 		u16 knob_b_delta = abs(knob_b_start - adc_get_raw(ADC_B_KNOB));
 		if (knob_a_delta > 4096 && knob_b_delta > 4096)
 			open_usb_bootloader();
-		calib_mode = CALIB_TOUCH;
+		// legacy implementation, calibration can now be called from the settings menu
 		if (knob_a_delta > 4096)
 			touch_calib(FLASH_CALIB_COMPLETE);
-		calib_mode = CALIB_CV;
 		if (knob_b_delta > 4096)
 			cv_calib();
-		calib_mode = CALIB_NONE;
+		if (knob_a_delta > 4096 || knob_b_delta > 4096) {
+			draw_logo();
+			leds_bootswish();
+		}
 		break;
 	}
 }
@@ -137,12 +136,12 @@ void plinky_codec_tick(u32* audio_out, u32* audio_in) {
 	// update all leds
 	leds_update();
 
+	// pre-process audio
+	audio_pre(audio_out, audio_in);
+
 	// don't do anything else while calibrating
 	if (calib_mode)
 		return;
-
-	// pre-process audio
-	audio_pre(audio_out, audio_in);
 
 	// in the process of recording a new sample
 	if (sampler_mode > SM_PREVIEW) {

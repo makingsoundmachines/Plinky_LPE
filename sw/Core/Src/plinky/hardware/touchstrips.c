@@ -414,6 +414,8 @@ u8 read_touchstrips(void) {
 // == CALIB == //
 
 void touch_calib(FlashCalibType flash_calib_type) {
+	calib_mode = CALIB_TOUCH;
+
 	typedef struct ReadingCalib {
 		float pos[PADS_PER_STRIP];
 		float pres[PADS_PER_STRIP];
@@ -546,8 +548,6 @@ void touch_calib(FlashCalibType flash_calib_type) {
 
 	// save results
 	flash_write_calib(flash_calib_type);
-
 	HAL_Delay(500);
-	draw_logo();
-	leds_bootswish();
+	calib_mode = CALIB_NONE;
 }

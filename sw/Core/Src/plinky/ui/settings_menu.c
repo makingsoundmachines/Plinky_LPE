@@ -1,7 +1,9 @@
 #include "settings_menu.h"
 #include "gfx/gfx.h"
+#include "hardware/adc_dac.h"
 #include "hardware/leds.h"
 #include "hardware/ram.h"
+#include "hardware/touchstrips.h"
 #include "synth/params.h"
 
 #define NUM_ITEMS 64
@@ -25,6 +27,8 @@ typedef enum Item {
 	I_CV_QUANT = S_CV * 8,
 	// actions
 	I_REBOOT = S_ACTIONS * 8,
+	I_TOUCH_CALIB,
+	I_CV_CALIB,
 	I_OG_PRESETS,
 
 	MAX_ITEM,
@@ -37,6 +41,8 @@ const static u8 num_options[NUM_ITEMS] = {
     [I_MIDI_OUT_CH] = 16,
     [I_CV_QUANT] = NUM_CV_QUANT_TYPES,
     [I_REBOOT] = 1,
+    [I_TOUCH_CALIB] = 1,
+    [I_CV_CALIB] = 1,
     [I_OG_PRESETS] = 1,
 };
 
@@ -48,9 +54,9 @@ const static char* section_name[NUM_SYS_PARAM_SECTS] = {
 };
 
 const static char* item_name[NUM_ITEMS] = {
-    [I_ACCEL_SENS] = "Acc sens",     [I_ENC_DIR] = "Enc dir", [I_MIDI_IN_CH] = "In channel",
-    [I_MIDI_OUT_CH] = "Out channel", [I_CV_QUANT] = "Quant",  [I_REBOOT] = "Reboot",
-    [I_OG_PRESETS] = "OG Presets",
+    [I_ACCEL_SENS] = "Acc sens",     [I_ENC_DIR] = "Enc dir",   [I_MIDI_IN_CH] = "In channel",
+    [I_MIDI_OUT_CH] = "Out channel", [I_CV_QUANT] = "Quant",    [I_REBOOT] = "Reboot",
+    [I_TOUCH_CALIB] = "Touch Calib", [I_CV_CALIB] = "CV Calib", [I_OG_PRESETS] = "OG Presets",
 };
 
 static Item cur_item = 0;
@@ -148,17 +154,31 @@ void select_settings_item(u8 x, u8 y) {
 void settings_menu_actions(void) {
 	if (!perform_action)
 		return;
+
+	// visuals
 	switch (cur_item) {
 	case I_REBOOT:
-		Font font = F_16;
+	case I_CV_CALIB:
 		oled_clear();
-		draw_str_ctr(0, font, "release");
-		draw_str_ctr(16, font, "encoder");
+		draw_str_ctr(0, F_16, "release");
+		draw_str_ctr(16, F_16, "encoder");
 		oled_flip();
-		HAL_Delay(2000);
-		oled_clear();
-		oled_flip();
+		HAL_Delay(1500);
+		break;
+	default:
+		break;
+	}
+
+	// actions
+	switch (cur_item) {
+	case I_REBOOT:
 		HAL_NVIC_SystemReset();
+		break;
+	case I_TOUCH_CALIB:
+		touch_calib(FLASH_CALIB_COMPLETE);
+		break;
+	case I_CV_CALIB:
+		cv_calib();
 		break;
 	case I_OG_PRESETS:
 		revert_presets();
@@ -166,6 +186,8 @@ void settings_menu_actions(void) {
 	default:
 		break;
 	}
+	perform_action = false;
+	ui_mode = UI_DEFAULT;
 }
 
 void settings_encoder_press(bool pressed, u16 duration) {
@@ -235,11 +257,11 @@ void draw_settings_menu(void) {
 	vline(OLED_WIDTH - 1, 0, 9, 1);
 	hline(OLED_WIDTH / 2, 9, OLED_WIDTH, 1);
 	// section
-	draw_str(0, 0, F_16_BOLD, section_name[cur_section]);
+	draw_str(1, 0, F_16_BOLD, section_name[cur_section]);
 	Font font = F_16;
 	// actions
 	if (cur_section == S_ACTIONS) {
-		draw_str(0, 17, font, item_name[cur_item]);
+		draw_str(1, 17, font, item_name[cur_item]);
 		draw_str(OLED_WIDTH - 32, 15, font, I_TOUCH);
 		if (screen_fill)
 			inverted_rectangle(OLED_WIDTH - screen_fill, 0, OLED_WIDTH, OLED_HEIGHT);

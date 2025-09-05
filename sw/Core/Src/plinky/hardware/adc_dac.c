@@ -200,6 +200,7 @@ void send_cv_pitch(bool pitch_hi, s32 data, bool apply_calib) {
 }
 
 void cv_calib(void) {
+	calib_mode = CALIB_CV;
 	const char* top_line = "Unplug all inputs. Use left 4 columns to adjust pitch cv outputs. Plug pitch lo output to "
 	                       "pitch input when done.";
 	const char* const bottom_lines[5] = {"touch column 1-4", "pitch lo = 0V/C0", "pitch lo = 2V/C2", "pitch hi = 0V/C0",
@@ -387,8 +388,6 @@ void cv_calib(void) {
 	// wait for unplug
 	while (cv_pitch_present())
 		HAL_Delay(1);
-
 	HAL_Delay(500);
-	draw_logo();
-	leds_bootswish();
+	calib_mode = CALIB_NONE;
 }
