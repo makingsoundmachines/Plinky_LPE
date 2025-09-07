@@ -725,10 +725,25 @@ void edit_param_from_encoder(s8 enc_diff, float enc_acc) {
 	// holding shift disables acceleration
 	enc_acc = shift_state == SS_SHIFT_A || shift_state == SS_SHIFT_B ? 1.f : maxf(1.f, enc_acc * enc_acc);
 	raw += floorf(enc_diff * enc_acc + 0.5f);
-	// make encoder steps of size 0.1 map to 1024 parameter values exactly
-	s8 pos = raw & 127;
-	if (pos == 1 || pos == 43 || pos == 86 || pos == -42 || pos == -85 || pos == -127)
-		raw += enc_diff > 0 ? 1 : -1;
+	switch (param_id) {
+	case P_PITCH:
+	case P_INTERVAL:
+	case P_TEMPO:
+	case P_PLAY_SPD:
+	case P_SMP_STRETCH:
+	case P_A_SCALE:
+	case P_B_SCALE:
+	case P_X_SCALE:
+	case P_Y_SCALE:
+		// these params are on a larger than 100.0 scale, every encoder tick (before acceleration) affects one raw step
+		break;
+	default:
+		// these params are on a (+/-) 100.0 scale, every encoder tick (before acceleration) changes 0.1 exactly
+		s8 pos = raw & 127;
+		if (pos == 1 || pos == 43 || pos == 86 || pos == -42 || pos == -85 || pos == -127)
+			raw += enc_diff > 0 ? 1 : -1;
+		break;
+	}
 	raw = clampi(raw, param_signed_or_mod(param_id, selected_mod_src) ? -RAW_SIZE : 0, RAW_SIZE);
 	save_param_raw(param_id, selected_mod_src, raw);
 }

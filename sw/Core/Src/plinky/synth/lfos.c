@@ -111,7 +111,7 @@ void update_lfo(u8 lfo_id) {
 
 	u8 lfo_page_offset = lfo_id * 6;
 	s32 lfo_rate = param_val(P_A_RATE + lfo_page_offset);
-	// free running - resulting lfo rate of this phase diff calculation is roughly 0.037-4913 Hz
+	// free running
 	if (lfo_rate < 0) {
 		u32 phase_diff_q32 = (u32)(table_interp(pitches, -lfo_rate) * (1 << 24));
 		lfo_clock_q32[lfo_id] += phase_diff_q32;
