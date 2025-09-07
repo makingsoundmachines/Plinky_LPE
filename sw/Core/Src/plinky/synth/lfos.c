@@ -165,7 +165,11 @@ void update_lfo(u8 lfo_id) {
 	    * param_val(P_A_DEPTH + lfo_page_offset));
 
 	// cv offset (cv scale param at 100% equals actual scale by 200%)
-	lfo_val += (s32)(adc_get_smooth(ADC_S_A_CV + lfo_id) * (param_val(P_A_SCALE + lfo_page_offset) << 1));
+	s32 cv_val = (s32)adc_get_smooth(ADC_S_A_CV + lfo_id);
+	// hi-pass gate to filter out external interference
+	if (abs(cv_val) < 15)
+		cv_val = 0;
+	lfo_val += cv_val * (param_val(P_A_SCALE + lfo_page_offset) << 1);
 	// offset by potentiometers and accelerometer
 	lfo_val += (s32)(((lfo_id < 2)
 	                      // knob A and B
