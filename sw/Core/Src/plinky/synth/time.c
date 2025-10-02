@@ -286,7 +286,7 @@ void clock_tick(void) {
 	} // no valid pulse length => progress by internal clock
 	default:
 		// internal clock => calculate clock from bpm param
-		bpm_10x = ((param_val(P_TEMPO) * 1200) >> 16) + 1200;
+		bpm_10x = maxi(((param_val(P_TEMPO) * 1200) >> 16) + 1200, MIN_BPM_10X);
 		clock_32nds_q21 += ((u64)1 << 27) * bpm_10x / (75.f * SAMPLE_RATE);
 		break;
 	}
