@@ -23,6 +23,7 @@
 typedef int8_t s8;
 typedef int16_t s16;
 typedef int32_t s32;
+typedef int64_t s64;
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
@@ -89,6 +90,13 @@ static inline u32 modi(s32 x, u32 y) {
 }
 static inline bool ispow2(s16 x) {
 	return (x & (x - 1)) == 0;
+}
+// maps value from input range to output range
+static inline s16 map_s16(s16 value, s16 in_min, s16 in_max, s16 out_min, s16 out_max) {
+	return out_min + ((s32)(value - in_min) * (out_max - out_min)) / (in_max - in_min);
+}
+static inline s32 map_s32(s32 value, s32 in_min, s32 in_max, s32 out_min, s32 out_max) {
+	return out_min + ((s64)(value - in_min) * (out_max - out_min)) / (in_max - in_min);
 }
 
 // debug

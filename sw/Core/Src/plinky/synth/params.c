@@ -224,6 +224,9 @@ void init_presets(void) {
 				case P_DLY_TIME:
 					og_raw = -og_raw;
 					lpe_raw = og_raw;
+					// free timing - the first 44 values didn't do anything
+					if (lpe_raw < 0)
+						lpe_raw = map_s16(mini(lpe_raw, -45), -45, -1024, -1, -1024);
 					// fall through
 				default:
 					// indeces - map more equally over raw range
@@ -321,6 +324,9 @@ void revert_presets(void) {
 				break;
 			// delay time - invert polarity
 			case P_DLY_TIME:
+				// free timing - insert 44 at the start
+				if (lpe_raw < 0)
+					lpe_raw = map_s16(lpe_raw, -1, -1024, -45, -1024);
 				og_raw = -lpe_raw;
 				break;
 			// no synced lfos

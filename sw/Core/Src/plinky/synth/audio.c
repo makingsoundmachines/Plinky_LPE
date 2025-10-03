@@ -279,6 +279,8 @@ void audio_post(u32* audio_out, u32* audio_in) {
 	if (k_target_delaytime < 0) {
 		// free timing
 		k_target_delaytime = -k_target_delaytime;
+		// the first 44 values are too small to create the minimum delay of 64 samples => remap
+		k_target_delaytime = map_s32(k_target_delaytime, 1 << 6, 65536, 45 << 6, 65536);
 		k_target_delaytime = (((k_target_delaytime + 255) >> 8) * k_target_delaytime) >> 8;
 		k_target_delaytime = (k_target_delaytime * (DL_SIZE_MASK - 64)) >> 16;
 	}
