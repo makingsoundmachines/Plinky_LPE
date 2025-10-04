@@ -953,7 +953,7 @@ static const char* get_param_str(Param param_id, ModSource mod_src, s16 raw, cha
 	case P_ARP_CLK_DIV:
 		// in ms with one decimal
 		static const float STEP_LENGTH_FACTOR = (10 << 7) * TICK_LENGTH_MS;
-		u32 step_length = STEP_LENGTH_FACTOR / table_interp(pitches, 32768 + (-raw << 4)) + 0.5f;
+		u32 step_length = STEP_LENGTH_FACTOR / table_interp(pitches, (raw << 4) + 49152) + 0.5f;
 		return get_val_str(-step_length, 1, val_buf, "ms", false);
 	case P_A_RATE:
 	case P_B_RATE:
@@ -961,7 +961,7 @@ static const char* get_param_str(Param param_id, ModSource mod_src, s16 raw, cha
 	case P_Y_RATE:
 		// in ms with one decimal
 		static const float CYCLE_TIME_FACTOR = (10 << 8) * TICK_LENGTH_MS;
-		u32 cycle_time = CYCLE_TIME_FACTOR / table_interp(pitches, -raw << 6) + 0.5f;
+		u32 cycle_time = CYCLE_TIME_FACTOR / table_interp(pitches, (raw + 1025) << 6) + 0.5f;
 		// smaller than 140ms, 1 decimal
 		if (cycle_time < 1400)
 			return get_val_str(-cycle_time, 1, val_buf, "ms", false);

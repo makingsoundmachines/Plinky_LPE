@@ -234,7 +234,7 @@ u8 arp_tick(u8 string_touch_mask) {
 	else {
 		static bool first_swing_note = true;
 		// reuse the pitches table to turn the linear arp_div value into an exponential time duration
-		u32 clock_diff = (u32)(table_interp(pitches, 32768 + (-arp_div >> 2)) * (1 << 24));
+		u32 clock_diff = (u32)(table_interp(pitches, (arp_div >> 2) + 49152) * (1 << 24));
 		// swing
 		u32 swing_param = abs(param_val(P_SWING));
 		if (swing_param) {
