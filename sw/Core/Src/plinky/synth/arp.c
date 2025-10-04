@@ -288,4 +288,5 @@ void arp_reset(void) {
 	cur_string = -1;
 	moving_down = false;
 	strings_frame_tick = -1;
+	free_clock = 0;
 }

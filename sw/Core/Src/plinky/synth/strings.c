@@ -268,7 +268,7 @@ void generate_string_touches(void) {
 		}
 		env_trig_mask = (string_touched_no_arp & ~string_touched_no_arp_1back);
 
-		// new (virtual) touch: restart arp
+		// new (physical or virtual) touch: restart arp
 		if (arp_active() && string_touched_no_arp && !string_touched_no_arp_1back) {
 			arp_reset();
 			// if the sequencer is not playing, reset the clock so the arp gets a trigger
