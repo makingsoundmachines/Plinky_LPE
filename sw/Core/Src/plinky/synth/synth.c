@@ -100,9 +100,13 @@ void generate_oscs(u8 string_id, Voice* voice) {
 			u8 pad_y = 7 - (position >> 8);   // pad on string
 			// pitch at step + cv
 			note_pitch = pitch_at_step(scale, string_step_offset + pad_y + cv_step_offset) + cv_pitch_offset;
+
 			// detuning scaled by microtune param
 			s16 fine_pos = 127 - (position & 255); // offset from pad center
-			s32 micro_tune = 64 + param_val_poly(P_MICROTONE, string_id);
+			u16 pitch_to_next_pad =
+			    abs(pitch_at_step(scale, string_step_offset + pad_y + cv_step_offset + (fine_pos > 0 ? 1 : -1))
+			        - note_pitch);
+			s32 micro_tune = ((64 + param_val_poly(P_MICROTONE, string_id)) * pitch_to_next_pad) >> 10;
 			fine_pitch = (fine_pos * micro_tune) >> 14;
 		}
 
