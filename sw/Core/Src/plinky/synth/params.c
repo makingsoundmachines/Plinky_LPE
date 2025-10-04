@@ -678,6 +678,11 @@ void try_enter_edit_mode(bool mode_a) {
 		selected_param = new_param;
 		selected_mod_src = SRC_BASE;
 	}
+	// Press shift when editing a modulation value
+	else if (selected_mod_src != SRC_BASE) {
+		open_edit_mode = true;
+		selected_mod_src = SRC_BASE;
+	}
 }
 
 void try_exit_edit_mode(bool param_select) {
