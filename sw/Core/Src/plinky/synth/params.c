@@ -1,4 +1,5 @@
 #include "params.h"
+#include "audio.h"
 #include "data/tables.h"
 #include "gfx/gfx.h"
 #include "hardware/accelerometer.h"
@@ -734,6 +735,7 @@ void edit_param_from_encoder(s8 enc_diff, float enc_acc) {
 	switch (param_id) {
 	case P_PITCH:
 	case P_INTERVAL:
+	case P_DLY_TIME:
 	case P_TEMPO:
 	case P_PLAY_SPD:
 	case P_SMP_STRETCH:
@@ -741,6 +743,10 @@ void edit_param_from_encoder(s8 enc_diff, float enc_acc) {
 	case P_B_SCALE:
 	case P_X_SCALE:
 	case P_Y_SCALE:
+	case P_A_RATE:
+	case P_B_RATE:
+	case P_X_RATE:
+	case P_Y_RATE:
 		// these params are on a larger than 100.0 scale, every encoder tick (before acceleration) affects one raw step
 		break;
 	default:
@@ -804,19 +810,36 @@ void take_param_snapshots(void) {
 	src_snap = selected_mod_src;
 }
 
+static const char* get_val_str(s32 val, u8 num_decimals, char* val_buf, char* unit, bool force_sign) {
+	const char* sign = "";
+	if (val < 0) {
+		sign = "-";
+		val = -val;
+	}
+	else if (force_sign && val > 0) {
+		sign = "+";
+	}
+	num_decimals = mini(num_decimals, 2);
+	switch (num_decimals) {
+	case 0:
+		sprintf(val_buf, "%s%d%s", sign, (u16)(val), unit);
+		break;
+	case 1:
+		sprintf(val_buf, "%s%d.%d%s", sign, (u16)(val / 10), (u16)(val % 10), unit);
+		break;
+	case 2:
+		sprintf(val_buf, "%s%d.%02d%s", sign, (u16)(val / 100), (u16)(val % 100), unit);
+		break;
+	}
+	return val_buf;
+}
+
 static const char* get_param_str(Param param_id, ModSource mod_src, s16 raw, char* val_buf) {
 	s16 disp_val_10x;
 
 	// mod amounts
-	if (mod_src != SRC_BASE) {
-		disp_val_10x = raw * 1000 >> 10;
-		sprintf(val_buf, "%s%d.%d",
-		        disp_val_10x > 0   ? "+"
-		        : disp_val_10x < 0 ? "-"
-		                           : "",
-		        abs(disp_val_10x) / 10, abs(disp_val_10x) % 10);
-		return val_buf;
-	}
+	if (mod_src != SRC_BASE)
+		return get_val_str(raw * 1000 >> 10, 1, val_buf, "", true);
 
 	u8 range = param_range(param_id);
 	if ((range_type[param_id] == R_DLYCLK || range_type[param_id] == R_DUACLK) && raw < 0)
@@ -915,10 +938,45 @@ static const char* get_param_str(Param param_id, ModSource mod_src, s16 raw, cha
 	// an octave with 2 decimals
 	case P_PITCH:
 	case P_INTERVAL:
-		s16 disp_val_100x = raw * 1200 >> 10;
-		sprintf(val_buf, "%s%d.%s%d", disp_val_100x < 0 ? "-" : "", abs(disp_val_100x) / 100,
-		        abs(disp_val_100x) % 100 < 10 ? "0" : "", abs(disp_val_100x) % 100);
-		return val_buf;
+		return get_val_str(raw * 1200 >> 10, 2, val_buf, "", false);
+	// free time durations - drawn with a minus sign because they're on the negative range of the param
+	case P_DLY_TIME:
+		// in ms with one decimal
+		static const float DELAY_TIME_FACTOR = 20000.f / SAMPLE_RATE;
+		u32 delay_time = delay_samples_from_param(-raw << 6) * DELAY_TIME_FACTOR + 0.5f;
+		// smaller than 120ms, one decimal
+		if (delay_time < 1200)
+			return get_val_str(-delay_time, 1, val_buf, "ms", false);
+		// no decimal
+		delay_time /= 10;
+		return get_val_str(-delay_time, 0, val_buf, "ms", false);
+	case P_ARP_CLK_DIV:
+		// in ms with one decimal
+		static const float STEP_LENGTH_FACTOR = (10 << 7) * TICK_LENGTH_MS;
+		u32 step_length = STEP_LENGTH_FACTOR / table_interp(pitches, 32768 + (-raw << 4)) + 0.5f;
+		return get_val_str(-step_length, 1, val_buf, "ms", false);
+	case P_A_RATE:
+	case P_B_RATE:
+	case P_X_RATE:
+	case P_Y_RATE:
+		// in ms with one decimal
+		static const float CYCLE_TIME_FACTOR = (10 << 8) * TICK_LENGTH_MS;
+		u32 cycle_time = CYCLE_TIME_FACTOR / table_interp(pitches, -raw << 6) + 0.5f;
+		// smaller than 140ms, 1 decimal
+		if (cycle_time < 1400)
+			return get_val_str(-cycle_time, 1, val_buf, "ms", false);
+		// smaller than 1.4s, 0 decimals
+		if (cycle_time < 14000) {
+			cycle_time /= 10;
+			return get_val_str(-cycle_time, 0, val_buf, "ms", false);
+		}
+		// smaller than 14s, seconds with 2 decimals
+		cycle_time /= 100;
+		if (cycle_time < 1400)
+			return get_val_str(-cycle_time, 2, val_buf, "s", false);
+		// seconds with 1 decimal
+		cycle_time /= 10;
+		return get_val_str(-cycle_time, 1, val_buf, "s", false);
 	// on a (+/-) 200 scale
 	case P_PLAY_SPD:
 	case P_SMP_STRETCH:
@@ -943,8 +1001,7 @@ static const char* get_param_str(Param param_id, ModSource mod_src, s16 raw, cha
 	default:
 		break;
 	}
-	sprintf(val_buf, "%s%d.%d", disp_val_10x < 0 ? "-" : "", abs(disp_val_10x) / 10, abs(disp_val_10x) % 10);
-	return val_buf;
+	return get_val_str(disp_val_10x, 1, val_buf, "", false);
 }
 
 static bool has_modulation(Param param_id) {
@@ -1104,9 +1161,18 @@ void draw_cur_param(void) {
 		default:
 			break;
 		}
-		if (range_type[draw_param] == R_LFOSHP) {
+		switch (range_type[draw_param]) {
+		case R_DUACLK:
+		case R_DLYCLK:
+			if (raw < 0)
+				font = F_16_BOLD;
+			break;
+		case R_LFOSHP:
 			font = F_12_BOLD;
 			x_center = 85;
+			break;
+		default:
+			break;
 		}
 	}
 

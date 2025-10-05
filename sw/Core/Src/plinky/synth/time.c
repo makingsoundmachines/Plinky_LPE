@@ -5,7 +5,6 @@
 #include "sequencer.h"
 #include "ui/oled_viz.h"
 
-#define SAMPLE_RATE 31250
 #define SYNC_DIVS_LCM 3840 // Least common multiple of all possible sync divisions
 
 // amount of ticks for one pulse at the lowest allowable bpm

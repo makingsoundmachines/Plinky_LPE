@@ -17,6 +17,10 @@ void delay_clear(void);
 extern ValueSmoother ext_gain_smoother;
 void init_ext_gain_for_recording(void);
 
+// helpers
+
+u32 delay_samples_from_param(u32 param_val);
+
 // main
 
 void audio_init(void);

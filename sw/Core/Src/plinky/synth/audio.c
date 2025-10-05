@@ -267,6 +267,15 @@ void audio_pre(u32* audio_out, u32* audio_in) {
 	smooth_value(&ext_gain_smoother, ext_gain_goal, 65536.f);
 }
 
+// takes a 16 bit value
+u32 delay_samples_from_param(u32 param_val) {
+	// the first 44 param values are too small to create the minimum delay of 64 samples => remap
+	u32 samples = map_s32(param_val, 1 << 6, 65536, 45 << 6, 65536);
+	samples = (((u64)samples * samples) + 32768) >> 16;          // quadratic mapping
+	samples = (samples * (DL_SIZE_MASK - 64)) >> 16;             // scale to buffer size
+	return clampi(samples, SAMPLES_PER_TICK, DL_SIZE_MASK - 64); // clamp & return
+}
+
 void audio_post(u32* audio_out, u32* audio_in) {
 
 	// delay params
@@ -276,23 +285,19 @@ void audio_post(u32* audio_out, u32* audio_in) {
 	const float k_target_fb = param_val(P_DLY_FEEDBACK) * (1.f / 65535.f) * (0.35f); // 3/4
 	static float k_fb = 0.f;
 	int k_target_delaytime = param_val(P_DLY_TIME);
-	if (k_target_delaytime < 0) {
-		// free timing
+	// free timing
+	if (k_target_delaytime < 0)
 		k_target_delaytime = -k_target_delaytime;
-		// the first 44 values are too small to create the minimum delay of 64 samples => remap
-		k_target_delaytime = map_s32(k_target_delaytime, 1 << 6, 65536, 45 << 6, 65536);
-		k_target_delaytime = (((u64)k_target_delaytime * k_target_delaytime) + 32768) >> 16;
-		k_target_delaytime = (k_target_delaytime * (DL_SIZE_MASK - 64)) >> 16;
-	}
+	// synced
 	else {
 		k_target_delaytime = sync_divs_32nds[param_index(P_DLY_TIME)];
-		// figure out how samples we can have, max, in a beat synced scenario
+		// find max samples
 		int max_delay = 32000 * 600 * 4 / bpm_10x;
 		while (max_delay > DL_SIZE_MASK - 64)
 			max_delay >>= 1;
 		k_target_delaytime = (max_delay * k_target_delaytime) >> 5;
 	}
-	k_target_delaytime = clampi(k_target_delaytime, SAMPLES_PER_TICK, DL_SIZE_MASK - 64) << 12;
+	k_target_delaytime = delay_samples_from_param(k_target_delaytime) << 12;
 	int k_delaysend = (param_val(P_DLY_SEND) >> 9);
 
 	static int wobpos = 0;
