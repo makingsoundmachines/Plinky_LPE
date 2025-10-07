@@ -39,10 +39,7 @@ static u8 midi_send_head;
 static u8 midi_send_tail;
 
 void midi_init(void) {
-	// serial
 	HAL_UART_Receive_DMA(&huart3, midi_receive_buffer, sizeof(midi_receive_buffer));
-	// usb
-	tusb_init();
 }
 
 // === OUTPUT LOOP === //
@@ -371,7 +368,6 @@ static void process_usb_midi_in(void) {
 void process_midi(void) {
 	process_all_midi_out();
 	process_serial_midi_in();
-	tud_task();
 	process_usb_midi_in();
 }
 

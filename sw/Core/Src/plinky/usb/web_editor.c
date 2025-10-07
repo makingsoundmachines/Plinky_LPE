@@ -39,8 +39,6 @@ typedef enum WuState {
 	WU_SND_DATA,
 } WuState;
 
-extern bool web_serial_connected; // tinyusb/src/usbmidi.c
-
 const static u8 magic[4] = {0xf3, 0x0f, 0xab, 0xca};
 const static u8 magic_32[4] = {0xf3, 0x0f, 0xab, 0xcb}; // 32 bit version
 
@@ -67,17 +65,11 @@ static void set_state(WuState new_state, u8* data, s32 len) {
 	remaining_bytes = len;
 }
 
-static void wu_reset() {
+void web_editor_reset(void) {
 	set_state(WU_MAGIC0, header.magic, 1);
 }
 
 void web_editor_frame(void) {
-	if (!web_serial_connected) {
-		wu_reset();
-		tud_task();
-		return;
-	}
-
 	u32 start_time = micros();
 	while (micros() - start_time < 1000) {
 		// process bytes
@@ -122,7 +114,7 @@ void web_editor_frame(void) {
 					break;
 				}
 				// reset to init state
-				wu_reset();
+				web_editor_reset();
 				break;
 			}
 			state++;
@@ -136,7 +128,7 @@ void web_editor_frame(void) {
 		case WU_RCV_HDR:
 			// only accept valid presets
 			if (header.idx >= NUM_PRESETS) {
-				wu_reset();
+				web_editor_reset();
 				break;
 			}
 			switch (header.cmd) {
@@ -162,7 +154,7 @@ void web_editor_frame(void) {
 		case WU_RCV_DATA:
 			if (header.cmd == 1 && header.idx < NUM_PRESETS)
 				log_ram_edit(SEG_PRESET);
-			wu_reset();
+			web_editor_reset();
 			break;
 		// we sent the header, now send the data
 		case WU_SND_HDR:
@@ -171,7 +163,7 @@ void web_editor_frame(void) {
 			break;
 		// done sending data
 		case WU_SND_DATA:
-			wu_reset();
+			web_editor_reset();
 			break;
 		default:
 			break;

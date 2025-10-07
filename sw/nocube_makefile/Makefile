@@ -68,6 +68,7 @@ SRCS = \
 	../Core/Src/plinky/usb/tinyusb/src/device/usbd.c \
 	../Core/Src/plinky/usb/tinyusb/src/device/usbd_control.c \
 	../Core/Src/plinky/usb/tinyusb/src/portable/st/synopsys/dcd_synopsys.c \
+	../Core/Src/plinky/usb/usb.c \
 	../Core/Src/plinky/usb/web_editor.c \
 	../Core/Src/plinky/gfx/gfx.c \
 	../Core/Src/plinky/gfx/oled/oled.c \

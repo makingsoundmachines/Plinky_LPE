@@ -22,7 +22,7 @@
 #include "ui/oled_viz.h"
 #include "ui/pad_actions.h"
 #include "ui/settings_menu.h"
-#include "usb/web_editor.h"
+#include "usb/usb.h"
 
 UIMode ui_mode = UI_DEFAULT;
 
@@ -114,6 +114,7 @@ void plinky_init(void) {
 	HAL_Delay(1);
 	spi_init();
 	midi_init();
+	usb_init();
 	leds_init();
 	init_flash();
 	init_ram();
@@ -204,8 +205,8 @@ void plinky_loop(void) {
 		accel_read();
 		// ram updates and writing ram to flash
 		ram_frame();
-		// handle usb web editor
-		web_editor_frame();
+		// web editor and usd midi data
+		usb_frame();
 		// execute actions triggered by setting menu
 		settings_menu_actions();
 	}
