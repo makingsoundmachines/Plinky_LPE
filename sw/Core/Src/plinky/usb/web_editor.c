@@ -41,16 +41,13 @@ typedef enum WuState {
 
 extern bool web_serial_connected; // tinyusb/src/usbmidi.c
 
-#define WEB_USB_TIMEOUT 500
-
 const static u8 magic[4] = {0xf3, 0x0f, 0xab, 0xca};
 const static u8 magic_32[4] = {0xf3, 0x0f, 0xab, 0xcb}; // 32 bit version
 
 static WuState state = WU_MAGIC0;   // current state
 static WebUSBHeader header;         // header of current command
 static u8* data_buf = (u8*)&header; // buffer where we are reading/writing atm
-static s32 bytes_remaining = 1;     // how much left to read/write before state transition
-static u32 last_event_time;         // for timeout detection
+static u32 remaining_bytes = 1;     // how much left to read/write before state transition
 
 static inline bool is_wu_hdr_32bit(void) {
 	return header.magic[3] == magic_32[3];
@@ -64,89 +61,84 @@ static inline u32 wu_hdr_offset(void) {
 	return is_wu_hdr_32bit() ? header.offset_32 : header.offset_16;
 }
 
-static void set_state(u8 new_state, u8* data, s32 len) {
+static void set_state(WuState new_state, u8* data, s32 len) {
 	state = new_state;
 	data_buf = data;
-	bytes_remaining = len;
+	remaining_bytes = len;
+}
+
+static void wu_reset() {
+	set_state(WU_MAGIC0, header.magic, 1);
 }
 
 void web_editor_frame(void) {
 	if (!web_serial_connected) {
-		set_state(WU_MAGIC0, header.magic, 1);
+		wu_reset();
 		tud_task();
 		return;
 	}
 
-	u32 start_time = millis();
-	// run for max 1 ms
-	while (millis() == start_time) {
-		if (millis() > last_event_time + WEB_USB_TIMEOUT)
-			set_state(WU_MAGIC0, header.magic, 1);
+	u32 start_time = micros();
+	while (micros() - start_time < 1000) {
+		// process bytes
 		tud_task();
-
-		// handle remaining bytes
-		u32 handle_bytes = 0;
+		u32 handled_bytes = 0;
 		switch (state) {
-		// sending
+		// send bytes
 		case WU_SND_HDR:
 		case WU_SND_DATA:
-			if (bytes_remaining > 0) {
-				// how much can we write?
-				handle_bytes = mini(tud_vendor_write_available(), bytes_remaining);
-				// none available or none to send => try again
-				if (handle_bytes == 0)
-					continue;
-				// save how much was written
-				handle_bytes = tud_vendor_write(data_buf, handle_bytes);
-			}
+			handled_bytes = tud_vendor_write(data_buf, remaining_bytes);
 			break;
-		// receiving
+		// read bytes
 		default:
-			// save how much was sent
-			handle_bytes = tud_vendor_read(data_buf, mini(bytes_remaining, CFG_TUD_VENDOR_RX_BUFSIZE));
+			handled_bytes = tud_vendor_read(data_buf, mini(remaining_bytes, CFG_TUD_VENDOR_RX_BUFSIZE));
 			break;
 		}
-		// nothing read or sent => try again
-		if (handle_bytes == 0)
+		// nothing read or sent: buffer full or no data => try again
+		if (handled_bytes == 0)
 			continue;
 
-		// log event
-		last_event_time = millis();
-		bytes_remaining -= handle_bytes;
-		data_buf += handle_bytes;
+		// progress
+		remaining_bytes = remaining_bytes - handled_bytes;
+		data_buf += handled_bytes;
 
-		if (bytes_remaining > 0)
+		// more bytes to process
+		if (remaining_bytes)
 			continue;
 
-		// start of new state
+		// move to next state
 		switch (state) {
+		// magic bytes
 		case WU_MAGIC0:
 		case WU_MAGIC1:
 		case WU_MAGIC2:
 		case WU_MAGIC3: {
 			u8 m = header.magic[state];
+			// received incorrect magic byte
 			if (m != magic[state] && m != magic_32[state]) {
-				// this resyncs to the incoming message!
-				header.magic[0] = m;
-				bytes_remaining = 1;
-				// if we got the first byte, we can tick into next state!
-				state = (m == magic[0]) ? WU_MAGIC1 : WU_MAGIC0;
-				data_buf = header.magic + state;
-				continue;
+				// received magic 0, manually set state to magic 1
+				if (m == magic[0]) {
+					set_state(WU_MAGIC1, header.magic + 1, 1);
+					break;
+				}
+				// reset to init state
+				wu_reset();
+				break;
 			}
 			state++;
-			bytes_remaining = 1;
+			remaining_bytes = 1;
 			// time to get rest of header
 			if (state == WU_RCV_HDR)
-				bytes_remaining = is_wu_hdr_32bit() ? 10 : 6;
-			continue;
+				remaining_bytes = is_wu_hdr_32bit() ? 10 : 6;
 			break;
 		}
-		// handle a received header
+		// header received
 		case WU_RCV_HDR:
 			// only accept valid presets
-			if (header.idx >= NUM_PRESETS)
+			if (header.idx >= NUM_PRESETS) {
+				wu_reset();
 				break;
+			}
 			switch (header.cmd) {
 			// request to send
 			case 0:
@@ -170,15 +162,16 @@ void web_editor_frame(void) {
 		case WU_RCV_DATA:
 			if (header.cmd == 1 && header.idx < NUM_PRESETS)
 				log_ram_edit(SEG_PRESET);
+			wu_reset();
 			break;
 		// we sent the header, now send the data
 		case WU_SND_HDR:
 			u8* data = header.idx == sys_params.preset_id ? (u8*)&cur_preset : (u8*)preset_flash_ptr(header.idx);
 			set_state(WU_SND_DATA, data + wu_hdr_offset(), wu_hdr_len());
 			break;
-		// done sending data, return to start state
+		// done sending data
 		case WU_SND_DATA:
-			set_state(WU_MAGIC0, header.magic, 1);
+			wu_reset();
 			break;
 		default:
 			break;
