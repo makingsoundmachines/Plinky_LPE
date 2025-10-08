@@ -15,6 +15,8 @@ u8* oled_buffer(void) {
 }
 
 void oled_init(void) {
+	// stablise power
+	HAL_Delay(100);
 	// ssd130x init settings
 	ssd130x_init();
 	// first element of the buffer is always 0x40

@@ -9,7 +9,7 @@
 extern bool alex_dma_mode;
 void alex_dma_done(void);
 
-void spi_init(void);
+void init_spi(void);
 void spi_tick(void);
 void spi_ready_for_sampler(u8 grain_id);
 

@@ -5,7 +5,7 @@
 extern bool web_serial_connected; // tinyusb/src/usbmidi.c
 static bool web_serial_was_connected;
 
-void usb_init(void) {
+void init_usb(void) {
 	tusb_init();
 }
 

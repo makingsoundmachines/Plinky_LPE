@@ -38,7 +38,7 @@ static u8 midi_send_buffer[2 * MIDI_BUFFER_SIZE];
 static u8 midi_send_head;
 static u8 midi_send_tail;
 
-void midi_init(void) {
+void init_midi(void) {
 	HAL_UART_Receive_DMA(&huart3, midi_receive_buffer, sizeof(midi_receive_buffer));
 }
 

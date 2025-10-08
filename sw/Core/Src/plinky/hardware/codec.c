@@ -312,7 +312,7 @@ static u8 wmcodec_write(u8 reg, u16 data) {
 	return 0;
 }
 
-void codec_init(void) {
+void init_codec(void) {
 	if (HAL_OK != HAL_SAI_Receive_DMA(&hsai_BlockB1, (u8*)rx_buf, sizeof(rx_buf) / 2)) {
 		DebugLog("HAL_SAI_Receive_DMA fail 1\r\n");
 		Error_Handler();

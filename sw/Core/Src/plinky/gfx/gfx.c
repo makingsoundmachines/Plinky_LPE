@@ -2,7 +2,7 @@
 
 u8 gfx_text_color = 1;
 
-void gfx_init(void) {
+void init_gfx(void) {
 	oled_init();
 	draw_logo();
 }

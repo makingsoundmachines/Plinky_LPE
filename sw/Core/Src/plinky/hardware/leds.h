@@ -9,7 +9,7 @@
 
 extern u8 leds[NUM_TOUCHSTRIPS][PADS_PER_STRIP];
 
-void leds_init(void);
+void init_leds(void);
 void leds_update(void);
 void leds_bootswish(void);
 

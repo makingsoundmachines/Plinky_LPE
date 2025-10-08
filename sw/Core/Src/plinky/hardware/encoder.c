@@ -7,7 +7,7 @@
 volatile s8 encoder_value = 0;
 volatile bool encoder_pressed = false;
 
-static u8 prev_hardware_state; // should live in encoder_irq() if encoder_init() is removed
+static u8 prev_hardware_state; // should live in encoder_irq() if init_encoder() is removed
 static float encoder_acc;
 static u32 last_encoder_use = 0;
 
@@ -19,7 +19,7 @@ void clear_last_encoder_use(void) {
 	last_encoder_use = 0;
 }
 
-void encoder_init(void) {
+void init_encoder(void) {
 	// rj: I've taken this from main.c, not quite sure why it is necessary - one inaccurate tick of the encoder on
 	// startup can't hurt anything can it?
 	prev_hardware_state = (GPIOC->IDR >> 14) & 3;

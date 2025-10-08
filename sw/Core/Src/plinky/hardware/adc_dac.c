@@ -48,7 +48,7 @@ u16 adc_buffer[ADC_CHANS * ADC_SAMPLES];
 
 static ValueSmoother adc_smoother[ADC_CHANS];
 
-void adc_dac_init(void) {
+void init_adc_dac(void) {
 	// adc init
 	for (s16 i = 0; i < ADC_CHANS * ADC_SAMPLES; ++i)
 		adc_buffer[i] = 32768;

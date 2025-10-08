@@ -60,7 +60,8 @@ static int spi_read_id(void) {
 	return (spi_rv == 0) ? (spi_rx_buf[4] + (spi_rx_buf[5] << 8)) : -1;
 }
 
-void spi_init(void) {
+void init_spi(void) {
+	HAL_Delay(1);
 	spi_set_chip(0xffffffff);
 	int spi_id = spi_read_id();
 	DebugLog("SPI flash chip 1 id %04x\r\n", spi_id);

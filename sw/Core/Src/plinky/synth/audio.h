@@ -23,6 +23,6 @@ u32 delay_samples_from_param(u32 param_val);
 
 // main
 
-void audio_init(void);
+void init_audio(void);
 void audio_pre(u32* audio_out, u32* audio_in);
 void audio_post(u32* audio_out, u32* audio_in);

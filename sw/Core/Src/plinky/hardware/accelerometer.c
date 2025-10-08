@@ -32,7 +32,7 @@ float accel_get_axis(bool y_axis) {
 	return accel_smooth[(u8)y_axis] - accel_lpf[(u8)y_axis];
 }
 
-void accel_init(void) {
+void init_accel(void) {
 	HAL_Delay(8);
 	u8 whoamI = 0;
 	lis2dh12_device_id_get(&accelerometer, &whoamI);

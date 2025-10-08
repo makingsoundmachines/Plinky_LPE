@@ -5,7 +5,7 @@ extern TIM_HandleTypeDef htim3;
 
 ADC_DAC_Calib* adc_dac_calib_ptr(void);
 
-void adc_dac_init(void);
+void init_adc_dac(void);
 
 u16 adc_get_raw(ADC_DAC_Index index);
 float adc_get_calib(ADC_DAC_Index index);

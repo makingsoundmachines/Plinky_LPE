@@ -34,7 +34,7 @@ const static u32 OutputEnableBits[5] = {(1 << (N4 * 2)), (1 << (N3 * 2)), (1 << 
 u8 leds[NUM_TOUCHSTRIPS][PADS_PER_STRIP];
 static u8 active_column = 0;
 
-void leds_init(void) {
+void init_leds(void) {
 	TIM1->CR1 = 0; // reset all
 	TIM2->CR1 = 0;
 	TIM4->CR1 = 0;

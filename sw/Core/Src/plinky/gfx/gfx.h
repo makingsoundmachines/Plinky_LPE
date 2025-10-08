@@ -9,7 +9,7 @@
 
 extern u8 gfx_text_color; // 0 = black, 1 = white, 2 = upper shadow, 3 = lower shadow
 
-void gfx_init(void);
+void init_gfx(void);
 void draw_logo(void);
 
 void put_pixel(int x, int y, int c);

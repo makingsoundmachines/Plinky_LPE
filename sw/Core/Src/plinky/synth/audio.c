@@ -57,7 +57,7 @@ void init_ext_gain_for_recording(void) {
 	set_smoother(&ext_gain_smoother, 65535 - adc_get_raw(ADC_A_KNOB));
 }
 
-void audio_init(void) {
+void init_audio(void) {
 	reverb_clear(); // ram2 is not cleared by startup.s as written.
 	delay_clear();
 }
