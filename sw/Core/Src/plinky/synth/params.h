@@ -8,6 +8,7 @@ const Preset* init_params_ptr();
 Param get_recent_param(void);
 bool strip_available_for_synth(u8 strip_id);
 void params_update_touch_pointers(void);
+bool arp_active(void);
 
 // main
 void params_tick(void);
@@ -36,7 +37,6 @@ void try_exit_param_edit_mode(bool param_select);
 void edit_param_from_encoder(s8 enc_diff, float enc_acc);
 void params_toggle_default_value(Param param_id);
 void hold_encoder_for_params(u16 duration);
-void check_param_toggles(Param param_id);
 
 // midi cc
 void set_param_from_cc(Param param_id, u16 cc_value);
@@ -44,6 +44,9 @@ void set_param_from_cc(Param param_id, u16 cc_value);
 // visuals
 void take_param_snapshots(void);
 bool draw_cur_param(void);
+void draw_arp_flag(void);
+void draw_latch_flag(void);
+
 bool is_snap_param(u8 x, u8 y);
 s16 value_editor_column_led(u8 y);
 u8 ui_editing_led(u8 x, u8 y, u8 pulse);

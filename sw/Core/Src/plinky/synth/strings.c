@@ -113,7 +113,7 @@ static void generate_string_touch(u8 string_id) {
 		// === LATCH WRITE === //
 
 		// finger touching and pressure increasing
-		if (latch_on() && pressure > 0 && pres_increasing) {
+		if (param_index(P_LATCH_TGL) && pressure > 0 && pres_increasing) {
 			// is this a new touch after no fingers where touching?
 			if (pres_2back <= 0 && strings_phys_touched == mask) {
 				// start a new latch, clear all previous latch values
@@ -156,7 +156,7 @@ static void generate_string_touch(u8 string_id) {
 	// === LATCH RECALL === //
 
 	// latch pressure larger than touch pressure
-	if (latch_on() && latch_touch[string_id].pres > 0 && latch_touch[string_id].pres * 24 > pressure) {
+	if (param_index(P_LATCH_TGL) && latch_touch[string_id].pres > 0 && latch_touch[string_id].pres * 24 > pressure) {
 		// recall latch values
 		pressure = pres_decompress(latch_touch[string_id].pres);
 		position = pos_decompress(latch_touch[string_id].pos);
