@@ -933,8 +933,16 @@ static const char* get_param_str(Param param_id, ModSource mod_src, s16 raw, cha
 		default:
 			break;
 		}
-		sprintf(val_buf, "%d", index);
-		return val_buf;
+		switch (param_id) {
+		case P_OCT:
+		case P_DEGREE:
+		case P_STEP_OFFSET:
+			// force a plus sign for offset-based params
+			return get_val_str(index, 0, val_buf, "", true);
+		default:
+			// default: no plus sign on positive values
+			return get_val_str(index, 0, val_buf, "", false);
+		}
 	}
 
 	// values
@@ -943,7 +951,7 @@ static const char* get_param_str(Param param_id, ModSource mod_src, s16 raw, cha
 	// an octave with 2 decimals
 	case P_PITCH:
 	case P_INTERVAL:
-		return get_val_str(raw * 1200 >> 10, 2, val_buf, "", false);
+		return get_val_str(raw * 1200 >> 10, 2, val_buf, "", true);
 	// free time durations - drawn with a minus sign because they're on the negative range of the param
 	case P_DLY_TIME:
 		// in ms with one decimal
@@ -1006,7 +1014,21 @@ static const char* get_param_str(Param param_id, ModSource mod_src, s16 raw, cha
 	default:
 		break;
 	}
-	return get_val_str(disp_val_10x, 1, val_buf, "", false);
+	switch (param_id) {
+	case P_A_OFFSET:
+	case P_B_OFFSET:
+	case P_X_OFFSET:
+	case P_Y_OFFSET:
+	case P_A_SYM:
+	case P_B_SYM:
+	case P_X_SYM:
+	case P_Y_SYM:
+		// force a plus sign for offset-based params
+		return get_val_str(disp_val_10x, 1, val_buf, "", true);
+	default:
+		// default: no plus sign on positive values
+		return get_val_str(disp_val_10x, 1, val_buf, "", false);
+	}
 }
 
 static bool has_modulation(Param param_id) {
